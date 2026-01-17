@@ -24,10 +24,12 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
           echo "$HOME/.tiup/bin" >> "$GITHUB_PATH"
+          tiup install playground
 
       - name: Start TiDB (nightly)
         run: |
-          tiup playground nightly --host 127.0.0.1 --tag shiro-ci --without-monitoring &
+          export TIUP_REPO_SYNC_TIMEOUT=120
+          tiup playground nightly --host 127.0.0.1 --tag shiro-ci &
           for i in $(seq 1 30); do
             if nc -z 127.0.0.1 4000; then
               echo "TiDB is up"
