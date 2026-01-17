@@ -1,0 +1,330 @@
+package generator
+
+import (
+	"fmt"
+	"strings"
+
+	"shiro/internal/schema"
+)
+
+type Expr interface {
+	Build(b *SQLBuilder)
+	Columns() []ColumnRef
+	Deterministic() bool
+}
+
+type ColumnRef struct {
+	Table string
+	Name  string
+	Type  schema.ColumnType
+}
+
+type ColumnExpr struct {
+	Ref ColumnRef
+}
+
+func (e ColumnExpr) Build(b *SQLBuilder) {
+	b.Write(fmt.Sprintf("%s.%s", e.Ref.Table, e.Ref.Name))
+}
+
+func (e ColumnExpr) Columns() []ColumnRef { return []ColumnRef{e.Ref} }
+func (e ColumnExpr) Deterministic() bool  { return true }
+
+type LiteralExpr struct {
+	Value any
+}
+
+func (e LiteralExpr) Build(b *SQLBuilder) {
+	switch v := e.Value.(type) {
+	case string:
+		b.Write("'")
+		b.Write(strings.ReplaceAll(v, "'", "''"))
+		b.Write("'")
+	case nil:
+		b.Write("NULL")
+	default:
+		b.Write(fmt.Sprintf("%v", v))
+	}
+}
+
+func (e LiteralExpr) Columns() []ColumnRef { return nil }
+func (e LiteralExpr) Deterministic() bool  { return true }
+
+type ParamExpr struct {
+	Value any
+}
+
+func (e ParamExpr) Build(b *SQLBuilder) {
+	b.WriteArg(e.Value)
+}
+
+func (e ParamExpr) Columns() []ColumnRef { return nil }
+func (e ParamExpr) Deterministic() bool  { return true }
+
+type UnaryExpr struct {
+	Op   string
+	Expr Expr
+}
+
+func (e UnaryExpr) Build(b *SQLBuilder) {
+	b.Write(e.Op)
+	b.Write(" ")
+	e.Expr.Build(b)
+}
+
+func (e UnaryExpr) Columns() []ColumnRef { return e.Expr.Columns() }
+func (e UnaryExpr) Deterministic() bool  { return e.Expr.Deterministic() }
+
+type BinaryExpr struct {
+	Left  Expr
+	Op    string
+	Right Expr
+}
+
+func (e BinaryExpr) Build(b *SQLBuilder) {
+	b.Write("(")
+	e.Left.Build(b)
+	b.Write(" ")
+	b.Write(e.Op)
+	b.Write(" ")
+	e.Right.Build(b)
+	b.Write(")")
+}
+
+func (e BinaryExpr) Columns() []ColumnRef {
+	cols := append([]ColumnRef{}, e.Left.Columns()...)
+	cols = append(cols, e.Right.Columns()...)
+	return cols
+}
+
+func (e BinaryExpr) Deterministic() bool {
+	return e.Left.Deterministic() && e.Right.Deterministic()
+}
+
+type FuncExpr struct {
+	Name string
+	Args []Expr
+}
+
+func (e FuncExpr) Build(b *SQLBuilder) {
+	b.Write(e.Name)
+	b.Write("(")
+	for i, arg := range e.Args {
+		if i > 0 {
+			b.Write(", ")
+		}
+		arg.Build(b)
+	}
+	b.Write(")")
+}
+
+func (e FuncExpr) Columns() []ColumnRef {
+	var cols []ColumnRef
+	for _, arg := range e.Args {
+		cols = append(cols, arg.Columns()...)
+	}
+	return cols
+}
+
+func (e FuncExpr) Deterministic() bool {
+	for _, arg := range e.Args {
+		if !arg.Deterministic() {
+			return false
+		}
+	}
+	return true
+}
+
+type CaseWhen struct {
+	When Expr
+	Then Expr
+}
+
+type CaseExpr struct {
+	Whens []CaseWhen
+	Else  Expr
+}
+
+func (e CaseExpr) Build(b *SQLBuilder) {
+	b.Write("CASE ")
+	for _, w := range e.Whens {
+		b.Write("WHEN ")
+		w.When.Build(b)
+		b.Write(" THEN ")
+		w.Then.Build(b)
+		b.Write(" ")
+	}
+	if e.Else != nil {
+		b.Write("ELSE ")
+		e.Else.Build(b)
+		b.Write(" ")
+	}
+	b.Write("END")
+}
+
+func (e CaseExpr) Columns() []ColumnRef {
+	var cols []ColumnRef
+	for _, w := range e.Whens {
+		cols = append(cols, w.When.Columns()...)
+		cols = append(cols, w.Then.Columns()...)
+	}
+	if e.Else != nil {
+		cols = append(cols, e.Else.Columns()...)
+	}
+	return cols
+}
+
+func (e CaseExpr) Deterministic() bool {
+	for _, w := range e.Whens {
+		if !w.When.Deterministic() || !w.Then.Deterministic() {
+			return false
+		}
+	}
+	if e.Else != nil {
+		return e.Else.Deterministic()
+	}
+	return true
+}
+
+type SubqueryExpr struct {
+	Query *SelectQuery
+}
+
+func (e SubqueryExpr) Build(b *SQLBuilder) {
+	b.Write("(")
+	e.Query.Build(b)
+	b.Write(")")
+}
+
+func (e SubqueryExpr) Columns() []ColumnRef { return nil }
+func (e SubqueryExpr) Deterministic() bool  { return true }
+
+type ExistsExpr struct {
+	Query *SelectQuery
+}
+
+func (e ExistsExpr) Build(b *SQLBuilder) {
+	b.Write("EXISTS (")
+	e.Query.Build(b)
+	b.Write(")")
+}
+
+func (e ExistsExpr) Columns() []ColumnRef { return nil }
+func (e ExistsExpr) Deterministic() bool  { return true }
+
+type InExpr struct {
+	Left Expr
+	List []Expr
+}
+
+func (e InExpr) Build(b *SQLBuilder) {
+	b.Write("(")
+	e.Left.Build(b)
+	b.Write(" IN (")
+	for i, item := range e.List {
+		if i > 0 {
+			b.Write(", ")
+		}
+		item.Build(b)
+	}
+	b.Write("))")
+}
+
+func (e InExpr) Columns() []ColumnRef {
+	cols := append([]ColumnRef{}, e.Left.Columns()...)
+	for _, item := range e.List {
+		cols = append(cols, item.Columns()...)
+	}
+	return cols
+}
+
+func (e InExpr) Deterministic() bool {
+	if !e.Left.Deterministic() {
+		return false
+	}
+	for _, item := range e.List {
+		if !item.Deterministic() {
+			return false
+		}
+	}
+	return true
+}
+
+type WindowExpr struct {
+	Name        string
+	Args        []Expr
+	PartitionBy []Expr
+	OrderBy     []OrderBy
+}
+
+func (e WindowExpr) Build(b *SQLBuilder) {
+	b.Write(e.Name)
+	b.Write("(")
+	for i, arg := range e.Args {
+		if i > 0 {
+			b.Write(", ")
+		}
+		arg.Build(b)
+	}
+	b.Write(") OVER (")
+	needSpace := false
+	if len(e.PartitionBy) > 0 {
+		b.Write("PARTITION BY ")
+		for i, expr := range e.PartitionBy {
+			if i > 0 {
+				b.Write(", ")
+			}
+			expr.Build(b)
+		}
+		needSpace = true
+	}
+	if len(e.OrderBy) > 0 {
+		if needSpace {
+			b.Write(" ")
+		}
+		b.Write("ORDER BY ")
+		for i, ob := range e.OrderBy {
+			if i > 0 {
+				b.Write(", ")
+			}
+			ob.Expr.Build(b)
+			if ob.Desc {
+				b.Write(" DESC")
+			}
+		}
+	}
+	b.Write(")")
+}
+
+func (e WindowExpr) Columns() []ColumnRef {
+	var cols []ColumnRef
+	for _, arg := range e.Args {
+		cols = append(cols, arg.Columns()...)
+	}
+	for _, expr := range e.PartitionBy {
+		cols = append(cols, expr.Columns()...)
+	}
+	for _, ob := range e.OrderBy {
+		cols = append(cols, ob.Expr.Columns()...)
+	}
+	return cols
+}
+
+func (e WindowExpr) Deterministic() bool {
+	for _, arg := range e.Args {
+		if !arg.Deterministic() {
+			return false
+		}
+	}
+	for _, expr := range e.PartitionBy {
+		if !expr.Deterministic() {
+			return false
+		}
+	}
+	for _, ob := range e.OrderBy {
+		if !ob.Expr.Deterministic() {
+			return false
+		}
+	}
+	return true
+}

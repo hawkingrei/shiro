@@ -1,0 +1,134 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	_ "github.com/go-sql-driver/mysql"
+)
+
+type DB struct {
+	*sql.DB
+	Validate func(string) error
+	Observe  func(string, error)
+}
+
+type Signature struct {
+	Count    int64
+	Checksum int64
+}
+
+func Open(dsn string) (*DB, error) {
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{DB: db}, nil
+}
+
+func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if err := d.validate(query); err != nil {
+		return nil, err
+	}
+	return d.DB.ExecContext(ctx, query, args...)
+}
+
+func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if err := d.validate(query); err != nil {
+		return nil, err
+	}
+	return d.DB.QueryContext(ctx, query, args...)
+}
+
+func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if err := d.validate(query); err != nil {
+		return d.DB.QueryRowContext(ctx, "SELECT 1 WHERE 1=0")
+	}
+	return d.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (d *DB) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	if err := d.validate(query); err != nil {
+		return nil, err
+	}
+	return d.DB.PrepareContext(ctx, query)
+}
+
+func (d *DB) QuerySignature(ctx context.Context, query string) (Signature, error) {
+	if err := d.validate(query); err != nil {
+		return Signature{}, err
+	}
+	row := d.DB.QueryRowContext(ctx, query)
+	var sig Signature
+	if err := row.Scan(&sig.Count, &sig.Checksum); err != nil {
+		return Signature{}, err
+	}
+	return sig, nil
+}
+
+func (d *DB) QueryCount(ctx context.Context, query string) (int64, error) {
+	if err := d.validate(query); err != nil {
+		return 0, err
+	}
+	row := d.DB.QueryRowContext(ctx, query)
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (d *DB) QueryPlanRows(ctx context.Context, query string) (float64, error) {
+	if err := d.validate(query); err != nil {
+		return 0, err
+	}
+	rows, err := d.DB.QueryContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return 0, err
+	}
+	if len(cols) == 0 {
+		return 0, fmt.Errorf("no columns in explain result")
+	}
+
+	values := make([]sql.RawBytes, len(cols))
+	scanArgs := make([]any, len(cols))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(scanArgs...); err != nil {
+			return 0, err
+		}
+		for i, name := range cols {
+			if name == "estRows" || name == "rows" || name == "est_rows" {
+				if len(values[i]) == 0 {
+					continue
+				}
+				var v float64
+				if _, err := fmt.Sscanf(string(values[i]), "%f", &v); err == nil {
+					return v, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("estRows not found in explain output")
+}
+
+func (d *DB) validate(query string) error {
+	if d.Validate == nil {
+		return nil
+	}
+	err := d.Validate(query)
+	if d.Observe != nil {
+		d.Observe(query, err)
+	}
+	return err
+}

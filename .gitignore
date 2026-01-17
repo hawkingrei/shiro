@@ -1,0 +1,6 @@
+reports/
+shiro
+*.zip
+.DS_Store
+*.log
+*.tmp
