@@ -7,10 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"shiro/internal/db"
 	"shiro/internal/schema"
+
+	"github.com/google/uuid"
 )
 
 type Reporter struct {
@@ -33,6 +34,7 @@ type Summary struct {
 	UploadLocation string         `json:"upload_location"`
 	Details        map[string]any `json:"details"`
 	Timestamp      string         `json:"timestamp"`
+	TiDBVersion    string         `json:"tidb_version"`
 }
 
 func New(outputDir string, maxRows int) *Reporter {
@@ -41,7 +43,11 @@ func New(outputDir string, maxRows int) *Reporter {
 
 func (r *Reporter) NewCase() (Case, error) {
 	r.caseSeq++
-	dir := filepath.Join(r.OutputDir, fmt.Sprintf("case_%s_%04d", time.Now().Format("20060102_150405"), r.caseSeq))
+	caseID := uuid.New().String()
+	if v7, err := uuid.NewV7(); err == nil {
+		caseID = v7.String()
+	}
+	dir := filepath.Join(r.OutputDir, fmt.Sprintf("case_%04d_%s", r.caseSeq, caseID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Case{}, err
 	}

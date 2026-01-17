@@ -45,6 +45,28 @@ Set `plan_cache_only: true` to run only prepared statements and verify `SELECT @
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.
 
+## Static report viewer
+Generate a JSON report that a static frontend can consume:
+
+```bash
+go run ./cmd/shiro-report -input reports -output web/public
+```
+
+For S3 inputs, provide a config with `storage.s3` enabled:
+
+```bash
+go run ./cmd/shiro-report -input s3://my-bucket/shiro-reports/ -config config.yaml -output web/public
+```
+
+### Next.js frontend
+```bash
+cd web
+npm install
+npm run build
+```
+
+Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `report.json` at runtime, so you only need to update the JSON to refresh the view.
+
 ## Notes
 - If `PLAN REPLAYER DUMP` returns only a file name, set `plan_replayer.download_url_template` in `config.yaml`.
 - Shiro uses `PLAN REPLAYER DUMP EXPLAIN` to avoid executing the query.

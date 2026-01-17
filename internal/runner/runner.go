@@ -425,6 +425,17 @@ func (r *Runner) execSQL(ctx context.Context, sql string) error {
 	return err
 }
 
+func (r *Runner) tidbVersion(ctx context.Context) string {
+	qctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	row := r.exec.QueryRowContext(qctx, "SELECT tidb_version()")
+	var version string
+	if err := row.Scan(&version); err != nil {
+		return ""
+	}
+	return version
+}
+
 func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	caseData, err := r.reporter.NewCase()
 	if err != nil {
@@ -440,13 +451,14 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 
 	summary := report.Summary{
-		Oracle:     result.Oracle,
-		SQL:        result.SQL,
-		Expected:   result.Expected,
-		Actual:     result.Actual,
-		Details:    result.Details,
-		Timestamp:  time.Now().Format(time.RFC3339),
-		PlanReplay: planPath,
+		Oracle:      result.Oracle,
+		SQL:         result.SQL,
+		Expected:    result.Expected,
+		Actual:      result.Actual,
+		Details:     result.Details,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		PlanReplay:  planPath,
+		TiDBVersion: r.tidbVersion(ctx),
 	}
 	if result.Err != nil {
 		summary.Error = result.Err.Error()
