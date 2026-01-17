@@ -29,6 +29,9 @@ Set `workers` in `config.yaml`. Each worker runs in its own database (`<database
 ## SQL validity logging
 Every `report_interval_seconds`, Shiro logs the ratio of parser-valid SQL to total SQL observed in that interval.
 
+## EXISTS/IN coverage
+`features.not_exists` and `features.not_in` toggle negation forms, while `weights.features.not_exists_prob` and `weights.features.not_in_prob` control how often NOT EXISTS/NOT IN are generated.
+
 ## Oracle strictness
 `oracles.strict_predicates: true` (default) limits TLP/CODDTest to simple deterministic predicates to reduce false positives.
 Set it to `false` if you want broader coverage at the cost of more noisy cases.
