@@ -61,6 +61,8 @@ features:
   indexes: true
   foreign_keys: true
   check_constraints: true
+  not_exists: true
+  not_in: true
 
 weights:
   actions:
@@ -89,6 +91,8 @@ weights:
     limit_prob: 40
     distinct_prob: 20
     window_prob: 10
+    not_exists_prob: 40
+    not_in_prob: 40
 
 logging:
   verbose: false

@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   pull_request:
-    branches: ["main"]
+    branches:
+      - main
 
 jobs:
   test:
@@ -12,12 +14,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: "1.25.6"
-          check-latest: true
-      - name: Go mod download
-        run: go mod download
-      - name: Go test
-        run: go test ./...
+
+      - name: Install TiUP
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
+          echo "$HOME/.tiup/bin" >> "$GITHUB_PATH"
+
+      - name: Start TiDB (nightly)
+        run: |
+          tiup install playground
+          export TIUP_REPO_SYNC_TIMEOUT=120
+          tiup playground nightly --host 127.0.0.1 --tag shiro-ci &
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 4000; then
+              echo "TiDB is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "TiDB failed to start"
+          exit 1
+
+      - name: Install mysql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+
+      - name: Run regression SQL (EXISTS/IN)
+        run: |
+          mysql -h 127.0.0.1 -P 4000 -u root < regress/exists_in.sql
+
+      - name: Run tests
+        env:
+          GOCACHE: /tmp/go-build-cache
+        run: |
+          go test ./...

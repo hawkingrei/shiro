@@ -36,6 +36,10 @@ type Runner struct {
 	statsMu   sync.Mutex
 	sqlTotal  int64
 	sqlValid  int64
+	sqlExists int64
+	sqlNotEx  int64
+	sqlIn     int64
+	sqlNotIn  int64
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -267,21 +271,21 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 }
 
 func (r *Runner) runPrepared(ctx context.Context) bool {
-	sqlText, args := r.gen.GeneratePreparedQuery()
-	if sqlText == "" {
+	pq := r.gen.GeneratePreparedQuery()
+	if pq.SQL == "" {
 		return false
 	}
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	stmt, err := r.exec.PrepareContext(qctx, sqlText)
+	stmt, err := r.exec.PrepareContext(qctx, pq.SQL)
 	if err != nil {
 		return false
 	}
 	defer stmt.Close()
-	rows, err := stmt.QueryContext(qctx, args...)
+	rows, err := stmt.QueryContext(qctx, pq.Args...)
 	if err != nil {
 		if isPanicError(err) {
-			result := oracle.Result{OK: false, Oracle: "PlanCache", SQL: []string{sqlText}, Err: err}
+			result := oracle.Result{OK: false, Oracle: "PlanCache", SQL: []string{pq.SQL}, Err: err}
 			r.handleResult(ctx, result)
 			return true
 		}
@@ -292,7 +296,14 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 }
 
 func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
+	var total int
+	var invalid int
+	var execErrors int
+	var hitSecond int
+	var missSecond int
+	var hitFirstUnexpected int
 	for i := 0; i < r.cfg.Iterations; i++ {
+		total++
 		conn, err := r.exec.Conn(ctx)
 		if err != nil {
 			return err
@@ -304,41 +315,57 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 		_ = r.execOnConn(ctx, conn, "SET SESSION tidb_enable_prepared_plan_cache = 1")
 		_ = r.execOnConn(ctx, conn, "SET SESSION tidb_enable_plan_cache_for_param = 1")
 
-		sqlText, args := r.gen.GeneratePreparedQuery()
-		if sqlText == "" {
+		pq := r.gen.GeneratePreparedQuery()
+		if pq.SQL == "" {
 			conn.Close()
 			continue
 		}
-		if err := r.validator.Validate(sqlText); err != nil {
-			r.observeSQL(sqlText, err)
+		if err := r.validator.Validate(pq.SQL); err != nil {
+			r.observeSQL(pq.SQL, err)
+			invalid++
 			conn.Close()
 			continue
 		}
-		r.observeSQL(sqlText, nil)
+		r.observeSQL(pq.SQL, nil)
+		concreteSQL := materializeSQL(pq.SQL, pq.Args)
 
-		stmt, err := conn.PrepareContext(ctx, sqlText)
+		stmt, err := conn.PrepareContext(ctx, pq.SQL)
 		if err != nil {
 			conn.Close()
 			continue
 		}
-		_, err = stmt.ExecContext(ctx, args...)
+		_, err = stmt.ExecContext(ctx, pq.Args...)
 		if err != nil {
 			stmt.Close()
 			conn.Close()
+			execErrors++
 			if isPanicError(err) {
-				result := oracle.Result{OK: false, Oracle: "PlanCacheOnly", SQL: []string{sqlText}, Err: err}
+				result := oracle.Result{OK: false, Oracle: "PlanCacheOnly", SQL: []string{pq.SQL}, Err: err}
 				r.handleResult(ctx, result)
 			}
 			continue
 		}
+		hit1, err := r.lastPlanFromCache(ctx, conn)
+		if err == nil && hit1 == 1 {
+			hitFirstUnexpected++
+			result := oracle.Result{
+				OK:       false,
+				Oracle:   "PlanCacheOnly",
+				SQL:      []string{concreteSQL, formatPrepareSQL(pq.SQL), formatExecuteSQL("stmt", pq.Args)},
+				Expected: "last_plan_from_cache=0",
+				Actual:   fmt.Sprintf("last_plan_from_cache=%d", hit1),
+			}
+			r.handleResult(ctx, result)
+		}
 
-		args2 := r.gen.GeneratePreparedArgsForQuery(sqlText, args)
+		args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
 		_, err = stmt.ExecContext(ctx, args2...)
 		_ = stmt.Close()
 		if err != nil {
 			conn.Close()
+			execErrors++
 			if isPanicError(err) {
-				result := oracle.Result{OK: false, Oracle: "PlanCacheOnly", SQL: []string{sqlText}, Err: err}
+				result := oracle.Result{OK: false, Oracle: "PlanCacheOnly", SQL: []string{pq.SQL}, Err: err}
 				r.handleResult(ctx, result)
 			}
 			continue
@@ -350,20 +377,24 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 			continue
 		}
 		if hit != 1 {
+			missSecond++
 			result := oracle.Result{
 				OK:       false,
 				Oracle:   "PlanCacheOnly",
-				SQL:      []string{formatPrepareSQL(sqlText), formatExecuteSQL("stmt", args), formatExecuteSQL("stmt", args2)},
+				SQL:      []string{concreteSQL, formatPrepareSQL(pq.SQL), formatExecuteSQL("stmt", pq.Args), formatExecuteSQL("stmt", args2)},
 				Expected: "last_plan_from_cache=1",
 				Actual:   fmt.Sprintf("last_plan_from_cache=%d", hit),
 				Details: map[string]any{
-					"args_first":  formatArgs(args),
+					"args_first":  formatArgs(pq.Args),
 					"args_second": formatArgs(args2),
 				},
 			}
 			r.handleResult(ctx, result)
+		} else {
+			hitSecond++
 		}
 	}
+	util.Infof("plan_cache_only stats total=%d invalid=%d exec_errors=%d hit_first_unexpected=%d hit_second=%d miss_second=%d", total, invalid, execErrors, hitFirstUnexpected, hitSecond, missSecond)
 	return nil
 }
 
@@ -512,6 +543,24 @@ func formatArgs(args []any) []string {
 	return out
 }
 
+func materializeSQL(sqlText string, args []any) string {
+	if len(args) == 0 {
+		return sqlText
+	}
+	formatted := formatArgs(args)
+	var b strings.Builder
+	argIdx := 0
+	for _, r := range sqlText {
+		if r == '?' && argIdx < len(formatted) {
+			b.WriteString(formatted[argIdx])
+			argIdx++
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 func (r *Runner) rotateDatabase(ctx context.Context) error {
 	seq := globalDBSeq.Add(1)
 	r.cfg.Database = fmt.Sprintf("%s_r%d", r.baseDB, seq)
@@ -535,6 +584,17 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
+		upper := strings.ToUpper(sql)
+		if strings.Contains(upper, "NOT EXISTS") {
+			r.sqlNotEx++
+		} else if strings.Contains(upper, "EXISTS") {
+			r.sqlExists++
+		}
+		if strings.Contains(upper, " NOT IN (") {
+			r.sqlNotIn++
+		} else if strings.Contains(upper, " IN (") {
+			r.sqlIn++
+		}
 	}
 }
 
@@ -724,19 +784,43 @@ func (r *Runner) startStatsLogger() func() {
 	go func() {
 		var lastTotal int64
 		var lastValid int64
+		var lastExists int64
+		var lastNotEx int64
+		var lastIn int64
+		var lastNotIn int64
 		for {
 			select {
 			case <-ticker.C:
 				r.statsMu.Lock()
 				total := r.sqlTotal
 				valid := r.sqlValid
+				exists := r.sqlExists
+				notEx := r.sqlNotEx
+				inCount := r.sqlIn
+				notIn := r.sqlNotIn
 				r.statsMu.Unlock()
 				deltaTotal := total - lastTotal
 				deltaValid := valid - lastValid
+				deltaExists := exists - lastExists
+				deltaNotEx := notEx - lastNotEx
+				deltaIn := inCount - lastIn
+				deltaNotIn := notIn - lastNotIn
 				lastTotal = total
 				lastValid = valid
+				lastExists = exists
+				lastNotEx = notEx
+				lastIn = inCount
+				lastNotIn = notIn
 				if deltaTotal > 0 {
-					util.Infof("sql_valid/total last interval: %d/%d", deltaValid, deltaTotal)
+					util.Infof(
+						"sql_valid/total last interval: %d/%d exists=%d not_exists=%d in=%d not_in=%d",
+						deltaValid,
+						deltaTotal,
+						deltaExists,
+						deltaNotEx,
+						deltaIn,
+						deltaNotIn,
+					)
 				}
 			case <-done:
 				return

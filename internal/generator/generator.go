@@ -25,6 +25,12 @@ type Generator struct {
 	maxSubqDepth  int
 }
 
+type PreparedQuery struct {
+	SQL      string
+	Args     []any
+	ArgTypes []schema.ColumnType
+}
+
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 	if seed == 0 {
 		seed = time.Now().UnixNano()
@@ -195,7 +201,8 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) 
 	if !ok {
 		return "", nil, nil, ColumnRef{}
 	}
-	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, false, g.maxSubqDepth)
+	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
+	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	colRef := ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
 	var setExpr Expr
 	if g.isNumericType(col.Type) {
@@ -209,7 +216,8 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) 
 }
 
 func (g *Generator) DeleteSQL(tbl schema.Table) (string, Expr) {
-	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, false, g.maxSubqDepth)
+	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
+	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	builder := SQLBuilder{}
 	predicate.Build(&builder)
 	return fmt.Sprintf("DELETE FROM %s WHERE %s", tbl.Name, builder.String()), predicate
@@ -268,35 +276,39 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	return query
 }
 
-func (g *Generator) GeneratePreparedQuery() (string, []any) {
+func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	if len(g.State.Tables) == 0 {
-		return "", nil
+		return PreparedQuery{}
 	}
-	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
-	if len(tbl.Columns) == 0 {
-		return "", nil
+	candidates := []func() PreparedQuery{
+		g.preparedSingleTable,
+		g.preparedJoinQuery,
+		g.preparedAggregateQuery,
 	}
-	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
-	arg := g.literalForColumn(col).Value
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", col.Name, tbl.Name, col.Name)
-	return query, []any{arg}
+	if !g.Config.PlanCacheOnly {
+		candidates = append(candidates, g.preparedCTEQuery)
+	}
+	for i := 0; i < len(candidates); i++ {
+		pick := candidates[g.Rand.Intn(len(candidates))]
+		if pq := pick(); pq.SQL != "" {
+			return pq
+		}
+	}
+	return PreparedQuery{}
 }
 
-func (g *Generator) GeneratePreparedArgsForQuery(_ string, prev []any) []any {
+func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.ColumnType) []any {
 	if len(prev) == 0 {
 		return prev
 	}
 	out := make([]any, len(prev))
 	copy(out, prev)
 	for i := range out {
-		switch v := out[i].(type) {
-		case int:
-			out[i] = v + g.Rand.Intn(3) + 1
-		case int64:
-			out[i] = v + int64(g.Rand.Intn(3)+1)
-		default:
-			out[i] = out[i]
+		if i < len(types) {
+			out[i] = g.nextArgForType(types[i], out[i])
+			continue
 		}
+		out[i] = out[i]
 	}
 	return out
 }
@@ -416,16 +428,37 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 		sub := g.GenerateSubquery(tables, subqDepth-1)
 		if sub != nil {
 			if util.Chance(g.Rand, 50) {
-				return ExistsExpr{Query: sub}
+				expr := Expr(ExistsExpr{Query: sub})
+				if g.Config.Features.NotExists && util.Chance(g.Rand, g.Config.Weights.Features.NotExistsProb) {
+					return UnaryExpr{Op: "NOT", Expr: expr}
+				}
+				return expr
 			}
 			left := g.generateScalarExpr(tables, 0, false, 0)
-			return InExpr{Left: left, List: []Expr{SubqueryExpr{Query: sub}}}
+			expr := Expr(InExpr{Left: left, List: []Expr{SubqueryExpr{Query: sub}}})
+			if g.Config.Features.NotIn && util.Chance(g.Rand, g.Config.Weights.Features.NotInProb) {
+				return UnaryExpr{Op: "NOT", Expr: expr}
+			}
+			return expr
 		}
 	}
 	if depth <= 0 {
 		left := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 		right := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 		return BinaryExpr{Left: left, Op: g.pickComparison(), Right: right}
+	}
+	if util.Chance(g.Rand, 20) {
+		left := g.generateScalarExpr(tables, depth-1, false, 0)
+		listSize := g.Rand.Intn(3) + 1
+		list := make([]Expr, 0, listSize)
+		for i := 0; i < listSize; i++ {
+			list = append(list, g.randomLiteralExpr())
+		}
+		expr := Expr(InExpr{Left: left, List: list})
+		if g.Config.Features.NotIn && util.Chance(g.Rand, g.Config.Weights.Features.NotInProb) {
+			return UnaryExpr{Op: "NOT", Expr: expr}
+		}
+		return expr
 	}
 	choice := g.Rand.Intn(3)
 	if choice == 0 {
@@ -757,6 +790,147 @@ func (g *Generator) exprSQL(expr Expr) string {
 	b := SQLBuilder{}
 	expr.Build(&b)
 	return b.String()
+}
+
+func (g *Generator) preparedSingleTable() PreparedQuery {
+	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	if len(tbl.Columns) == 0 {
+		return PreparedQuery{}
+	}
+	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	arg := g.literalForColumn(col).Value
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", col.Name, tbl.Name, col.Name)
+	return PreparedQuery{SQL: query, Args: []any{arg}, ArgTypes: []schema.ColumnType{col.Type}}
+}
+
+func (g *Generator) preparedJoinQuery() PreparedQuery {
+	if !g.Config.Features.Joins || len(g.State.Tables) < 2 {
+		return PreparedQuery{}
+	}
+	leftTbl, rightTbl, leftJoin, rightJoin := g.pickJoinColumns()
+	if leftTbl.Name == "" || rightTbl.Name == "" || leftJoin.Name == "" || rightJoin.Name == "" {
+		return PreparedQuery{}
+	}
+	leftParam, ok := g.pickAnyColumn(leftTbl)
+	if !ok {
+		return PreparedQuery{}
+	}
+	rightParam, ok := g.pickAnyColumn(rightTbl)
+	if !ok {
+		return PreparedQuery{}
+	}
+	leftArg := g.literalForColumn(leftParam).Value
+	rightArg := g.literalForColumn(rightParam).Value
+	query := fmt.Sprintf(
+		"SELECT %s.%s, %s.%s FROM %s JOIN %s ON %s.%s = %s.%s WHERE %s.%s = ? AND %s.%s = ?",
+		leftTbl.Name, leftParam.Name,
+		rightTbl.Name, rightParam.Name,
+		leftTbl.Name, rightTbl.Name,
+		leftTbl.Name, leftJoin.Name, rightTbl.Name, rightJoin.Name,
+		leftTbl.Name, leftParam.Name,
+		rightTbl.Name, rightParam.Name,
+	)
+	return PreparedQuery{
+		SQL:      query,
+		Args:     []any{leftArg, rightArg},
+		ArgTypes: []schema.ColumnType{leftParam.Type, rightParam.Type},
+	}
+}
+
+func (g *Generator) preparedAggregateQuery() PreparedQuery {
+	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	if len(tbl.Columns) == 0 {
+		return PreparedQuery{}
+	}
+	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	arg := g.literalForColumn(col).Value
+	selectSQL := "COUNT(*) AS cnt"
+	if g.isNumericType(col.Type) && util.Chance(g.Rand, 50) {
+		selectSQL = "COUNT(*) AS cnt, SUM(" + col.Name + ") AS sum1"
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", selectSQL, tbl.Name, col.Name)
+	return PreparedQuery{SQL: query, Args: []any{arg}, ArgTypes: []schema.ColumnType{col.Type}}
+}
+
+func (g *Generator) preparedCTEQuery() PreparedQuery {
+	if !g.Config.Features.CTE {
+		return PreparedQuery{}
+	}
+	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	if len(tbl.Columns) < 2 {
+		return PreparedQuery{}
+	}
+	col1 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	col2 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	arg1 := g.literalForColumn(col1).Value
+	arg2 := g.literalForColumn(col2).Value
+	query := fmt.Sprintf(
+		"WITH cte AS (SELECT %s, %s FROM %s WHERE %s = ?) SELECT %s FROM cte WHERE %s = ?",
+		col1.Name, col2.Name, tbl.Name, col1.Name, col2.Name, col2.Name,
+	)
+	return PreparedQuery{
+		SQL:      query,
+		Args:     []any{arg1, arg2},
+		ArgTypes: []schema.ColumnType{col1.Type, col2.Type},
+	}
+}
+
+func (g *Generator) pickJoinColumns() (schema.Table, schema.Table, schema.Column, schema.Column) {
+	if len(g.State.Tables) < 2 {
+		return schema.Table{}, schema.Table{}, schema.Column{}, schema.Column{}
+	}
+	for i := 0; i < 6; i++ {
+		left := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+		right := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+		if left.Name == right.Name {
+			continue
+		}
+		for _, lcol := range left.Columns {
+			for _, rcol := range right.Columns {
+				if lcol.Type == rcol.Type {
+					return left, right, lcol, rcol
+				}
+			}
+		}
+	}
+	return schema.Table{}, schema.Table{}, schema.Column{}, schema.Column{}
+}
+
+func (g *Generator) pickAnyColumn(tbl schema.Table) (schema.Column, bool) {
+	if len(tbl.Columns) == 0 {
+		return schema.Column{}, false
+	}
+	return tbl.Columns[g.Rand.Intn(len(tbl.Columns))], true
+}
+
+func (g *Generator) nextArgForType(t schema.ColumnType, prev any) any {
+	switch t {
+	case schema.TypeInt, schema.TypeBigInt:
+		if v, ok := prev.(int); ok {
+			return v + g.Rand.Intn(3) + 1
+		}
+		if v, ok := prev.(int64); ok {
+			return v + int64(g.Rand.Intn(3)+1)
+		}
+		return g.literalForColumn(schema.Column{Type: t}).Value
+	case schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
+		if v, ok := prev.(float64); ok {
+			return v + float64(g.Rand.Intn(5)+1)
+		}
+		return g.literalForColumn(schema.Column{Type: t}).Value
+	case schema.TypeVarchar, schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+		return g.literalForColumn(schema.Column{Type: t}).Value
+	case schema.TypeBool:
+		if v, ok := prev.(int); ok {
+			if v == 0 {
+				return 1
+			}
+			return 0
+		}
+		return g.literalForColumn(schema.Column{Type: t}).Value
+	default:
+		return prev
+	}
 }
 
 func min(a, b int) int {

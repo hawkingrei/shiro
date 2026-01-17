@@ -55,6 +55,8 @@ type Features struct {
 	Indexes          bool `yaml:"indexes"`
 	ForeignKeys      bool `yaml:"foreign_keys"`
 	CheckConstraints bool `yaml:"check_constraints"`
+	NotExists        bool `yaml:"not_exists"`
+	NotIn            bool `yaml:"not_in"`
 }
 
 type Weights struct {
@@ -96,6 +98,8 @@ type FeatureWeights struct {
 	LimitProb    int `yaml:"limit_prob"`
 	DistinctProb int `yaml:"distinct_prob"`
 	WindowProb   int `yaml:"window_prob"`
+	NotExistsProb int `yaml:"not_exists_prob"`
+	NotInProb     int `yaml:"not_in_prob"`
 }
 
 type Logging struct {
@@ -169,6 +173,10 @@ func defaultConfig() Config {
 		MaxDataDumpRows:     50,
 		MaxInsertStatements: 200,
 		StatementTimeoutMs:  15000,
+		Features: Features{
+			NotExists: true,
+			NotIn:     true,
+		},
 		PlanReplayer: PlanReplayer{
 			OutputDir:           "reports",
 			DownloadURLTemplate: "http://127.0.0.1:10080/plan_replayer/dump/%s.zip",
@@ -179,7 +187,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 2, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 2, CODDTest: 2, DQE: 2},
-			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10},
+			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
 		Oracles:  OracleConfig{StrictPredicates: true},

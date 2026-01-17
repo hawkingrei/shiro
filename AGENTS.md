@@ -28,6 +28,8 @@
 - Added plan-cache-only mode with PREPARE/EXECUTE and `@@last_plan_from_cache` verification.
 - On bug, rotate to a fresh database (`<database>_rN`) and reinitialize schema/data to avoid cross-case contamination.
 - Default config now lives in code (`defaultConfig`) and is printed at startup; `oracles.strict_predicates` is true by default with a config toggle to loosen it.
+- CODDTest only runs when the referenced columns have no NULLs; NULL creates unknown truth values and breaks the CASE mapping.
+- Generated/computed columns are avoided for now to reduce TiDB master feature skew.
 
 ## Follow-ups
 - Tune generator type compatibility to reduce benign type errors.
@@ -39,6 +41,8 @@
 - Added window functions, correlated subqueries, subquery depth guard, and DQP hints/variables.
 - Added local case artifacts and optional S3 upload interface; inserts are recorded for reproduction.
 - Plan replayer is hardcoded to `PLAN REPLAYER DUMP EXPLAIN`.
+- Added predicate generation for EXISTS/IN and NOT EXISTS/NOT IN (including literal lists).
+- Added config flags/weights for NOT EXISTS/NOT IN frequency.
 
 ## Experience notes
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
@@ -50,6 +54,7 @@
 - Replayer download should fall back to `@@tidb_last_plan_replayer_token` when dump output lacks URL.
 - Feature-level bandit adaptation needs to set generator weights per-query and clear them after the query finishes.
 - Further reducing CODDTest/TLP false positives required limiting to simple predicates (AND of comparisons) and deterministic, non-subquery expressions.
+- Plan cache in TiDB master does not appear to cache CTE-based PREPARE statements; plan-cache-only mode skips CTEs.
 
 ## TODO
 - Re-run `go mod tidy` / `go build` after dependency config changes.
