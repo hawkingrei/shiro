@@ -43,6 +43,9 @@
 - Plan replayer is hardcoded to `PLAN REPLAYER DUMP EXPLAIN`.
 - Added predicate generation for EXISTS/IN and NOT EXISTS/NOT IN (including literal lists).
 - Added config flags/weights for NOT EXISTS/NOT IN frequency.
+- Added a static report renderer (`cmd/shiro-report`) for aggregating cases from local or S3 into an HTML view.
+- Reworked report renderer to output `report.json` and added a Next.js frontend in `web/` for GitHub Pages/Vercel.
+- Report output uses UUIDv7-based case directories to avoid collisions across concurrent Shiro runs.
 
 ## Experience notes
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.

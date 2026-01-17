@@ -5,7 +5,7 @@
 dsn: root@tcp(127.0.0.1:4000)/
 database: shiro_fuzz
 seed: 1
-iterations: 1000
+iterations: 100000
 workers: 1
 plan_cache_only: false
 max_tables: 5
