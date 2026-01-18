@@ -2,8 +2,7 @@ package util
 
 import "math/rand"
 
-// PickWeighted returns the index based on integer weights.
-// PickWeighted selects an index based on weights.
+// PickWeighted selects an index based on integer weights.
 func PickWeighted(r *rand.Rand, weights []int) int {
 	total := 0
 	for _, w := range weights {
