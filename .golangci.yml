@@ -4,11 +4,11 @@ run:
   timeout: 5m
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - revive
 
-linters-settings:
-  revive:
-    rules:
-      - name: exported
+  settings:
+    revive:
+      rules:
+        - name: exported
