@@ -14,6 +14,7 @@ type CTE struct {
 // JoinType defines join kinds for SQL generation.
 type JoinType string
 
+// Join type constants used by the SQL generator.
 const (
 	JoinInner JoinType = "JOIN"
 	JoinLeft  JoinType = "LEFT JOIN"

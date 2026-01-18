@@ -7,6 +7,7 @@ import (
 // ColumnType enumerates column data types.
 type ColumnType int
 
+// Column type constants for schema generation.
 const (
 	TypeInt ColumnType = iota
 	TypeBigInt
