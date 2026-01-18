@@ -46,6 +46,19 @@
 - Added a static report renderer (`cmd/shiro-report`) for aggregating cases from local or S3 into an HTML view.
 - Reworked report renderer to output `report.json` and added a Next.js frontend in `web/` for GitHub Pages/Vercel.
 - Report output uses UUIDv7-based case directories to avoid collisions across concurrent Shiro runs.
+- Added Query Plan Guidance (QPG): plan signature tracking via EXPLAIN with plan-diversity mutations.
+- QPG now parses plan nodes (operator + depth) to track operator/shape coverage and guides join/agg/subquery weights.
+- QPG adds a short-term EXPLAIN cache and shape-stall heuristic to avoid repeated plan collection.
+- QPG parses JSON-format EXPLAIN and tracks join-order diversity for weight boosts.
+- QPG tracks operator-sequence signatures and uses them to boost agg/subquery weights when operator coverage stalls.
+- QPG JSON parsing now accepts either "id" or "operator" keys with normalization.
+- QPG normalizes EXPLAIN plan text to reduce noisy plan signature variance (table/column/index tokens).
+- Report summaries now record `plan_signature` (QPG EXPLAIN hash) for filtering in the frontend.
+- Added `plan_signature_format` (plain/json) to report summaries and UI filters.
+- QPG coexists with bandits: bandit weights apply first, QPG can temporarily override join/subquery/agg when plan coverage stalls.
+- TODO: Frontend aggregation views (commit/bug type) and export.
+- TODO: S3/report incremental merging and multi-source aggregation.
+- TODO: Generator coverage: more join/subquery variants and stability tuning.
 
 ## Experience notes
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
@@ -65,3 +78,5 @@
 - Evaluate remaining false positives for TLP/DQP and add oracle-specific constraints if needed.
 - Further restrict CODDTest to avoid three-valued logic pitfalls (e.g., only simple predicates, no NOT/OR, avoid IS NULL).
 - Tighten TLP predicate shape (pure comparisons, no CASE/functions) to reduce remaining mismatches.
+- QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
+- QPG: switch to TiDB-native plan hash when it becomes available.

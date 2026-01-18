@@ -35,6 +35,8 @@ type Summary struct {
 	Details        map[string]any `json:"details"`
 	Timestamp      string         `json:"timestamp"`
 	TiDBVersion    string         `json:"tidb_version"`
+	PlanSignature  string         `json:"plan_signature"`
+	PlanSigFormat  string         `json:"plan_signature_format"`
 }
 
 func New(outputDir string, maxRows int) *Reporter {

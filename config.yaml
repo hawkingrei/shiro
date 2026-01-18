@@ -5,7 +5,7 @@
 dsn: root@tcp(127.0.0.1:4000)/
 database: shiro_fuzz
 seed: 1
-iterations: 100000
+iterations: 10000
 workers: 1
 plan_cache_only: false
 max_tables: 5
@@ -95,12 +95,20 @@ weights:
     not_in_prob: 40
 
 logging:
-  verbose: false
+  verbose: true
   report_interval_seconds: 30
 
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
+
+qpg:
+  enabled: true
+  explain_format: "brief"
+  mutation_prob: 30
+  seen_sql_ttl_seconds: 3
+  seen_sql_max: 512
+  seen_sql_sweep_seconds: 10
 
 adaptive:
   enabled: false
