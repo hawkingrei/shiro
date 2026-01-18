@@ -879,9 +879,9 @@ func (g *Generator) preparedSingleTable() PreparedQuery {
 	if len(cols) > 1 && util.Chance(g.Rand, 60) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col1.Name {
-			arg2 := g.literalForColumn(col2).Value
+			arg3 := g.literalForColumn(col2).Value
 			query += fmt.Sprintf(" AND %s <> ?", col2.Name)
-			args = append(args, arg2)
+			args = append(args, arg3)
 			argTypes = append(argTypes, col2.Type)
 		}
 	}
@@ -957,9 +957,9 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	if len(cols) > 1 && util.Chance(g.Rand, 50) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col.Name {
-			arg2 := g.literalForColumn(col2).Value
+			arg3 := g.literalForColumn(col2).Value
 			query += fmt.Sprintf(" AND %s <> ?", col2.Name)
-			args = append(args, arg2)
+			args = append(args, arg3)
 			argTypes = append(argTypes, col2.Type)
 		}
 	}

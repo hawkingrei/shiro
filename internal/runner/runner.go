@@ -320,7 +320,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
 		return false
 	}
-	concreteSig, err := r.signatureForSQLOnConn(ctx, conn, concreteSQL)
+	concreteSig, err := r.signatureForSQLOnConn(qctx, conn, concreteSQL)
 	if err != nil {
 		if logWhitelistedSQLError(concreteSQL, err) {
 			return false
@@ -435,6 +435,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 				},
 			}
 			r.handleResult(ctx, result)
+			return true
 		}
 		return false
 	}
