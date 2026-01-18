@@ -2,6 +2,7 @@ package replayer
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,12 +27,24 @@ func New(cfg config.PlanReplayer) *Replayer {
 }
 
 // DumpAndDownload triggers PLAN REPLAYER DUMP and downloads the zip to caseDir.
-func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string, caseDir string) (string, error) {
+// DumpAndDownload triggers PLAN REPLAYER DUMP and downloads the zip to caseDir.
+// database is optional; when provided, the dump runs on a connection with USE database.
+func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string, caseDir string, database string) (string, error) {
 	if !r.cfg.Enabled {
 		return "", nil
 	}
+	conn, err := exec.Conn(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if database != "" {
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("USE %s", database)); err != nil {
+			return "", err
+		}
+	}
 	dumpSQL := r.buildDumpSQL(sql)
-	rows, err := exec.QueryContext(ctx, dumpSQL)
+	rows, err := conn.QueryContext(ctx, dumpSQL)
 	if err != nil {
 		return "", err
 	}
@@ -64,7 +77,7 @@ func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string,
 	if url == "" {
 		zipName = extractZipName(text)
 		if zipName == "" {
-			zipName = r.lastToken(ctx, exec)
+			zipName = r.lastToken(ctx, conn)
 		}
 		if zipName != "" && r.cfg.DownloadURLTemplate != "" {
 			url = formatDownloadURL(r.cfg.DownloadURLTemplate, zipName)
@@ -88,8 +101,8 @@ func (r *Replayer) buildDumpSQL(sql string) string {
 	return fmt.Sprintf("PLAN REPLAYER DUMP EXPLAIN %s", stmt)
 }
 
-func (r *Replayer) lastToken(ctx context.Context, exec *db.DB) string {
-	row := exec.QueryRowContext(ctx, "SELECT @@tidb_last_plan_replayer_token")
+func (r *Replayer) lastToken(ctx context.Context, conn *sql.Conn) string {
+	row := conn.QueryRowContext(ctx, "SELECT @@tidb_last_plan_replayer_token")
 	var token string
 	if err := row.Scan(&token); err != nil {
 		return ""

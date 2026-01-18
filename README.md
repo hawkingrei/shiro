@@ -53,7 +53,9 @@ JSON parsing accepts either `id` or `operator` keys and normalizes operator name
 QPG normalizes EXPLAIN text (table/column/index tokens, numeric literals) before hashing to reduce noise.
 
 ## Plan cache only
-Set `plan_cache_only: true` to run only prepared statements and verify `SELECT @@last_plan_from_cache = 1` on the second execution.
+Set `plan_cache_only: true` for a focused plan-cache run that executes only prepared statements.
+In normal mode, Shiro still runs prepared statements and applies the same plan-cache checks; this flag just isolates that workflow.
+The plan-cache check verifies `SELECT @@last_plan_from_cache = 1` on the second execution (when no warning indicates a cache skip).
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.
 

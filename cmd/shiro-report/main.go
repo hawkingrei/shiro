@@ -208,11 +208,15 @@ func writeJSON(output string, site SiteData) error {
 	if err := os.MkdirAll(output, 0o755); err != nil {
 		return err
 	}
-	jsonBytes, err := json.MarshalIndent(site, "", "  ")
+	f, err := os.Create(filepath.Join(output, "report.json"))
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(output, "report.json"), jsonBytes, 0o644)
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc.Encode(site)
 }
 
 func parseS3URI(input string) (string, string, error) {
