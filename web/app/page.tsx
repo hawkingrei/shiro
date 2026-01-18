@@ -15,6 +15,8 @@ type CaseEntry = {
   timestamp: string;
   tidb_version: string;
   tidb_commit: string;
+  plan_signature: string;
+  plan_signature_format: string;
   expected: string;
   actual: string;
   error: string;
@@ -36,6 +38,8 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [oracle, setOracle] = useState("");
   const [commit, setCommit] = useState("");
+  const [planSig, setPlanSig] = useState("");
+  const [planSigFormat, setPlanSigFormat] = useState("");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,10 +70,24 @@ export default function Page() {
     return Array.from(new Set(cases.map((c) => c.tidb_commit).filter(Boolean))).sort();
   }, [cases]);
 
+  const planSigOptions = useMemo(() => {
+    return Array.from(new Set(cases.map((c) => c.plan_signature).filter(Boolean))).sort();
+  }, [cases]);
+
+  const planSigFormatOptions = useMemo(() => {
+    return Array.from(new Set(cases.map((c) => c.plan_signature_format).filter(Boolean))).sort();
+  }, [cases]);
+
   const filtered = useMemo(() => {
     return cases.filter((c) => {
       if (oracle && c.oracle !== oracle) return false;
       if (commit && c.tidb_commit !== commit) return false;
+      if (planSig) {
+        const cand = (c.plan_signature || "").trim().toLowerCase();
+        const target = planSig.trim().toLowerCase();
+        if (cand !== target) return false;
+      }
+      if (planSigFormat && c.plan_signature_format !== planSigFormat) return false;
       if (onlyErrors && !c.error) return false;
       if (!q) return true;
       const hay = [
@@ -79,6 +97,8 @@ export default function Page() {
         c.actual,
         c.tidb_version,
         c.tidb_commit,
+        c.plan_signature,
+        c.plan_signature_format,
         ...(c.sql || []),
         JSON.stringify(c.details || {}),
       ]
@@ -86,7 +106,7 @@ export default function Page() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [cases, oracle, commit, onlyErrors, q]);
+  }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, q]);
 
   if (error) {
     return <div className="page"><div className="error">Failed to load report.json: {error}</div></div>;
@@ -123,14 +143,30 @@ export default function Page() {
                 </option>
               ))}
             </select>
-            <select value={commit} onChange={(e) => setCommit(e.target.value)}>
-              <option value="">All commits</option>
-              {commitOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+          <select value={commit} onChange={(e) => setCommit(e.target.value)}>
+            <option value="">All commits</option>
+            {commitOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <select value={planSig} onChange={(e) => setPlanSig(e.target.value)}>
+            <option value="">All plan signatures</option>
+            {planSigOptions.map((item) => (
+              <option key={item} value={item}>
+                {item.slice(0, 12)}
+              </option>
+            ))}
+          </select>
+          <select value={planSigFormat} onChange={(e) => setPlanSigFormat(e.target.value)}>
+            <option value="">All plan formats</option>
+            {planSigFormatOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
@@ -149,6 +185,8 @@ export default function Page() {
               </span>
               {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
               {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
+              {c.plan_signature && <span className="pill">plan {c.plan_signature.slice(0, 10)}</span>}
+              {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
             </summary>
             <div className="case__grid">
               <div>

@@ -28,6 +28,7 @@ type Config struct {
 	Adaptive            Adaptive      `yaml:"adaptive"`
 	Logging             Logging       `yaml:"logging"`
 	Oracles             OracleConfig  `yaml:"oracles"`
+	QPG                 QPGConfig     `yaml:"qpg"`
 }
 
 type PlanReplayer struct {
@@ -111,6 +112,15 @@ type OracleConfig struct {
 	StrictPredicates bool `yaml:"strict_predicates"`
 }
 
+type QPGConfig struct {
+	Enabled              bool   `yaml:"enabled"`
+	ExplainFormat        string `yaml:"explain_format"`
+	MutationProb         int    `yaml:"mutation_prob"`
+	SeenSQLTTLSeconds    int    `yaml:"seen_sql_ttl_seconds"`
+	SeenSQLMax           int    `yaml:"seen_sql_max"`
+	SeenSQLSweepSeconds  int    `yaml:"seen_sql_sweep_seconds"`
+}
+
 type Adaptive struct {
 	Enabled        bool    `yaml:"enabled"`
 	UCBExploration float64 `yaml:"ucb_exploration"`
@@ -192,6 +202,14 @@ func defaultConfig() Config {
 		Logging:  Logging{ReportIntervalSeconds: 30},
 		Oracles:  OracleConfig{StrictPredicates: true},
 		Adaptive: Adaptive{UCBExploration: 1.5},
+		QPG: QPGConfig{
+			Enabled:             false,
+			ExplainFormat:       "brief",
+			MutationProb:        30,
+			SeenSQLTTLSeconds:   3,
+			SeenSQLMax:          512,
+			SeenSQLSweepSeconds: 10,
+		},
 		DQP: DQPConfig{Variables: []string{
 			"tidb_opt_enable_hash_join=ON",
 			"tidb_opt_enable_hash_join=OFF",

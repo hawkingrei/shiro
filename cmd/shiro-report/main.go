@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,8 @@ type CaseEntry struct {
 	Timestamp      string                 `json:"timestamp"`
 	TiDBVersion    string                 `json:"tidb_version"`
 	TiDBCommit     string                 `json:"tidb_commit"`
+	PlanSignature  string                 `json:"plan_signature"`
+	PlanSigFormat  string                 `json:"plan_signature_format"`
 	Expected       string                 `json:"expected"`
 	Actual         string                 `json:"actual"`
 	Error          string                 `json:"error"`
@@ -55,7 +58,8 @@ type SiteData struct {
 }
 
 type loadOptions struct {
-	MaxBytes int
+	MaxBytes    int
+	MaxZipBytes int
 }
 
 func main() {
@@ -63,9 +67,10 @@ func main() {
 	output := flag.String("output", "web/public", "output directory for report.json")
 	configPath := flag.String("config", "config.yaml", "path to config file (for S3 access)")
 	maxBytes := flag.Int("max-bytes", 64*1024, "max bytes to read per case file")
+	maxZipBytes := flag.Int("max-zip-bytes", 20*1024*1024, "max bytes to read for plan_replayer.zip")
 	flag.Parse()
 
-	opts := loadOptions{MaxBytes: *maxBytes}
+	opts := loadOptions{MaxBytes: *maxBytes, MaxZipBytes: *maxZipBytes}
 	ctx := context.Background()
 
 	var cases []CaseEntry
@@ -150,13 +155,15 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 	}
 	commit := extractCommit(summary.TiDBVersion)
 	if commit == "" {
-		commit = extractCommitFromPlanReplayer(filepath.Join(dir, "plan_replayer.zip"), opts.MaxBytes)
+		commit = extractCommitFromPlanReplayer(filepath.Join(dir, "plan_replayer.zip"), opts.MaxZipBytes)
 	}
 	return CaseEntry{
 		Oracle:         summary.Oracle,
 		Timestamp:      summary.Timestamp,
 		TiDBVersion:    summary.TiDBVersion,
 		TiDBCommit:     commit,
+		PlanSignature:  summary.PlanSignature,
+		PlanSigFormat:  summary.PlanSigFormat,
 		Expected:       summary.Expected,
 		Actual:         summary.Actual,
 		Error:          summary.Error,
@@ -282,11 +289,16 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	files["inserts.sql"] = readObjectFile(ctx, client, bucket, dir+"/inserts.sql", opts.MaxBytes)
 	files["data.tsv"] = readObjectFile(ctx, client, bucket, dir+"/data.tsv", opts.MaxBytes)
 	commit := extractCommit(summary.TiDBVersion)
+	if commit == "" {
+		commit = extractCommitFromPlanReplayerS3(ctx, client, bucket, dir+"/plan_replayer.zip", opts.MaxZipBytes)
+	}
 	return CaseEntry{
 		Oracle:         summary.Oracle,
 		Timestamp:      summary.Timestamp,
 		TiDBVersion:    summary.TiDBVersion,
 		TiDBCommit:     commit,
+		PlanSignature:  summary.PlanSignature,
+		PlanSigFormat:  summary.PlanSigFormat,
 		Expected:       summary.Expected,
 		Actual:         summary.Actual,
 		Error:          summary.Error,
@@ -304,6 +316,27 @@ func readObjectFile(ctx context.Context, client *s3.Client, bucket, key string, 
 		return FileContent{Name: filepath.Base(key)}
 	}
 	return FileContent{Name: filepath.Base(key), Content: content, Truncated: truncated}
+}
+
+func readObjectBytesLimited(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, bool, error) {
+	resp, err := client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	limit := int64(maxBytes) + 1
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(data) > maxBytes
+	if truncated {
+		data = data[:maxBytes]
+	}
+	return data, truncated, nil
 }
 
 func readObjectLimited(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) (string, bool, error) {
@@ -385,7 +418,26 @@ func extractCommitFromPlanReplayer(zipPath string, maxBytes int) string {
 	if err != nil {
 		return ""
 	}
-	reader, err := zip.NewReader(f, info.Size())
+	if maxBytes > 0 && info.Size() > int64(maxBytes) {
+		return ""
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	return extractCommitFromPlanReplayerData(data)
+}
+
+func extractCommitFromPlanReplayerS3(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) string {
+	data, truncated, err := readObjectBytesLimited(ctx, client, bucket, key, maxBytes)
+	if err != nil || truncated {
+		return ""
+	}
+	return extractCommitFromPlanReplayerData(data)
+}
+
+func extractCommitFromPlanReplayerData(data []byte) string {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return ""
 	}
@@ -398,13 +450,12 @@ func extractCommitFromPlanReplayer(zipPath string, maxBytes int) string {
 		if err != nil {
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(rc, int64(maxBytes)))
+		content, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
 			continue
 		}
-		commit := extractCommit(string(data))
-		if commit != "" {
+		if commit := extractCommit(string(content)); commit != "" {
 			return commit
 		}
 	}
