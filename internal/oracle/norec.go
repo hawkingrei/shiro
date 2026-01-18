@@ -42,6 +42,11 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 			SQL:      []string{optimized, unoptimized},
 			Expected: fmt.Sprintf("optimized count=%d", optCount),
 			Actual:   fmt.Sprintf("unoptimized count=%d", unoptCount),
+			Details: map[string]any{
+				"replay_kind":         "count",
+				"replay_expected_sql": optimizedCount,
+				"replay_actual_sql":   unoptimizedCount,
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{optimized, unoptimized}}

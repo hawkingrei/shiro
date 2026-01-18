@@ -49,7 +49,14 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 			SQL:      []string{query.SQLString(), restricted.SQLString()},
 			Expected: fmt.Sprintf("restricted estRows <= %.2f", baseRows),
 			Actual:   fmt.Sprintf("restricted estRows %.2f", restrictedRows),
-			Details:  map[string]any{"base_est_rows": baseRows, "restricted_est_rows": restrictedRows},
+			Details: map[string]any{
+				"base_est_rows":       baseRows,
+				"restricted_est_rows": restrictedRows,
+				"replay_kind":         "plan_rows",
+				"replay_expected_sql": baseExplain,
+				"replay_actual_sql":   restrictedExplain,
+				"replay_tolerance":    o.Tolerance,
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), restricted.SQLString()}}

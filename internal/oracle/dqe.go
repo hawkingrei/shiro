@@ -47,6 +47,11 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				SQL:      []string{updateSQL},
 				Expected: fmt.Sprintf("rows affected=%d", count),
 				Actual:   fmt.Sprintf("rows affected=%d", affected),
+				Details: map[string]any{
+					"replay_kind":         "rows_affected",
+					"replay_expected_sql": countSQL,
+					"replay_actual_sql":   updateSQL,
+				},
 			}
 		}
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{updateSQL, countSQL}}
@@ -76,6 +81,11 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			SQL:      []string{deleteSQL},
 			Expected: fmt.Sprintf("rows affected=%d", count),
 			Actual:   fmt.Sprintf("rows affected=%d", affected),
+			Details: map[string]any{
+				"replay_kind":         "rows_affected",
+				"replay_expected_sql": countSQL,
+				"replay_actual_sql":   deleteSQL,
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{deleteSQL, countSQL}}

@@ -57,6 +57,12 @@ Set `plan_cache_only: true` to run only prepared statements and verify `SELECT @
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.
 
+## Case minimization
+Enable `minimize.enabled` to shrink captured cases. Shiro attempts to remove redundant INSERTs and SQL statements while rechecking the failure in a fresh database.
+Tune `minimize.max_rounds` to cap delta-debugging passes and `minimize.timeout_seconds` to bound minimization time (defaults are more aggressive to allow deeper shrinking).
+Set `minimize.merge_inserts` to re-merge single-row inserts into multi-row batches after reduction for smaller output files.
+Minimized outputs are saved as `case_min.sql`, `inserts_min.sql`, and `repro_min.sql` alongside the original files.
+
 ## Static report viewer
 Generate a JSON report that a static frontend can consume:
 
