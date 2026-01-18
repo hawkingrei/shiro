@@ -34,6 +34,15 @@ func (o TLP) Name() string { return "TLP" }
 //	     UNION ALL SELECT * FROM t WHERE (a > 10) IS NULL
 //
 // The signatures must match.
+//
+//	Q:      SELECT * FROM t WHERE a > 10
+//	Q_tlp:  SELECT * FROM t WHERE a > 10           -- P
+//	        UNION ALL
+//	        SELECT * FROM t WHERE NOT (a > 10)     -- NOT P
+//	        UNION ALL
+//	        SELECT * FROM t WHERE (a > 10) IS NULL -- P IS NULL
+//
+// The signatures of Q and Q_tlp (the UNION ALL of all three partitions) must match.
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {
