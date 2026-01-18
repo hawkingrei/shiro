@@ -9,10 +9,26 @@ import (
 	"shiro/internal/schema"
 )
 
+// DQE implements the DML query equivalence oracle.
+//
+// It checks UPDATE/DELETE semantics by comparing:
+// - The expected number of affected rows computed via a COUNT query, and
+// - The actual rows affected by the DML statement.
+// A mismatch indicates a potential execution correctness issue.
 type DQE struct{}
 
+// Name returns the oracle identifier.
 func (o DQE) Name() string { return "DQE" }
 
+// Run randomly chooses UPDATE or DELETE, then compares affected rows
+// against a predicate-derived count.
+//
+// Example:
+//
+//	Update: UPDATE t SET a = a + 1 WHERE b > 5
+//	Check:  SELECT COUNT(*) FROM t WHERE b > 5 AND NOT (a <=> a + 1)
+//
+// If rows affected != count, execution semantics are wrong.
 func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if !state.HasTables() {
 		return Result{OK: true, Oracle: o.Name()}

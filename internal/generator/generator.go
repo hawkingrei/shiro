@@ -11,6 +11,7 @@ import (
 	"shiro/internal/util"
 )
 
+// Generator creates SQL statements based on schema state.
 type Generator struct {
 	Rand          *rand.Rand
 	Config        config.Config
@@ -25,12 +26,14 @@ type Generator struct {
 	maxSubqDepth  int
 }
 
+// PreparedQuery holds a prepared statement and args.
 type PreparedQuery struct {
 	SQL      string
 	Args     []any
 	ArgTypes []schema.ColumnType
 }
 
+// New constructs a Generator with a seed.
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 	if seed == 0 {
 		seed = time.Now().UnixNano()
@@ -44,32 +47,38 @@ func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 	}
 }
 
+// SetAdaptiveWeights overrides feature weights for adaptive sampling.
 func (g *Generator) SetAdaptiveWeights(weights AdaptiveWeights) {
 	g.Adaptive = &weights
 }
 
+// ClearAdaptiveWeights disables adaptive sampling overrides.
 func (g *Generator) ClearAdaptiveWeights() {
 	g.Adaptive = nil
 }
 
+// NextTableName returns a unique table name.
 func (g *Generator) NextTableName() string {
 	name := fmt.Sprintf("t%d", g.tableSeq)
 	g.tableSeq++
 	return name
 }
 
+// NextViewName returns a unique view name.
 func (g *Generator) NextViewName() string {
 	name := fmt.Sprintf("v%d", g.viewSeq)
 	g.viewSeq++
 	return name
 }
 
+// NextConstraintName returns a unique constraint name with a prefix.
 func (g *Generator) NextConstraintName(prefix string) string {
 	name := fmt.Sprintf("%s_%d", prefix, g.constraintSeq)
 	g.constraintSeq++
 	return name
 }
 
+// GenerateTable creates a random table schema with columns and indexes.
 func (g *Generator) GenerateTable() schema.Table {
 	colCount := g.Rand.Intn(g.Config.MaxColumns-2) + 2
 	cols := make([]schema.Column, 0, colCount+1)
@@ -93,6 +102,7 @@ func (g *Generator) GenerateTable() schema.Table {
 	}
 }
 
+// CreateTableSQL renders a CREATE TABLE statement for a schema table.
 func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 	parts := make([]string, 0, len(tbl.Columns)+2)
 	for _, col := range tbl.Columns {
@@ -113,6 +123,7 @@ func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 	return fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
 }
 
+// CreateIndexSQL emits a CREATE INDEX statement and updates table metadata.
 func (g *Generator) CreateIndexSQL(tbl *schema.Table) (string, bool) {
 	candidates := make([]*schema.Column, 0, len(tbl.Columns))
 	for i := range tbl.Columns {
@@ -132,6 +143,7 @@ func (g *Generator) CreateIndexSQL(tbl *schema.Table) (string, bool) {
 	return fmt.Sprintf("CREATE INDEX %s ON %s (%s)", indexName, tbl.Name, col.Name), true
 }
 
+// CreateViewSQL emits a CREATE VIEW statement from a generated query.
 func (g *Generator) CreateViewSQL() string {
 	query := g.GenerateSelectQuery()
 	if query == nil {
@@ -145,12 +157,14 @@ func (g *Generator) CreateViewSQL() string {
 	return fmt.Sprintf("CREATE VIEW %s AS %s", viewName, query.SQLString())
 }
 
+// AddCheckConstraintSQL emits a CHECK constraint for a table.
 func (g *Generator) AddCheckConstraintSQL(tbl schema.Table) string {
 	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth-1, false, 0)
 	name := g.NextConstraintName("chk")
 	return fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s)", tbl.Name, name, g.exprSQL(predicate))
 }
 
+// AddForeignKeySQL emits a FOREIGN KEY constraint when possible.
 func (g *Generator) AddForeignKeySQL(state *schema.State) string {
 	if state == nil || len(state.Tables) < 2 {
 		return ""
@@ -171,6 +185,7 @@ func (g *Generator) AddForeignKeySQL(state *schema.State) string {
 	)
 }
 
+// InsertSQL emits an INSERT statement and advances auto IDs.
 func (g *Generator) InsertSQL(tbl *schema.Table) string {
 	rowCount := g.Rand.Intn(3) + 1
 	cols := make([]string, 0, len(tbl.Columns))
@@ -193,6 +208,7 @@ func (g *Generator) InsertSQL(tbl *schema.Table) string {
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", tbl.Name, strings.Join(cols, ", "), strings.Join(values, ", "))
 }
 
+// UpdateSQL emits an UPDATE statement and returns predicate metadata.
 func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) {
 	if len(tbl.Columns) < 2 {
 		return "", nil, nil, ColumnRef{}
@@ -215,6 +231,7 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) 
 	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s", tbl.Name, col.Name, g.exprSQL(setExpr), builder.String()), predicate, setExpr, colRef
 }
 
+// DeleteSQL emits a DELETE statement and returns its predicate.
 func (g *Generator) DeleteSQL(tbl schema.Table) (string, Expr) {
 	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
 	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
@@ -223,6 +240,7 @@ func (g *Generator) DeleteSQL(tbl schema.Table) (string, Expr) {
 	return fmt.Sprintf("DELETE FROM %s WHERE %s", tbl.Name, builder.String()), predicate
 }
 
+// GenerateSelectQuery builds a randomized SELECT query for current schema.
 func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	baseTables := g.pickTables()
 	if len(baseTables) == 0 {
@@ -276,6 +294,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	return query
 }
 
+// GeneratePreparedQuery builds a prepared query candidate for plan cache testing.
 func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	if len(g.State.Tables) == 0 {
 		return PreparedQuery{}
@@ -297,6 +316,7 @@ func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	return PreparedQuery{}
 }
 
+// GeneratePreparedArgsForQuery mutates previous args to produce a new execution.
 func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.ColumnType) []any {
 	if len(prev) == 0 {
 		return prev
@@ -313,6 +333,7 @@ func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.Colu
 	return out
 }
 
+// GenerateCTEQuery builds a simple CTE query over a base table.
 func (g *Generator) GenerateCTEQuery(tbl schema.Table) *SelectQuery {
 	query := &SelectQuery{}
 	query.Items = g.GenerateCTESelectList(tbl)
@@ -323,6 +344,7 @@ func (g *Generator) GenerateCTEQuery(tbl schema.Table) *SelectQuery {
 	return query
 }
 
+// GenerateCTESelectList builds a small SELECT list for CTEs.
 func (g *Generator) GenerateCTESelectList(tbl schema.Table) []SelectItem {
 	if len(tbl.Columns) == 0 {
 		return nil
@@ -337,6 +359,7 @@ func (g *Generator) GenerateCTESelectList(tbl schema.Table) []SelectItem {
 	return items
 }
 
+// GenerateSelectList builds a SELECT list for the given tables.
 func (g *Generator) GenerateSelectList(tables []schema.Table) []SelectItem {
 	count := g.Rand.Intn(3) + 1
 	items := make([]SelectItem, 0, count)
@@ -347,6 +370,7 @@ func (g *Generator) GenerateSelectList(tables []schema.Table) []SelectItem {
 	return items
 }
 
+// GenerateSelectExpr builds a scalar or window expression for SELECT.
 func (g *Generator) GenerateSelectExpr(tables []schema.Table, depth int) Expr {
 	if g.Config.Features.WindowFuncs && util.Chance(g.Rand, g.Config.Weights.Features.WindowProb) {
 		return g.GenerateWindowExpr(tables)
@@ -354,6 +378,7 @@ func (g *Generator) GenerateSelectExpr(tables []schema.Table, depth int) Expr {
 	return g.GenerateScalarExpr(tables, depth, g.Config.Features.Subqueries)
 }
 
+// GenerateWindowExpr builds a window function expression.
 func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	funcs := []string{"ROW_NUMBER", "RANK", "DENSE_RANK", "SUM", "AVG"}
 	name := funcs[g.Rand.Intn(len(funcs))]
@@ -382,6 +407,7 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	}
 }
 
+// GenerateAggregateSelectList builds a SELECT list with aggregates.
 func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroupBy bool) []SelectItem {
 	items := make([]SelectItem, 0, 3)
 	items = append(items, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
@@ -392,6 +418,7 @@ func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroup
 	return items
 }
 
+// GenerateNumericExpr returns a numeric expression or literal.
 func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 	for i := 0; i < 3; i++ {
 		col := g.randomColumn(tables)
@@ -405,6 +432,7 @@ func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 	return LiteralExpr{Value: g.Rand.Intn(100)}
 }
 
+// GenerateGroupBy builds a GROUP BY list.
 func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
 	col := g.randomColumn(tables)
 	if col.Table == "" {
@@ -413,6 +441,7 @@ func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
 	return []Expr{ColumnExpr{Ref: col}}
 }
 
+// GenerateOrderBy builds an ORDER BY list.
 func (g *Generator) GenerateOrderBy(tables []schema.Table) []OrderBy {
 	count := g.Rand.Intn(2) + 1
 	items := make([]OrderBy, 0, count)
@@ -423,6 +452,7 @@ func (g *Generator) GenerateOrderBy(tables []schema.Table) []OrderBy {
 	return items
 }
 
+// GeneratePredicate builds a boolean predicate expression.
 func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
 	if allowSubquery && subqDepth > 0 && util.Chance(g.Rand, g.subqCount()*5) {
 		sub := g.GenerateSubquery(tables, subqDepth-1)
@@ -475,6 +505,7 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 	return BinaryExpr{Left: left, Op: op, Right: right}
 }
 
+// GenerateScalarExpr builds a scalar expression with bounded depth.
 func (g *Generator) GenerateScalarExpr(tables []schema.Table, depth int, allowSubquery bool) Expr {
 	return g.generateScalarExpr(tables, depth, allowSubquery, g.maxSubqDepth)
 }
@@ -519,6 +550,7 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 	}
 }
 
+// GenerateSubquery builds a scalar subquery, optionally correlated.
 func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) *SelectQuery {
 	if len(g.State.Tables) == 0 {
 		return nil

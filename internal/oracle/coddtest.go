@@ -12,10 +12,29 @@ import (
 	"shiro/internal/schema"
 )
 
+// CODDTest implements the constant folding oracle.
+//
+// It compares a query using predicate Phi against a variant where Phi is
+// replaced by a constant (or a CASE mapping), based on sampled rows.
+// If constant folding/propagation is incorrect, the two signatures differ.
 type CODDTest struct{}
 
+// Name returns the oracle identifier.
 func (o CODDTest) Name() string { return "CODDTest" }
 
+// Run selects a predicate Phi, ensures it is deterministic and NULL-free,
+// then builds independent or dependent variants:
+// - Independent: Phi is replaced by a single literal (global mapping).
+// - Dependent: Phi is replaced by a CASE mapping computed from sample rows.
+// The query signatures must match.
+//
+// Example:
+//
+//	Phi:  a > 10
+//	Q:    SELECT * FROM t WHERE a > 10
+//	Fold: SELECT * FROM t WHERE 1
+//
+// If folding changes results, constant propagation is incorrect.
 func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if !state.HasTables() {
 		return Result{OK: true, Oracle: o.Name()}

@@ -86,3 +86,4 @@
 - Case minimization: strip EXPLAIN wrapper and recursively simplify subqueries; re-merge single-row inserts after reduction.
 - Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
+- Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.

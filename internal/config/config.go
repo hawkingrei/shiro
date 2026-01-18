@@ -6,32 +6,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config captures all runtime options for the fuzz runner.
 type Config struct {
-	DSN                 string        `yaml:"dsn"`
-	Database            string        `yaml:"database"`
-	Seed                int64         `yaml:"seed"`
-	Iterations          int           `yaml:"iterations"`
-	Workers             int           `yaml:"workers"`
-	PlanCacheOnly       bool          `yaml:"plan_cache_only"`
-	MaxTables           int           `yaml:"max_tables"`
-	MaxJoinTables       int           `yaml:"max_join_tables"`
-	MaxColumns          int           `yaml:"max_columns"`
-	MaxRowsPerTable     int           `yaml:"max_rows_per_table"`
-	MaxDataDumpRows     int           `yaml:"max_data_dump_rows"`
-	MaxInsertStatements int           `yaml:"max_insert_statements"`
-	StatementTimeoutMs  int           `yaml:"statement_timeout_ms"`
-	PlanReplayer        PlanReplayer  `yaml:"plan_replayer"`
-	DQP                 DQPConfig     `yaml:"dqp"`
-	Storage             StorageConfig `yaml:"storage"`
-	Features            Features      `yaml:"features"`
-	Weights             Weights       `yaml:"weights"`
-	Adaptive            Adaptive      `yaml:"adaptive"`
-	Logging             Logging       `yaml:"logging"`
-	Oracles             OracleConfig  `yaml:"oracles"`
-	QPG                 QPGConfig     `yaml:"qpg"`
+	DSN                 string         `yaml:"dsn"`
+	Database            string         `yaml:"database"`
+	Seed                int64          `yaml:"seed"`
+	Iterations          int            `yaml:"iterations"`
+	Workers             int            `yaml:"workers"`
+	PlanCacheOnly       bool           `yaml:"plan_cache_only"`
+	MaxTables           int            `yaml:"max_tables"`
+	MaxJoinTables       int            `yaml:"max_join_tables"`
+	MaxColumns          int            `yaml:"max_columns"`
+	MaxRowsPerTable     int            `yaml:"max_rows_per_table"`
+	MaxDataDumpRows     int            `yaml:"max_data_dump_rows"`
+	MaxInsertStatements int            `yaml:"max_insert_statements"`
+	StatementTimeoutMs  int            `yaml:"statement_timeout_ms"`
+	PlanReplayer        PlanReplayer   `yaml:"plan_replayer"`
+	DQP                 DQPConfig      `yaml:"dqp"`
+	Storage             StorageConfig  `yaml:"storage"`
+	Features            Features       `yaml:"features"`
+	Weights             Weights        `yaml:"weights"`
+	Adaptive            Adaptive       `yaml:"adaptive"`
+	Logging             Logging        `yaml:"logging"`
+	Oracles             OracleConfig   `yaml:"oracles"`
+	QPG                 QPGConfig      `yaml:"qpg"`
 	Minimize            MinimizeConfig `yaml:"minimize"`
 }
 
+// PlanReplayer controls plan replayer dumping and download.
 type PlanReplayer struct {
 	Enabled             bool   `yaml:"enabled"`
 	DownloadURLTemplate string `yaml:"download_url_template"`
@@ -40,6 +42,7 @@ type PlanReplayer struct {
 	MaxDownloadBytes    int64  `yaml:"max_download_bytes"`
 }
 
+// Features toggles SQL capabilities in generation.
 type Features struct {
 	Joins            bool `yaml:"joins"`
 	CTE              bool `yaml:"cte"`
@@ -61,6 +64,7 @@ type Features struct {
 	NotIn            bool `yaml:"not_in"`
 }
 
+// Weights controls weighted selections for actions and features.
 type Weights struct {
 	Actions  ActionWeights  `yaml:"actions"`
 	DML      DMLWeights     `yaml:"dml"`
@@ -68,18 +72,21 @@ type Weights struct {
 	Features FeatureWeights `yaml:"features"`
 }
 
+// ActionWeights sets probabilities for DDL/DML/Query.
 type ActionWeights struct {
 	DDL   int `yaml:"ddl"`
 	DML   int `yaml:"dml"`
 	Query int `yaml:"query"`
 }
 
+// DMLWeights sets probabilities for DML operations.
 type DMLWeights struct {
 	Insert int `yaml:"insert"`
 	Update int `yaml:"update"`
 	Delete int `yaml:"delete"`
 }
 
+// OracleWeights sets probabilities for oracle selection.
 type OracleWeights struct {
 	NoREC    int `yaml:"norec"`
 	TLP      int `yaml:"tlp"`
@@ -89,39 +96,44 @@ type OracleWeights struct {
 	DQE      int `yaml:"dqe"`
 }
 
+// FeatureWeights sets feature generation weights.
 type FeatureWeights struct {
-	JoinCount    int `yaml:"join_count"`
-	CTECount     int `yaml:"cte_count"`
-	SubqCount    int `yaml:"subquery_count"`
-	AggProb      int `yaml:"aggregate_prob"`
-	GroupByProb  int `yaml:"group_by_prob"`
-	HavingProb   int `yaml:"having_prob"`
-	OrderByProb  int `yaml:"order_by_prob"`
-	LimitProb    int `yaml:"limit_prob"`
-	DistinctProb int `yaml:"distinct_prob"`
-	WindowProb   int `yaml:"window_prob"`
+	JoinCount     int `yaml:"join_count"`
+	CTECount      int `yaml:"cte_count"`
+	SubqCount     int `yaml:"subquery_count"`
+	AggProb       int `yaml:"aggregate_prob"`
+	GroupByProb   int `yaml:"group_by_prob"`
+	HavingProb    int `yaml:"having_prob"`
+	OrderByProb   int `yaml:"order_by_prob"`
+	LimitProb     int `yaml:"limit_prob"`
+	DistinctProb  int `yaml:"distinct_prob"`
+	WindowProb    int `yaml:"window_prob"`
 	NotExistsProb int `yaml:"not_exists_prob"`
 	NotInProb     int `yaml:"not_in_prob"`
 }
 
+// Logging controls stdout logging behavior.
 type Logging struct {
 	Verbose               bool `yaml:"verbose"`
 	ReportIntervalSeconds int  `yaml:"report_interval_seconds"`
 }
 
+// OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
 	StrictPredicates bool `yaml:"strict_predicates"`
 }
 
+// QPGConfig configures query plan guidance.
 type QPGConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	ExplainFormat        string `yaml:"explain_format"`
-	MutationProb         int    `yaml:"mutation_prob"`
-	SeenSQLTTLSeconds    int    `yaml:"seen_sql_ttl_seconds"`
-	SeenSQLMax           int    `yaml:"seen_sql_max"`
-	SeenSQLSweepSeconds  int    `yaml:"seen_sql_sweep_seconds"`
+	Enabled             bool   `yaml:"enabled"`
+	ExplainFormat       string `yaml:"explain_format"`
+	MutationProb        int    `yaml:"mutation_prob"`
+	SeenSQLTTLSeconds   int    `yaml:"seen_sql_ttl_seconds"`
+	SeenSQLMax          int    `yaml:"seen_sql_max"`
+	SeenSQLSweepSeconds int    `yaml:"seen_sql_sweep_seconds"`
 }
 
+// MinimizeConfig configures case minimization.
 type MinimizeConfig struct {
 	Enabled        bool `yaml:"enabled"`
 	MaxRounds      int  `yaml:"max_rounds"`
@@ -129,6 +141,7 @@ type MinimizeConfig struct {
 	MergeInserts   bool `yaml:"merge_inserts"`
 }
 
+// Adaptive configures bandit-based adaptation.
 type Adaptive struct {
 	Enabled        bool    `yaml:"enabled"`
 	UCBExploration float64 `yaml:"ucb_exploration"`
@@ -138,15 +151,18 @@ type Adaptive struct {
 	AdaptFeatures  bool    `yaml:"adapt_features"`
 }
 
+// DQPConfig configures DQP hints and variables.
 type DQPConfig struct {
 	HintSets  []string `yaml:"hint_sets"`
 	Variables []string `yaml:"variables"`
 }
 
+// StorageConfig holds external storage settings.
 type StorageConfig struct {
 	S3 S3Config `yaml:"s3"`
 }
 
+// S3Config configures S3 uploads.
 type S3Config struct {
 	Enabled         bool   `yaml:"enabled"`
 	Endpoint        string `yaml:"endpoint"`
@@ -159,6 +175,7 @@ type S3Config struct {
 	UsePathStyle    bool   `yaml:"use_path_style"`
 }
 
+// Load reads configuration from a YAML file.
 func Load(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

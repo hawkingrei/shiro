@@ -2,18 +2,21 @@ package generator
 
 import "strings"
 
+// AdaptiveWeights overrides feature weights dynamically.
 type AdaptiveWeights struct {
 	JoinCount int
 	SubqCount int
 	AggProb   int
 }
 
+// QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
 	JoinCount    int
 	HasSubquery  bool
 	HasAggregate bool
 }
 
+// AnalyzeQueryFeatures summarizes a query for feature tracking.
 func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 	if query == nil {
 		return QueryFeatures{}

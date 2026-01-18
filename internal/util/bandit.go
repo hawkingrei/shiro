@@ -5,6 +5,7 @@ import (
 	"math/rand"
 )
 
+// Bandit implements a simple UCB bandit.
 type Bandit struct {
 	counts      []int
 	rewards     []float64
@@ -12,6 +13,7 @@ type Bandit struct {
 	exploration float64
 }
 
+// NewBandit creates a bandit with the given number of arms.
 func NewBandit(arms int, exploration float64) *Bandit {
 	if exploration <= 0 {
 		exploration = 1.5
@@ -23,6 +25,7 @@ func NewBandit(arms int, exploration float64) *Bandit {
 	}
 }
 
+// Pick selects an arm using UCB, respecting the enabled mask when provided.
 func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 	bestIdx := -1
 	bestScore := -1.0
@@ -49,6 +52,7 @@ func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 	return r.Intn(len(b.counts))
 }
 
+// Update records the reward for the chosen arm.
 func (b *Bandit) Update(arm int, reward float64) {
 	if arm < 0 || arm >= len(b.counts) {
 		return

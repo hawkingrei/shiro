@@ -1,9 +1,9 @@
 reports/
-shiro
 *.zip
 .DS_Store
 *.log
 *.tmp
+/shiro
 web/node_modules
 web/.next
 web/out
