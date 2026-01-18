@@ -3,6 +3,7 @@ package util
 import "math/rand"
 
 // PickWeighted returns the index based on integer weights.
+// PickWeighted selects an index based on weights.
 func PickWeighted(r *rand.Rand, weights []int) int {
 	total := 0
 	for _, w := range weights {
@@ -27,6 +28,7 @@ func PickWeighted(r *rand.Rand, weights []int) int {
 	return len(weights) - 1
 }
 
+// Chance returns true with a given percent chance.
 func Chance(r *rand.Rand, percent int) bool {
 	if percent <= 0 {
 		return false

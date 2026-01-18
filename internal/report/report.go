@@ -14,16 +14,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// Reporter writes case artifacts to disk.
 type Reporter struct {
 	OutputDir       string
 	MaxDataDumpRows int
 	caseSeq         int
 }
 
+// Case describes a report directory.
 type Case struct {
 	Dir string
 }
 
+// Summary captures the persisted metadata for a case.
 type Summary struct {
 	Oracle         string         `json:"oracle"`
 	SQL            []string       `json:"sql"`
@@ -39,10 +42,12 @@ type Summary struct {
 	PlanSigFormat  string         `json:"plan_signature_format"`
 }
 
+// New creates a reporter that writes to outputDir.
 func New(outputDir string, maxRows int) *Reporter {
 	return &Reporter{OutputDir: outputDir, MaxDataDumpRows: maxRows}
 }
 
+// NewCase allocates a new case directory.
 func (r *Reporter) NewCase() (Case, error) {
 	r.caseSeq++
 	caseID := uuid.New().String()
@@ -57,6 +62,7 @@ func (r *Reporter) NewCase() (Case, error) {
 	return Case{Dir: dir}, nil
 }
 
+// WriteSummary writes summary.json into the case directory.
 func (r *Reporter) WriteSummary(c Case, summary Summary) error {
 	data, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
@@ -65,11 +71,13 @@ func (r *Reporter) WriteSummary(c Case, summary Summary) error {
 	return os.WriteFile(filepath.Join(c.Dir, "summary.json"), data, 0o644)
 }
 
+// WriteSQL writes a SQL file from the provided statements.
 func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 	content := strings.Join(statements, ";\n") + ";\n"
 	return os.WriteFile(filepath.Join(c.Dir, name), []byte(content), 0o644)
 }
 
+// DumpSchema writes schema.sql for the current state.
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	for _, tbl := range state.Tables {
@@ -84,6 +92,7 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 	return os.WriteFile(filepath.Join(c.Dir, "schema.sql"), []byte(b.String()), 0o644)
 }
 
+// DumpData writes data.tsv with capped rows per table.
 func (r *Reporter) DumpData(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	for _, tbl := range state.Tables {

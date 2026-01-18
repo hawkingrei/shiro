@@ -11,6 +11,7 @@ import (
 	"shiro/internal/util"
 )
 
+// Generator creates SQL statements based on schema state.
 type Generator struct {
 	Rand          *rand.Rand
 	Config        config.Config
@@ -25,12 +26,14 @@ type Generator struct {
 	maxSubqDepth  int
 }
 
+// PreparedQuery holds a prepared statement and args.
 type PreparedQuery struct {
 	SQL      string
 	Args     []any
 	ArgTypes []schema.ColumnType
 }
 
+// New constructs a Generator with a seed.
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 	if seed == 0 {
 		seed = time.Now().UnixNano()

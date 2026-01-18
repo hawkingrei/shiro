@@ -15,11 +15,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+// S3Uploader uploads case directories to S3-compatible storage.
 type S3Uploader struct {
 	cfg    cfg.S3Config
 	client *s3.Client
 }
 
+// NewS3 constructs an uploader from S3 configuration.
 func NewS3(cfg cfg.S3Config) (*S3Uploader, error) {
 	if !cfg.Enabled {
 		return &S3Uploader{cfg: cfg}, nil

@@ -49,6 +49,12 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -P 4000 -u root < regress/exists_in.sql
 
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.8.0
+          args: --timeout=5m
+
       - name: Run tests
         env:
           GOCACHE: /tmp/go-build-cache

@@ -15,10 +15,12 @@ import (
 	"shiro/internal/db"
 )
 
+// Replayer handles plan replayer dumps and downloads.
 type Replayer struct {
 	cfg config.PlanReplayer
 }
 
+// New constructs a Replayer from config.
 func New(cfg config.PlanReplayer) *Replayer {
 	return &Replayer{cfg: cfg}
 }

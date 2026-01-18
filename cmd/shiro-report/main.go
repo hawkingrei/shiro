@@ -26,12 +26,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// FileContent holds inlined report file content.
 type FileContent struct {
 	Name      string `json:"name"`
 	Content   string `json:"content"`
 	Truncated bool   `json:"truncated"`
 }
 
+// CaseEntry represents a report case entry.
 type CaseEntry struct {
 	ID             string                 `json:"id"`
 	Dir            string                 `json:"dir"`
@@ -51,6 +53,7 @@ type CaseEntry struct {
 	Files          map[string]FileContent `json:"files"`
 }
 
+// SiteData is the JSON payload for the static site.
 type SiteData struct {
 	GeneratedAt string      `json:"generated_at"`
 	Source      string      `json:"source"`

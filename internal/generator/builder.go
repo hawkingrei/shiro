@@ -2,6 +2,7 @@ package generator
 
 import "strings"
 
+// SQLBuilder builds SQL with parameter tracking.
 type SQLBuilder struct {
 	sb   strings.Builder
 	args []any

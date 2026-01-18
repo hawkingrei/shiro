@@ -10,6 +10,11 @@ import (
 	"shiro/internal/schema"
 )
 
+// DQP implements differential query plan testing.
+//
+// It runs the same query under different plan choices (hints or session variables)
+// and compares result signatures (COUNT + checksum). Any mismatch suggests a plan-
+// dependent correctness bug in the optimizer or execution engine.
 type DQP struct {
 	HintSets  []string
 	Variables []string
@@ -17,6 +22,16 @@ type DQP struct {
 
 func (o DQP) Name() string { return "DQP" }
 
+// Run generates a join query, executes the base signature, then tries variants:
+// - join hints (HASH_JOIN/MERGE_JOIN/INL_*)
+// - join order hint
+// - session variables toggling optimizer paths
+// Differences in signature are reported with the hint/variable that triggered it.
+//
+// Example:
+//   Base:  SELECT * FROM t1 JOIN t2 ON t1.id = t2.id
+//   Hint:  SELECT /*+ HASH_JOIN(t1, t2) */ * FROM t1 JOIN t2 ON t1.id = t2.id
+// If the signatures differ, the plan choice affected correctness.
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil {

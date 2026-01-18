@@ -9,12 +9,25 @@ import (
 	"shiro/internal/schema"
 )
 
+// CERT implements cardinality estimation restriction testing.
+//
+// It checks whether adding a restrictive predicate decreases (or at least does not
+// drastically increase) the estimated row count in EXPLAIN. A large increase after
+// adding a filter is suspicious and may indicate optimizer cardinality bugs.
 type CERT struct {
 	Tolerance float64
 }
 
 func (o CERT) Name() string { return "CERT" }
 
+// Run compares EXPLAIN estRows for a base query and a restricted query.
+// If restricted estRows exceeds base estRows by the configured tolerance,
+// the case is flagged.
+//
+// Example:
+//   Base:       EXPLAIN SELECT * FROM t WHERE a > 10
+//   Restricted: EXPLAIN SELECT * FROM t WHERE a > 10 AND b = 5
+// If restricted estRows is much larger, cardinality estimation is suspicious.
 func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if o.Tolerance == 0 {
 		o.Tolerance = 0.1

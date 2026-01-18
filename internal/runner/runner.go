@@ -24,6 +24,7 @@ import (
 	"shiro/internal/validator"
 )
 
+// Runner orchestrates fuzzing, execution, and reporting.
 type Runner struct {
 	cfg       config.Config
 	exec      *db.DB
@@ -59,6 +60,7 @@ type Runner struct {
 var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
 
+// New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
 	state := &schema.State{}
 	gen := generator.New(cfg, state, cfg.Seed)

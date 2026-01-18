@@ -7,18 +7,21 @@ import (
 	"shiro/internal/schema"
 )
 
+// Expr renders a SQL expression.
 type Expr interface {
 	Build(b *SQLBuilder)
 	Columns() []ColumnRef
 	Deterministic() bool
 }
 
+// ColumnRef identifies a column used in expressions.
 type ColumnRef struct {
 	Table string
 	Name  string
 	Type  schema.ColumnType
 }
 
+// ColumnExpr renders a column reference.
 type ColumnExpr struct {
 	Ref ColumnRef
 }
@@ -30,6 +33,7 @@ func (e ColumnExpr) Build(b *SQLBuilder) {
 func (e ColumnExpr) Columns() []ColumnRef { return []ColumnRef{e.Ref} }
 func (e ColumnExpr) Deterministic() bool  { return true }
 
+// LiteralExpr renders a literal value.
 type LiteralExpr struct {
 	Value any
 }
@@ -50,6 +54,7 @@ func (e LiteralExpr) Build(b *SQLBuilder) {
 func (e LiteralExpr) Columns() []ColumnRef { return nil }
 func (e LiteralExpr) Deterministic() bool  { return true }
 
+// ParamExpr renders a prepared statement parameter.
 type ParamExpr struct {
 	Value any
 }
@@ -61,6 +66,7 @@ func (e ParamExpr) Build(b *SQLBuilder) {
 func (e ParamExpr) Columns() []ColumnRef { return nil }
 func (e ParamExpr) Deterministic() bool  { return true }
 
+// UnaryExpr renders a unary expression.
 type UnaryExpr struct {
 	Op   string
 	Expr Expr
@@ -75,6 +81,7 @@ func (e UnaryExpr) Build(b *SQLBuilder) {
 func (e UnaryExpr) Columns() []ColumnRef { return e.Expr.Columns() }
 func (e UnaryExpr) Deterministic() bool  { return e.Expr.Deterministic() }
 
+// BinaryExpr renders a binary expression.
 type BinaryExpr struct {
 	Left  Expr
 	Op    string
@@ -101,6 +108,7 @@ func (e BinaryExpr) Deterministic() bool {
 	return e.Left.Deterministic() && e.Right.Deterministic()
 }
 
+// FuncExpr renders a function call.
 type FuncExpr struct {
 	Name string
 	Args []Expr
@@ -135,11 +143,13 @@ func (e FuncExpr) Deterministic() bool {
 	return true
 }
 
+// CaseWhen represents a WHEN branch.
 type CaseWhen struct {
 	When Expr
 	Then Expr
 }
 
+// CaseExpr renders a CASE expression.
 type CaseExpr struct {
 	Whens []CaseWhen
 	Else  Expr
@@ -186,6 +196,7 @@ func (e CaseExpr) Deterministic() bool {
 	return true
 }
 
+// SubqueryExpr renders a scalar subquery.
 type SubqueryExpr struct {
 	Query *SelectQuery
 }
@@ -199,6 +210,7 @@ func (e SubqueryExpr) Build(b *SQLBuilder) {
 func (e SubqueryExpr) Columns() []ColumnRef { return nil }
 func (e SubqueryExpr) Deterministic() bool  { return true }
 
+// ExistsExpr renders an EXISTS predicate.
 type ExistsExpr struct {
 	Query *SelectQuery
 }
@@ -212,6 +224,7 @@ func (e ExistsExpr) Build(b *SQLBuilder) {
 func (e ExistsExpr) Columns() []ColumnRef { return nil }
 func (e ExistsExpr) Deterministic() bool  { return true }
 
+// InExpr renders an IN predicate.
 type InExpr struct {
 	Left Expr
 	List []Expr
@@ -250,6 +263,7 @@ func (e InExpr) Deterministic() bool {
 	return true
 }
 
+// WindowExpr renders a window function expression.
 type WindowExpr struct {
 	Name        string
 	Args        []Expr

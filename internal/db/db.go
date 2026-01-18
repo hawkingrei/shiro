@@ -8,17 +8,20 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// DB wraps sql.DB with validation hooks.
 type DB struct {
 	*sql.DB
 	Validate func(string) error
 	Observe  func(string, error)
 }
 
+// Signature stores row count and checksum.
 type Signature struct {
 	Count    int64
 	Checksum int64
 }
 
+// Open creates a DB connection from a DSN.
 func Open(dsn string) (*DB, error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -27,6 +30,7 @@ func Open(dsn string) (*DB, error) {
 	return &DB{DB: db}, nil
 }
 
+// ExecContext runs a statement after validation.
 func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if err := d.validate(query); err != nil {
 		return nil, err
@@ -34,6 +38,7 @@ func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Re
 	return d.DB.ExecContext(ctx, query, args...)
 }
 
+// QueryContext runs a query after validation.
 func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	if err := d.validate(query); err != nil {
 		return nil, err
@@ -41,6 +46,7 @@ func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 	return d.DB.QueryContext(ctx, query, args...)
 }
 
+// QueryRowContext runs a query returning a single row.
 func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	if err := d.validate(query); err != nil {
 		return d.DB.QueryRowContext(ctx, "SELECT 1 WHERE 1=0")
@@ -48,6 +54,7 @@ func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sq
 	return d.DB.QueryRowContext(ctx, query, args...)
 }
 
+// PrepareContext prepares a statement after validation.
 func (d *DB) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
 	if err := d.validate(query); err != nil {
 		return nil, err
@@ -55,6 +62,7 @@ func (d *DB) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error
 	return d.DB.PrepareContext(ctx, query)
 }
 
+// QuerySignature executes a signature query and returns count/checksum.
 func (d *DB) QuerySignature(ctx context.Context, query string) (Signature, error) {
 	if err := d.validate(query); err != nil {
 		return Signature{}, err
@@ -67,6 +75,7 @@ func (d *DB) QuerySignature(ctx context.Context, query string) (Signature, error
 	return sig, nil
 }
 
+// QueryCount runs a COUNT-style query and returns the count.
 func (d *DB) QueryCount(ctx context.Context, query string) (int64, error) {
 	if err := d.validate(query); err != nil {
 		return 0, err
@@ -79,6 +88,7 @@ func (d *DB) QueryCount(ctx context.Context, query string) (int64, error) {
 	return count, nil
 }
 
+// QueryPlanRows executes EXPLAIN and extracts estimated rows.
 func (d *DB) QueryPlanRows(ctx context.Context, query string) (float64, error) {
 	if err := d.validate(query); err != nil {
 		return 0, err

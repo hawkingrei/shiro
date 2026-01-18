@@ -9,10 +9,25 @@ import (
 	"shiro/internal/schema"
 )
 
+// NoREC implements the NoREC oracle.
+//
+// It checks query correctness by comparing:
+// 1) The COUNT(*) of the original query (optimized execution), and
+// 2) The SUM of predicate evaluations over the same FROM clause (unoptimized form).
+//
+// If the counts differ, the optimizer likely changed the semantics.
 type NoREC struct{}
 
 func (o NoREC) Name() string { return "NoREC" }
 
+// Run generates a simple SELECT with a WHERE predicate and compares the two counts.
+// It skips complex queries (aggregates, GROUP BY, DISTINCT, HAVING, LIMIT, subqueries),
+// because NoREC assumes a flat SELECT with a single predicate.
+//
+// Example:
+//   Q:  SELECT * FROM t WHERE a > 10
+//   NoREC: SELECT IFNULL(SUM(CASE WHEN a > 10 THEN 1 ELSE 0 END),0) FROM t
+// If the counts differ, the optimizer likely changed semantics.
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {

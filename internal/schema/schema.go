@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// ColumnType enumerates column data types.
 type ColumnType int
 
 const (
@@ -19,6 +20,7 @@ const (
 	TypeBool
 )
 
+// Column describes a table column.
 type Column struct {
 	Name     string
 	Type     ColumnType
@@ -26,6 +28,7 @@ type Column struct {
 	HasIndex bool
 }
 
+// Table describes a database table.
 type Table struct {
 	Name    string
 	Columns []Column
@@ -33,6 +36,7 @@ type Table struct {
 	NextID  int64
 }
 
+// State tracks the current schema state.
 type State struct {
 	Tables []Table
 }
@@ -86,6 +90,7 @@ func (s State) HasTables() bool {
 	return len(s.Tables) > 0
 }
 
+// ColumnRef builds a fully qualified column reference.
 func ColumnRef(table, column string) string {
 	return fmt.Sprintf("%s.%s", table, column)
 }

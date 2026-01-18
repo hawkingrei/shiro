@@ -5,11 +5,13 @@ import (
 	"strings"
 )
 
+// CTE represents a common table expression.
 type CTE struct {
 	Name  string
 	Query *SelectQuery
 }
 
+// JoinType defines join kinds for SQL generation.
 type JoinType string
 
 const (
@@ -19,6 +21,7 @@ const (
 	JoinCross JoinType = "CROSS JOIN"
 )
 
+// Join models a FROM join clause.
 type Join struct {
 	Type  JoinType
 	Table string
@@ -26,21 +29,25 @@ type Join struct {
 	Using []string
 }
 
+// FromClause models a FROM clause with joins.
 type FromClause struct {
 	BaseTable string
 	Joins     []Join
 }
 
+// OrderBy models an ORDER BY item.
 type OrderBy struct {
 	Expr Expr
 	Desc bool
 }
 
+// SelectItem models a SELECT list item.
 type SelectItem struct {
 	Expr  Expr
 	Alias string
 }
 
+// SelectQuery models a SELECT statement.
 type SelectQuery struct {
 	With     []CTE
 	Distinct bool

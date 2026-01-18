@@ -1,0 +1,14 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - revive
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
