@@ -8,28 +8,28 @@ import (
 
 // Config captures all runtime options for the fuzz runner.
 type Config struct {
-	DSN                 string        `yaml:"dsn"`
-	Database            string        `yaml:"database"`
-	Seed                int64         `yaml:"seed"`
-	Iterations          int           `yaml:"iterations"`
-	Workers             int           `yaml:"workers"`
-	PlanCacheOnly       bool          `yaml:"plan_cache_only"`
-	MaxTables           int           `yaml:"max_tables"`
-	MaxJoinTables       int           `yaml:"max_join_tables"`
-	MaxColumns          int           `yaml:"max_columns"`
-	MaxRowsPerTable     int           `yaml:"max_rows_per_table"`
-	MaxDataDumpRows     int           `yaml:"max_data_dump_rows"`
-	MaxInsertStatements int           `yaml:"max_insert_statements"`
-	StatementTimeoutMs  int           `yaml:"statement_timeout_ms"`
-	PlanReplayer        PlanReplayer  `yaml:"plan_replayer"`
-	DQP                 DQPConfig     `yaml:"dqp"`
-	Storage             StorageConfig `yaml:"storage"`
-	Features            Features      `yaml:"features"`
-	Weights             Weights       `yaml:"weights"`
-	Adaptive            Adaptive      `yaml:"adaptive"`
-	Logging             Logging       `yaml:"logging"`
-	Oracles             OracleConfig  `yaml:"oracles"`
-	QPG                 QPGConfig     `yaml:"qpg"`
+	DSN                 string         `yaml:"dsn"`
+	Database            string         `yaml:"database"`
+	Seed                int64          `yaml:"seed"`
+	Iterations          int            `yaml:"iterations"`
+	Workers             int            `yaml:"workers"`
+	PlanCacheOnly       bool           `yaml:"plan_cache_only"`
+	MaxTables           int            `yaml:"max_tables"`
+	MaxJoinTables       int            `yaml:"max_join_tables"`
+	MaxColumns          int            `yaml:"max_columns"`
+	MaxRowsPerTable     int            `yaml:"max_rows_per_table"`
+	MaxDataDumpRows     int            `yaml:"max_data_dump_rows"`
+	MaxInsertStatements int            `yaml:"max_insert_statements"`
+	StatementTimeoutMs  int            `yaml:"statement_timeout_ms"`
+	PlanReplayer        PlanReplayer   `yaml:"plan_replayer"`
+	DQP                 DQPConfig      `yaml:"dqp"`
+	Storage             StorageConfig  `yaml:"storage"`
+	Features            Features       `yaml:"features"`
+	Weights             Weights        `yaml:"weights"`
+	Adaptive            Adaptive       `yaml:"adaptive"`
+	Logging             Logging        `yaml:"logging"`
+	Oracles             OracleConfig   `yaml:"oracles"`
+	QPG                 QPGConfig      `yaml:"qpg"`
 	Minimize            MinimizeConfig `yaml:"minimize"`
 }
 
@@ -98,16 +98,16 @@ type OracleWeights struct {
 
 // FeatureWeights sets feature generation weights.
 type FeatureWeights struct {
-	JoinCount    int `yaml:"join_count"`
-	CTECount     int `yaml:"cte_count"`
-	SubqCount    int `yaml:"subquery_count"`
-	AggProb      int `yaml:"aggregate_prob"`
-	GroupByProb  int `yaml:"group_by_prob"`
-	HavingProb   int `yaml:"having_prob"`
-	OrderByProb  int `yaml:"order_by_prob"`
-	LimitProb    int `yaml:"limit_prob"`
-	DistinctProb int `yaml:"distinct_prob"`
-	WindowProb   int `yaml:"window_prob"`
+	JoinCount     int `yaml:"join_count"`
+	CTECount      int `yaml:"cte_count"`
+	SubqCount     int `yaml:"subquery_count"`
+	AggProb       int `yaml:"aggregate_prob"`
+	GroupByProb   int `yaml:"group_by_prob"`
+	HavingProb    int `yaml:"having_prob"`
+	OrderByProb   int `yaml:"order_by_prob"`
+	LimitProb     int `yaml:"limit_prob"`
+	DistinctProb  int `yaml:"distinct_prob"`
+	WindowProb    int `yaml:"window_prob"`
 	NotExistsProb int `yaml:"not_exists_prob"`
 	NotInProb     int `yaml:"not_in_prob"`
 }
@@ -125,12 +125,12 @@ type OracleConfig struct {
 
 // QPGConfig configures query plan guidance.
 type QPGConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	ExplainFormat        string `yaml:"explain_format"`
-	MutationProb         int    `yaml:"mutation_prob"`
-	SeenSQLTTLSeconds    int    `yaml:"seen_sql_ttl_seconds"`
-	SeenSQLMax           int    `yaml:"seen_sql_max"`
-	SeenSQLSweepSeconds  int    `yaml:"seen_sql_sweep_seconds"`
+	Enabled             bool   `yaml:"enabled"`
+	ExplainFormat       string `yaml:"explain_format"`
+	MutationProb        int    `yaml:"mutation_prob"`
+	SeenSQLTTLSeconds   int    `yaml:"seen_sql_ttl_seconds"`
+	SeenSQLMax          int    `yaml:"seen_sql_max"`
+	SeenSQLSweepSeconds int    `yaml:"seen_sql_sweep_seconds"`
 }
 
 // MinimizeConfig configures case minimization.
