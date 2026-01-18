@@ -33,7 +33,14 @@ type PreparedQuery struct {
 	ArgTypes []schema.ColumnType
 }
 
+// maxPreparedParams caps parameters for prepared statements.
+// This keeps generated queries readable and avoids driver/engine limits.
 const maxPreparedParams = 8
+
+const (
+	preparedExtraPredicateProb = 60
+	preparedAggExtraProb       = 50
+)
 
 // New constructs a Generator with a seed.
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {
@@ -822,6 +829,8 @@ func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 	}
 }
 
+// orderedArgs expects comparable values of the same type and returns them ordered.
+// If types differ, it returns inputs unchanged.
 func orderedArgs(a, b any) (any, any) {
 	switch v := a.(type) {
 	case int:
@@ -862,6 +871,7 @@ func (g *Generator) preparedSingleTable() PreparedQuery {
 	cols := make([]schema.Column, 0, len(tbl.Columns))
 	for _, col := range tbl.Columns {
 		if col.Name == "id" {
+			// Avoid primary keys to reduce overly selective filters.
 			continue
 		}
 		cols = append(cols, col)
@@ -876,7 +886,7 @@ func (g *Generator) preparedSingleTable() PreparedQuery {
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", col1.Name, tbl.Name, col1.Name, col1.Name)
 	args := []any{arg1, arg2}
 	argTypes := []schema.ColumnType{col1.Type, col1.Type}
-	if len(cols) > 1 && util.Chance(g.Rand, 60) {
+	if len(cols) > 1 && util.Chance(g.Rand, preparedExtraPredicateProb) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col1.Name {
 			arg3 := g.literalForColumn(col2).Value
@@ -948,13 +958,13 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	arg2 := g.literalForColumn(col).Value
 	arg1, arg2 = orderedArgs(arg1, arg2)
 	selectSQL := "COUNT(*) AS cnt"
-	if g.isNumericType(col.Type) && util.Chance(g.Rand, 50) {
+	if g.isNumericType(col.Type) && util.Chance(g.Rand, preparedAggExtraProb) {
 		selectSQL = "COUNT(*) AS cnt, SUM(" + col.Name + ") AS sum1"
 	}
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", selectSQL, tbl.Name, col.Name, col.Name)
 	args := []any{arg1, arg2}
 	argTypes := []schema.ColumnType{col.Type, col.Type}
-	if len(cols) > 1 && util.Chance(g.Rand, 50) {
+	if len(cols) > 1 && util.Chance(g.Rand, preparedAggExtraProb) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col.Name {
 			arg3 := g.literalForColumn(col2).Value

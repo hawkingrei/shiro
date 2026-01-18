@@ -1031,6 +1031,7 @@ func planCacheSQLSequence(concreteSQL, preparedSQL string, firstArgs []any, base
 	return seq
 }
 
+// originSampleLimit bounds sample rows embedded in reports.
 const originSampleLimit = 10
 
 func drainRows(rows *sql.Rows) error {
@@ -1070,14 +1071,15 @@ func signatureFromRows(rows *sql.Rows) (db.Signature, error) {
 		var b strings.Builder
 		first := true
 		for _, v := range values {
-			if v == nil {
-				continue
-			}
 			if !first {
 				b.WriteByte('#')
 			}
 			first = false
-			b.Write(v)
+			if v == nil {
+				b.WriteString("NULL")
+			} else {
+				b.Write(v)
+			}
 		}
 		sig.Checksum ^= int64(crc32.ChecksumIEEE([]byte(b.String())))
 	}
@@ -1107,14 +1109,15 @@ func signatureAndSampleFromRows(rows *sql.Rows, limit int) (db.Signature, []stri
 		var b strings.Builder
 		first := true
 		for _, v := range values {
-			if v == nil {
-				continue
-			}
 			if !first {
 				b.WriteByte('#')
 			}
 			first = false
-			b.Write(v)
+			if v == nil {
+				b.WriteString("NULL")
+			} else {
+				b.Write(v)
+			}
 		}
 		sig.Checksum ^= int64(crc32.ChecksumIEEE([]byte(b.String())))
 		if len(samples) < limit {
@@ -1879,6 +1882,8 @@ func isPanicError(err error) bool {
 	return strings.Contains(msg, "panic") || strings.Contains(msg, "assert") || strings.Contains(msg, "internal error")
 }
 
+// sqlErrorWhitelist lists MySQL error codes considered fuzz-tool faults.
+// 1064 is the generic SQL syntax error, common for malformed generated SQL.
 var sqlErrorWhitelist = map[uint16]struct{}{
 	1064: {},
 }
@@ -1900,7 +1905,7 @@ func logWhitelistedSQLError(sqlText string, err error) bool {
 	if !ok {
 		return false
 	}
-	util.Errorf("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
+	util.Infof("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
 	return true
 }
 

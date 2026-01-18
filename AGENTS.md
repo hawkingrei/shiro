@@ -95,3 +95,4 @@
 - Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
 - Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
+- Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.
