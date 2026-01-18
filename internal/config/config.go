@@ -29,6 +29,7 @@ type Config struct {
 	Logging             Logging       `yaml:"logging"`
 	Oracles             OracleConfig  `yaml:"oracles"`
 	QPG                 QPGConfig     `yaml:"qpg"`
+	Minimize            MinimizeConfig `yaml:"minimize"`
 }
 
 type PlanReplayer struct {
@@ -121,6 +122,13 @@ type QPGConfig struct {
 	SeenSQLSweepSeconds  int    `yaml:"seen_sql_sweep_seconds"`
 }
 
+type MinimizeConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	MaxRounds      int  `yaml:"max_rounds"`
+	TimeoutSeconds int  `yaml:"timeout_seconds"`
+	MergeInserts   bool `yaml:"merge_inserts"`
+}
+
 type Adaptive struct {
 	Enabled        bool    `yaml:"enabled"`
 	UCBExploration float64 `yaml:"ucb_exploration"`
@@ -209,6 +217,12 @@ func defaultConfig() Config {
 			SeenSQLTTLSeconds:   3,
 			SeenSQLMax:          512,
 			SeenSQLSweepSeconds: 10,
+		},
+		Minimize: MinimizeConfig{
+			Enabled:        true,
+			MaxRounds:      16,
+			TimeoutSeconds: 60,
+			MergeInserts:   true,
 		},
 		DQP: DQPConfig{Variables: []string{
 			"tidb_opt_enable_hash_join=ON",

@@ -103,6 +103,11 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 			SQL:      []string{query.SQLString(), folded.SQLString(), auxSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
+			Details: map[string]any{
+				"replay_kind":         "signature",
+				"replay_expected_sql": query.SignatureSQL(),
+				"replay_actual_sql":   folded.SignatureSQL(),
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), folded.SQLString(), auxSQL}}
@@ -182,6 +187,11 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 			SQL:      []string{query.SQLString(), folded.SQLString(), auxSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
+			Details: map[string]any{
+				"replay_kind":         "signature",
+				"replay_expected_sql": query.SignatureSQL(),
+				"replay_actual_sql":   folded.SignatureSQL(),
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), folded.SQLString(), auxSQL}}

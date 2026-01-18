@@ -1123,6 +1123,20 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
+	if r.cfg.Minimize.Enabled {
+		minimized := r.minimizeCase(ctx, result)
+		if minimized.minimized {
+			if len(minimized.caseSQL) > 0 {
+				_ = r.reporter.WriteSQL(caseData, "case_min.sql", minimized.caseSQL)
+			}
+			if len(minimized.insertSQL) > 0 {
+				_ = r.reporter.WriteSQL(caseData, "inserts_min.sql", minimized.insertSQL)
+			}
+			if len(minimized.reproSQL) > 0 {
+				_ = r.reporter.WriteSQL(caseData, "repro_min.sql", minimized.reproSQL)
+			}
+		}
+	}
 
 	if r.uploader.Enabled() {
 		location, err := r.uploader.UploadDir(ctx, caseData.Dir)

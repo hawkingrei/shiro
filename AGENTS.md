@@ -80,3 +80,9 @@
 - Tighten TLP predicate shape (pure comparisons, no CASE/functions) to reduce remaining mismatches.
 - QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
 - QPG: switch to TiDB-native plan hash when it becomes available.
+- Case minimization: expand AST reducer coverage (IN list trimming, expression simplification, order-by reduction) and validate impact on DQP cases.
+- Case minimization: trim GROUP BY items, simplify HAVING, and drop LIMIT offsets where possible.
+- Case minimization: reduce replay SQL for signature/count oracles by AST transformations before emitting case_min.
+- Case minimization: strip EXPLAIN wrapper and recursively simplify subqueries; re-merge single-row inserts after reduction.
+- Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
+- Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).

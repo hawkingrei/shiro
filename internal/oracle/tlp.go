@@ -59,6 +59,11 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			SQL:      []string{query.SQLString(), unionSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", unionSig.Count, unionSig.Checksum),
+			Details: map[string]any{
+				"replay_kind":         "signature",
+				"replay_expected_sql": query.SignatureSQL(),
+				"replay_actual_sql":   unionSQL,
+			},
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), unionSQL}}

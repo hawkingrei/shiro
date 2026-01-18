@@ -110,6 +110,12 @@ qpg:
   seen_sql_max: 512
   seen_sql_sweep_seconds: 10
 
+minimize:
+  enabled: true
+  max_rounds: 16
+  timeout_seconds: 60
+  merge_inserts: true
+
 adaptive:
   enabled: false
   ucb_exploration: 1.5

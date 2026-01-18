@@ -54,13 +54,22 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			continue
 		}
 		if variantSig != baseSig {
+			details := map[string]any{
+				"hint":                variant.hint,
+				"replay_kind":         "signature",
+				"replay_expected_sql": query.SignatureSQL(),
+				"replay_actual_sql":   variant.signatureSQL,
+			}
+			if variant.setVar != "" {
+				details["replay_set_var"] = variant.setVar
+			}
 			return Result{
 				OK:       false,
 				Oracle:   o.Name(),
 				SQL:      []string{baseSQL, variant.sql},
 				Expected: fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
 				Actual:   fmt.Sprintf("cnt=%d checksum=%d", variantSig.Count, variantSig.Checksum),
-				Details:  map[string]any{"hint": variant.hint},
+				Details:  details,
 			}
 		}
 	}
