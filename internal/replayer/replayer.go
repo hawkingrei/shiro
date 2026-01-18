@@ -27,7 +27,6 @@ func New(cfg config.PlanReplayer) *Replayer {
 }
 
 // DumpAndDownload triggers PLAN REPLAYER DUMP and downloads the zip to caseDir.
-// DumpAndDownload triggers PLAN REPLAYER DUMP and downloads the zip to caseDir.
 // database is optional; when provided, the dump runs on a connection with USE database.
 func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string, caseDir string, database string) (string, error) {
 	if !r.cfg.Enabled {
