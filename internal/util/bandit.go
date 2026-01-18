@@ -25,6 +25,7 @@ func NewBandit(arms int, exploration float64) *Bandit {
 	}
 }
 
+// Pick selects an arm using UCB, respecting the enabled mask when provided.
 func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 	bestIdx := -1
 	bestScore := -1.0
@@ -51,6 +52,7 @@ func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 	return r.Intn(len(b.counts))
 }
 
+// Update records the reward for the chosen arm.
 func (b *Bandit) Update(arm int, reward float64) {
 	if arm < 0 || arm >= len(b.counts) {
 		return

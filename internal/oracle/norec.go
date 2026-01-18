@@ -18,6 +18,7 @@ import (
 // If the counts differ, the optimizer likely changed the semantics.
 type NoREC struct{}
 
+// Name returns the oracle identifier.
 func (o NoREC) Name() string { return "NoREC" }
 
 // Run generates a simple SELECT with a WHERE predicate and compares the two counts.
@@ -25,8 +26,10 @@ func (o NoREC) Name() string { return "NoREC" }
 // because NoREC assumes a flat SELECT with a single predicate.
 //
 // Example:
-//   Q:  SELECT * FROM t WHERE a > 10
-//   NoREC: SELECT IFNULL(SUM(CASE WHEN a > 10 THEN 1 ELSE 0 END),0) FROM t
+//
+//	Q:  SELECT * FROM t WHERE a > 10
+//	NoREC: SELECT IFNULL(SUM(CASE WHEN a > 10 THEN 1 ELSE 0 END),0) FROM t
+//
 // If the counts differ, the optimizer likely changed semantics.
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()

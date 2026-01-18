@@ -25,6 +25,7 @@ func New(cfg config.PlanReplayer) *Replayer {
 	return &Replayer{cfg: cfg}
 }
 
+// DumpAndDownload triggers PLAN REPLAYER DUMP and downloads the zip to caseDir.
 func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string, caseDir string) (string, error) {
 	if !r.cfg.Enabled {
 		return "", nil

@@ -41,6 +41,7 @@ type State struct {
 	Tables []Table
 }
 
+// SQLType returns the SQL type string for this column.
 func (c Column) SQLType() string {
 	switch c.Type {
 	case TypeInt:
@@ -68,6 +69,7 @@ func (c Column) SQLType() string {
 	}
 }
 
+// ColumnByName returns a column by name if present.
 func (t Table) ColumnByName(name string) (Column, bool) {
 	for _, col := range t.Columns {
 		if col.Name == name {
@@ -77,6 +79,7 @@ func (t Table) ColumnByName(name string) (Column, bool) {
 	return Column{}, false
 }
 
+// TableByName returns a table by name if present.
 func (s State) TableByName(name string) (Table, bool) {
 	for _, tbl := range s.Tables {
 		if tbl.Name == name {
@@ -86,6 +89,7 @@ func (s State) TableByName(name string) (Table, bool) {
 	return Table{}, false
 }
 
+// HasTables reports whether any tables exist in the schema state.
 func (s State) HasTables() bool {
 	return len(s.Tables) > 0
 }

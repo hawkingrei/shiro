@@ -19,6 +19,7 @@ import (
 // If constant folding/propagation is incorrect, the two signatures differ.
 type CODDTest struct{}
 
+// Name returns the oracle identifier.
 func (o CODDTest) Name() string { return "CODDTest" }
 
 // Run selects a predicate Phi, ensures it is deterministic and NULL-free,
@@ -28,9 +29,11 @@ func (o CODDTest) Name() string { return "CODDTest" }
 // The query signatures must match.
 //
 // Example:
-//   Phi:  a > 10
-//   Q:    SELECT * FROM t WHERE a > 10
-//   Fold: SELECT * FROM t WHERE 1
+//
+//	Phi:  a > 10
+//	Q:    SELECT * FROM t WHERE a > 10
+//	Fold: SELECT * FROM t WHERE 1
+//
 // If folding changes results, constant propagation is incorrect.
 func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if !state.HasTables() {

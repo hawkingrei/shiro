@@ -18,6 +18,7 @@ type CERT struct {
 	Tolerance float64
 }
 
+// Name returns the oracle identifier.
 func (o CERT) Name() string { return "CERT" }
 
 // Run compares EXPLAIN estRows for a base query and a restricted query.
@@ -25,8 +26,10 @@ func (o CERT) Name() string { return "CERT" }
 // the case is flagged.
 //
 // Example:
-//   Base:       EXPLAIN SELECT * FROM t WHERE a > 10
-//   Restricted: EXPLAIN SELECT * FROM t WHERE a > 10 AND b = 5
+//
+//	Base:       EXPLAIN SELECT * FROM t WHERE a > 10
+//	Restricted: EXPLAIN SELECT * FROM t WHERE a > 10 AND b = 5
+//
 // If restricted estRows is much larger, cardinality estimation is suspicious.
 func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if o.Tolerance == 0 {

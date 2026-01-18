@@ -60,6 +60,7 @@ type SelectQuery struct {
 	Limit    *int
 }
 
+// Build emits the SQL for the select query into the builder.
 func (q *SelectQuery) Build(b *SQLBuilder) {
 	if len(q.With) > 0 {
 		b.Write("WITH ")
@@ -142,12 +143,14 @@ func (q *SelectQuery) Build(b *SQLBuilder) {
 	}
 }
 
+// SQL renders the query and returns SQL text plus arguments.
 func (q *SelectQuery) SQL() (string, []any) {
 	var b SQLBuilder
 	q.Build(&b)
 	return b.String(), b.Args()
 }
 
+// ColumnAliases returns the SELECT-list aliases in order.
 func (q *SelectQuery) ColumnAliases() []string {
 	aliases := make([]string, 0, len(q.Items))
 	for _, item := range q.Items {
@@ -156,6 +159,7 @@ func (q *SelectQuery) ColumnAliases() []string {
 	return aliases
 }
 
+// Clone creates a shallow copy of the query structure.
 func (q *SelectQuery) Clone() *SelectQuery {
 	clone := *q
 	clone.Items = append([]SelectItem{}, q.Items...)
@@ -166,6 +170,7 @@ func (q *SelectQuery) Clone() *SelectQuery {
 	return &clone
 }
 
+// SignatureSQL wraps the query to produce count and checksum.
 func (q *SelectQuery) SignatureSQL() string {
 	aliases := q.ColumnAliases()
 	cols := make([]string, 0, len(aliases))
@@ -179,6 +184,7 @@ func (q *SelectQuery) SignatureSQL() string {
 	return fmt.Sprintf("SELECT COUNT(*) AS cnt, %s AS checksum FROM (%s) q", checksumExpr, q.SQLString())
 }
 
+// SQLString renders the query as a SQL string.
 func (q *SelectQuery) SQLString() string {
 	sql, _ := q.SQL()
 	return sql

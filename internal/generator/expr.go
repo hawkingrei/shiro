@@ -26,18 +26,23 @@ type ColumnExpr struct {
 	Ref ColumnRef
 }
 
+// Build emits the qualified column reference.
 func (e ColumnExpr) Build(b *SQLBuilder) {
 	b.Write(fmt.Sprintf("%s.%s", e.Ref.Table, e.Ref.Name))
 }
 
+// Columns reports the column references used.
 func (e ColumnExpr) Columns() []ColumnRef { return []ColumnRef{e.Ref} }
-func (e ColumnExpr) Deterministic() bool  { return true }
+
+// Deterministic reports whether the expression is deterministic.
+func (e ColumnExpr) Deterministic() bool { return true }
 
 // LiteralExpr renders a literal value.
 type LiteralExpr struct {
 	Value any
 }
 
+// Build emits the literal as SQL text.
 func (e LiteralExpr) Build(b *SQLBuilder) {
 	switch v := e.Value.(type) {
 	case string:
@@ -51,20 +56,27 @@ func (e LiteralExpr) Build(b *SQLBuilder) {
 	}
 }
 
+// Columns reports the column references used.
 func (e LiteralExpr) Columns() []ColumnRef { return nil }
-func (e LiteralExpr) Deterministic() bool  { return true }
+
+// Deterministic reports whether the expression is deterministic.
+func (e LiteralExpr) Deterministic() bool { return true }
 
 // ParamExpr renders a prepared statement parameter.
 type ParamExpr struct {
 	Value any
 }
 
+// Build writes a parameter placeholder and tracks its value.
 func (e ParamExpr) Build(b *SQLBuilder) {
 	b.WriteArg(e.Value)
 }
 
+// Columns reports the column references used.
 func (e ParamExpr) Columns() []ColumnRef { return nil }
-func (e ParamExpr) Deterministic() bool  { return true }
+
+// Deterministic reports whether the expression is deterministic.
+func (e ParamExpr) Deterministic() bool { return true }
 
 // UnaryExpr renders a unary expression.
 type UnaryExpr struct {
@@ -72,14 +84,18 @@ type UnaryExpr struct {
 	Expr Expr
 }
 
+// Build emits the unary expression.
 func (e UnaryExpr) Build(b *SQLBuilder) {
 	b.Write(e.Op)
 	b.Write(" ")
 	e.Expr.Build(b)
 }
 
+// Columns reports the column references used.
 func (e UnaryExpr) Columns() []ColumnRef { return e.Expr.Columns() }
-func (e UnaryExpr) Deterministic() bool  { return e.Expr.Deterministic() }
+
+// Deterministic reports whether the expression is deterministic.
+func (e UnaryExpr) Deterministic() bool { return e.Expr.Deterministic() }
 
 // BinaryExpr renders a binary expression.
 type BinaryExpr struct {
@@ -88,6 +104,7 @@ type BinaryExpr struct {
 	Right Expr
 }
 
+// Build emits the binary expression with parentheses.
 func (e BinaryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
 	e.Left.Build(b)
@@ -98,12 +115,14 @@ func (e BinaryExpr) Build(b *SQLBuilder) {
 	b.Write(")")
 }
 
+// Columns reports the column references used.
 func (e BinaryExpr) Columns() []ColumnRef {
 	cols := append([]ColumnRef{}, e.Left.Columns()...)
 	cols = append(cols, e.Right.Columns()...)
 	return cols
 }
 
+// Deterministic reports whether the expression is deterministic.
 func (e BinaryExpr) Deterministic() bool {
 	return e.Left.Deterministic() && e.Right.Deterministic()
 }
@@ -114,6 +133,7 @@ type FuncExpr struct {
 	Args []Expr
 }
 
+// Build emits the function call expression.
 func (e FuncExpr) Build(b *SQLBuilder) {
 	b.Write(e.Name)
 	b.Write("(")
@@ -126,6 +146,7 @@ func (e FuncExpr) Build(b *SQLBuilder) {
 	b.Write(")")
 }
 
+// Columns reports the column references used.
 func (e FuncExpr) Columns() []ColumnRef {
 	var cols []ColumnRef
 	for _, arg := range e.Args {
@@ -134,6 +155,7 @@ func (e FuncExpr) Columns() []ColumnRef {
 	return cols
 }
 
+// Deterministic reports whether the expression is deterministic.
 func (e FuncExpr) Deterministic() bool {
 	for _, arg := range e.Args {
 		if !arg.Deterministic() {
@@ -155,6 +177,7 @@ type CaseExpr struct {
 	Else  Expr
 }
 
+// Build emits a CASE expression.
 func (e CaseExpr) Build(b *SQLBuilder) {
 	b.Write("CASE ")
 	for _, w := range e.Whens {
@@ -172,6 +195,7 @@ func (e CaseExpr) Build(b *SQLBuilder) {
 	b.Write("END")
 }
 
+// Columns reports the column references used.
 func (e CaseExpr) Columns() []ColumnRef {
 	var cols []ColumnRef
 	for _, w := range e.Whens {
@@ -184,6 +208,7 @@ func (e CaseExpr) Columns() []ColumnRef {
 	return cols
 }
 
+// Deterministic reports whether the expression is deterministic.
 func (e CaseExpr) Deterministic() bool {
 	for _, w := range e.Whens {
 		if !w.When.Deterministic() || !w.Then.Deterministic() {
@@ -201,28 +226,36 @@ type SubqueryExpr struct {
 	Query *SelectQuery
 }
 
+// Build emits the scalar subquery expression.
 func (e SubqueryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
 	e.Query.Build(b)
 	b.Write(")")
 }
 
+// Columns reports the column references used.
 func (e SubqueryExpr) Columns() []ColumnRef { return nil }
-func (e SubqueryExpr) Deterministic() bool  { return true }
+
+// Deterministic reports whether the expression is deterministic.
+func (e SubqueryExpr) Deterministic() bool { return true }
 
 // ExistsExpr renders an EXISTS predicate.
 type ExistsExpr struct {
 	Query *SelectQuery
 }
 
+// Build emits the EXISTS predicate.
 func (e ExistsExpr) Build(b *SQLBuilder) {
 	b.Write("EXISTS (")
 	e.Query.Build(b)
 	b.Write(")")
 }
 
+// Columns reports the column references used.
 func (e ExistsExpr) Columns() []ColumnRef { return nil }
-func (e ExistsExpr) Deterministic() bool  { return true }
+
+// Deterministic reports whether the expression is deterministic.
+func (e ExistsExpr) Deterministic() bool { return true }
 
 // InExpr renders an IN predicate.
 type InExpr struct {
@@ -230,6 +263,7 @@ type InExpr struct {
 	List []Expr
 }
 
+// Build emits the IN predicate.
 func (e InExpr) Build(b *SQLBuilder) {
 	b.Write("(")
 	e.Left.Build(b)
@@ -243,6 +277,7 @@ func (e InExpr) Build(b *SQLBuilder) {
 	b.Write("))")
 }
 
+// Columns reports the column references used.
 func (e InExpr) Columns() []ColumnRef {
 	cols := append([]ColumnRef{}, e.Left.Columns()...)
 	for _, item := range e.List {
@@ -251,6 +286,7 @@ func (e InExpr) Columns() []ColumnRef {
 	return cols
 }
 
+// Deterministic reports whether the expression is deterministic.
 func (e InExpr) Deterministic() bool {
 	if !e.Left.Deterministic() {
 		return false
@@ -271,6 +307,7 @@ type WindowExpr struct {
 	OrderBy     []OrderBy
 }
 
+// Build emits the window function expression.
 func (e WindowExpr) Build(b *SQLBuilder) {
 	b.Write(e.Name)
 	b.Write("(")
@@ -310,6 +347,7 @@ func (e WindowExpr) Build(b *SQLBuilder) {
 	b.Write(")")
 }
 
+// Columns reports the column references used.
 func (e WindowExpr) Columns() []ColumnRef {
 	var cols []ColumnRef
 	for _, arg := range e.Args {
@@ -324,6 +362,7 @@ func (e WindowExpr) Columns() []ColumnRef {
 	return cols
 }
 
+// Deterministic reports whether the expression is deterministic.
 func (e WindowExpr) Deterministic() bool {
 	for _, arg := range e.Args {
 		if !arg.Deterministic() {

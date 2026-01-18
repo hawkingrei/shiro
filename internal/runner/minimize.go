@@ -196,6 +196,7 @@ type tableCollector struct {
 	tables map[string]struct{}
 }
 
+// Enter collects table names from nodes during AST traversal.
 func (c *tableCollector) Enter(in ast.Node) (ast.Node, bool) {
 	if t, ok := in.(*ast.TableName); ok {
 		name := strings.ToLower(t.Name.O)
@@ -206,6 +207,7 @@ func (c *tableCollector) Enter(in ast.Node) (ast.Node, bool) {
 	return in, false
 }
 
+// Leave completes the visitor step.
 func (c *tableCollector) Leave(in ast.Node) (ast.Node, bool) {
 	return in, true
 }
@@ -1071,6 +1073,7 @@ func applyDeepSimplifySet(stmt *ast.SetOprStmt) {
 
 type subquerySimplifier struct{}
 
+// Enter tracks the table source path for subquery simplification.
 func (s *subquerySimplifier) Enter(in ast.Node) (ast.Node, bool) {
 	if sub, ok := in.(*ast.SubqueryExpr); ok {
 		if sel, ok := sub.Query.(*ast.SelectStmt); ok {
@@ -1088,6 +1091,7 @@ func (s *subquerySimplifier) Enter(in ast.Node) (ast.Node, bool) {
 	return in, false
 }
 
+// Leave unwinds subquery simplification state.
 func (s *subquerySimplifier) Leave(in ast.Node) (ast.Node, bool) {
 	return in, true
 }

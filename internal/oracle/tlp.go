@@ -13,21 +13,26 @@ import (
 // TLP implements the TLP oracle.
 //
 // Ternary Logic Partitioning (TLP) splits a predicate P into:
-//   P, NOT P, and P IS NULL
+//
+//	P, NOT P, and P IS NULL
+//
 // and checks that UNION ALL of these partitions preserves the original result.
 // Any mismatch indicates a potential optimizer or execution bug.
 type TLP struct{}
 
+// Name returns the oracle identifier.
 func (o TLP) Name() string { return "TLP" }
 
 // Run builds a query, computes its signature, then compares against the TLP union.
 // It only uses deterministic, simple predicates to reduce false positives.
 //
 // Example:
-//   Q:  SELECT * FROM t WHERE a > 10
-//   TLP: SELECT * FROM t WHERE a > 10
-//        UNION ALL SELECT * FROM t WHERE NOT (a > 10)
-//        UNION ALL SELECT * FROM t WHERE (a > 10) IS NULL
+//
+//	Q:  SELECT * FROM t WHERE a > 10
+//	TLP: SELECT * FROM t WHERE a > 10
+//	     UNION ALL SELECT * FROM t WHERE NOT (a > 10)
+//	     UNION ALL SELECT * FROM t WHERE (a > 10) IS NULL
+//
 // The signatures must match.
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()

@@ -97,6 +97,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 	return r
 }
 
+// Run executes the fuzz loop until iterations are exhausted or an error occurs.
 func (r *Runner) Run(ctx context.Context) error {
 	r.exec.Validate = r.validator.Validate
 	r.exec.Observe = r.observeSQL

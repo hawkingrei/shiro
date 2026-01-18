@@ -20,6 +20,7 @@ type DQP struct {
 	Variables []string
 }
 
+// Name returns the oracle identifier.
 func (o DQP) Name() string { return "DQP" }
 
 // Run generates a join query, executes the base signature, then tries variants:
@@ -29,8 +30,10 @@ func (o DQP) Name() string { return "DQP" }
 // Differences in signature are reported with the hint/variable that triggered it.
 //
 // Example:
-//   Base:  SELECT * FROM t1 JOIN t2 ON t1.id = t2.id
-//   Hint:  SELECT /*+ HASH_JOIN(t1, t2) */ * FROM t1 JOIN t2 ON t1.id = t2.id
+//
+//	Base:  SELECT * FROM t1 JOIN t2 ON t1.id = t2.id
+//	Hint:  SELECT /*+ HASH_JOIN(t1, t2) */ * FROM t1 JOIN t2 ON t1.id = t2.id
+//
 // If the signatures differ, the plan choice affected correctness.
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()

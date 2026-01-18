@@ -53,10 +53,12 @@ func NewS3(cfg cfg.S3Config) (*S3Uploader, error) {
 	return &S3Uploader{cfg: cfg, client: client}, nil
 }
 
+// Enabled reports whether S3 uploads are configured.
 func (u *S3Uploader) Enabled() bool {
 	return u.cfg.Enabled
 }
 
+// UploadDir uploads a case directory and returns its S3 URL prefix.
 func (u *S3Uploader) UploadDir(ctx context.Context, dir string) (string, error) {
 	if !u.cfg.Enabled {
 		return "", nil
