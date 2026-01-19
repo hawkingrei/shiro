@@ -159,11 +159,43 @@ func (g *Generator) CreateViewSQL() string {
 		return ""
 	}
 	if len(query.With) > 0 {
-		query = query.Clone()
-		query.With = nil
+		cteEnabled := g.Config.Features.CTE
+		g.Config.Features.CTE = false
+		query = g.GenerateSelectQuery()
+		g.Config.Features.CTE = cteEnabled
+		if query == nil {
+			return ""
+		}
 	}
+	query = query.Clone()
+	query.Items = ensureUniqueAliases(query.Items)
 	viewName := g.NextViewName()
 	return fmt.Sprintf("CREATE VIEW %s AS %s", viewName, query.SQLString())
+}
+
+func ensureUniqueAliases(items []SelectItem) []SelectItem {
+	used := map[string]int{}
+	out := make([]SelectItem, len(items))
+	for i, item := range items {
+		base := strings.TrimSpace(item.Alias)
+		if base == "" {
+			if col, ok := item.Expr.(ColumnExpr); ok {
+				base = col.Ref.Name
+			} else {
+				base = fmt.Sprintf("c%d", i)
+			}
+		}
+		if count, ok := used[base]; ok {
+			count++
+			used[base] = count
+			item.Alias = fmt.Sprintf("%s_%d", base, count)
+		} else {
+			used[base] = 0
+			item.Alias = base
+		}
+		out[i] = item
+	}
+	return out
 }
 
 // AddCheckConstraintSQL emits a CHECK constraint for a table.
@@ -286,12 +318,16 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 		query.Items = g.GenerateAggregateSelectList(queryTables, len(query.GroupBy) > 0)
 		if g.Config.Features.Having && len(query.GroupBy) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.HavingProb) {
-			query.Having = g.GeneratePredicate(queryTables, g.maxDepth, false, g.maxSubqDepth)
+			query.Having = g.GenerateHavingPredicate(query.GroupBy, queryTables)
 		}
 	}
 
 	if g.Config.Features.OrderBy && util.Chance(g.Rand, g.Config.Weights.Features.OrderByProb) {
-		query.OrderBy = g.GenerateOrderBy(queryTables)
+		if query.Distinct {
+			query.OrderBy = g.GenerateOrderByFromItems(query.Items)
+		} else {
+			query.OrderBy = g.GenerateOrderBy(queryTables)
+		}
 	}
 	if g.Config.Features.Limit && util.Chance(g.Rand, g.Config.Weights.Features.LimitProb) {
 		limit := g.Rand.Intn(20) + 1
@@ -443,6 +479,20 @@ func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 	return LiteralExpr{Value: g.Rand.Intn(100)}
 }
 
+// GenerateStringExpr returns a varchar expression or literal.
+func (g *Generator) GenerateStringExpr(tables []schema.Table) Expr {
+	for i := 0; i < 3; i++ {
+		col := g.randomColumn(tables)
+		if col.Table == "" {
+			break
+		}
+		if col.Type == schema.TypeVarchar {
+			return ColumnExpr{Ref: col}
+		}
+	}
+	return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
+}
+
 // GenerateGroupBy builds a GROUP BY list.
 func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
 	col := g.randomColumn(tables)
@@ -458,9 +508,32 @@ func (g *Generator) GenerateOrderBy(tables []schema.Table) []OrderBy {
 	items := make([]OrderBy, 0, count)
 	for i := 0; i < count; i++ {
 		expr := g.GenerateScalarExpr(tables, g.maxDepth, false)
+		if _, ok := expr.(LiteralExpr); ok {
+			col := g.randomColumn(tables)
+			if col.Table != "" {
+				expr = ColumnExpr{Ref: col}
+			}
+		}
 		items = append(items, OrderBy{Expr: expr, Desc: util.Chance(g.Rand, 50)})
 	}
 	return items
+}
+
+// GenerateOrderByFromItems uses SELECT-list expressions for ORDER BY.
+func (g *Generator) GenerateOrderByFromItems(items []SelectItem) []OrderBy {
+	if len(items) == 0 {
+		return nil
+	}
+	count := 1
+	if len(items) > 1 && util.Chance(g.Rand, 40) {
+		count = 2
+	}
+	idxs := g.Rand.Perm(len(items))[:count]
+	orders := make([]OrderBy, 0, count)
+	for _, idx := range idxs {
+		orders = append(orders, OrderBy{Expr: items[idx].Expr, Desc: util.Chance(g.Rand, 50)})
+	}
+	return orders
 }
 
 // GeneratePredicate builds a boolean predicate expression.
@@ -476,6 +549,9 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 				return expr
 			}
 			left := g.generateScalarExpr(tables, 0, false, 0)
+			if !g.isNumericExpr(left) {
+				left = g.GenerateNumericExpr(tables)
+			}
 			expr := Expr(InExpr{Left: left, List: []Expr{SubqueryExpr{Query: sub}}})
 			if g.Config.Features.NotIn && util.Chance(g.Rand, g.Config.Weights.Features.NotInProb) {
 				return UnaryExpr{Op: "NOT", Expr: expr}
@@ -484,18 +560,17 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 		}
 	}
 	if depth <= 0 {
-		left := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
-		right := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+		left, right := g.generateComparablePair(tables, allowSubquery, subqDepth)
 		return BinaryExpr{Left: left, Op: g.pickComparison(), Right: right}
 	}
 	if util.Chance(g.Rand, 20) {
-		left := g.generateScalarExpr(tables, depth-1, false, 0)
+		leftExpr, colType := g.pickComparableExpr(tables)
 		listSize := g.Rand.Intn(3) + 1
 		list := make([]Expr, 0, listSize)
 		for i := 0; i < listSize; i++ {
-			list = append(list, g.randomLiteralExpr())
+			list = append(list, g.literalForColumn(schema.Column{Type: colType}))
 		}
-		expr := Expr(InExpr{Left: left, List: list})
+		expr := Expr(InExpr{Left: leftExpr, List: list})
 		if g.Config.Features.NotIn && util.Chance(g.Rand, g.Config.Weights.Features.NotInProb) {
 			return UnaryExpr{Op: "NOT", Expr: expr}
 		}
@@ -503,8 +578,7 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 	}
 	choice := g.Rand.Intn(3)
 	if choice == 0 {
-		left := g.generateScalarExpr(tables, depth-1, allowSubquery, subqDepth)
-		right := g.generateScalarExpr(tables, depth-1, allowSubquery, subqDepth)
+		left, right := g.generateComparablePair(tables, allowSubquery, subqDepth)
 		return BinaryExpr{Left: left, Op: g.pickComparison(), Right: right}
 	}
 	left := g.GeneratePredicate(tables, depth-1, allowSubquery, subqDepth)
@@ -516,9 +590,196 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 	return BinaryExpr{Left: left, Op: op, Right: right}
 }
 
+// GenerateHavingPredicate builds a HAVING predicate from group-by expressions and aggregates.
+func (g *Generator) GenerateHavingPredicate(groupBy []Expr, tables []schema.Table) Expr {
+	candidates := make([]Expr, 0, len(groupBy)+2)
+	candidates = append(candidates, groupBy...)
+	candidates = append(candidates, FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}})
+	candidates = append(candidates, FuncExpr{Name: "SUM", Args: []Expr{g.GenerateNumericExpr(tables)}})
+	expr := candidates[g.Rand.Intn(len(candidates))]
+	if colType, ok := g.exprType(expr); ok {
+		return BinaryExpr{Left: expr, Op: g.pickComparison(), Right: g.literalForColumn(schema.Column{Type: colType})}
+	}
+	return BinaryExpr{Left: expr, Op: g.pickComparison(), Right: g.randomLiteralExpr()}
+}
+
 // GenerateScalarExpr builds a scalar expression with bounded depth.
 func (g *Generator) GenerateScalarExpr(tables []schema.Table, depth int, allowSubquery bool) Expr {
 	return g.generateScalarExpr(tables, depth, allowSubquery, g.maxSubqDepth)
+}
+
+func (g *Generator) literalForExprType(expr Expr) Expr {
+	switch v := expr.(type) {
+	case ColumnExpr:
+		return g.literalForColumn(schema.Column{Type: v.Ref.Type})
+	case LiteralExpr:
+		return g.literalForValue(v.Value)
+	case FuncExpr:
+		if g.isNumericFunc(v.Name) {
+			return g.literalForColumn(schema.Column{Type: schema.TypeInt})
+		}
+		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
+	default:
+		return g.randomLiteralExpr()
+	}
+}
+
+func (g *Generator) literalForValue(val any) Expr {
+	switch val.(type) {
+	case int:
+		return g.literalForColumn(schema.Column{Type: schema.TypeInt})
+	case int64:
+		return g.literalForColumn(schema.Column{Type: schema.TypeBigInt})
+	case float64:
+		return g.literalForColumn(schema.Column{Type: schema.TypeDouble})
+	case bool:
+		return g.literalForColumn(schema.Column{Type: schema.TypeBool})
+	case string:
+		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
+	default:
+		return g.randomLiteralExpr()
+	}
+}
+
+func (g *Generator) isNumericExpr(expr Expr) bool {
+	switch v := expr.(type) {
+	case ColumnExpr:
+		return g.isNumericType(v.Ref.Type)
+	case LiteralExpr:
+		switch v.Value.(type) {
+		case int, int64, float64:
+			return true
+		default:
+			return false
+		}
+	case FuncExpr:
+		return g.isNumericFunc(v.Name)
+	default:
+		return false
+	}
+}
+
+func (g *Generator) isNumericFunc(name string) bool {
+	switch strings.ToUpper(name) {
+	case "COUNT", "SUM", "AVG", "ABS", "ROUND", "LENGTH":
+		return true
+	default:
+		return false
+	}
+}
+
+func (g *Generator) exprType(expr Expr) (schema.ColumnType, bool) {
+	switch v := expr.(type) {
+	case ColumnExpr:
+		return v.Ref.Type, true
+	case LiteralExpr:
+		switch v.Value.(type) {
+		case int:
+			return schema.TypeInt, true
+		case int64:
+			return schema.TypeBigInt, true
+		case float64:
+			return schema.TypeDouble, true
+		case bool:
+			return schema.TypeBool, true
+		case string:
+			if t, ok := literalStringType(v.Value.(string)); ok {
+				return t, true
+			}
+			return schema.TypeVarchar, true
+		default:
+			return 0, false
+		}
+	case FuncExpr:
+		if g.isNumericFunc(v.Name) {
+			return schema.TypeInt, true
+		}
+		return schema.TypeVarchar, true
+	default:
+		return 0, false
+	}
+}
+
+func (g *Generator) pickComparableExpr(tables []schema.Table) (Expr, schema.ColumnType) {
+	col := g.randomColumn(tables)
+	if col.Table != "" {
+		return ColumnExpr{Ref: col}, col.Type
+	}
+	colType := g.randomColumnType()
+	return g.literalForColumn(schema.Column{Type: colType}), colType
+}
+
+func literalStringType(value string) (schema.ColumnType, bool) {
+	if isDateLiteral(value) {
+		return schema.TypeDate, true
+	}
+	if isDateTimeLiteral(value) {
+		return schema.TypeDatetime, true
+	}
+	return 0, false
+}
+
+func isDateLiteral(value string) bool {
+	if len(value) != 10 {
+		return false
+	}
+	for i, ch := range value {
+		switch i {
+		case 4, 7:
+			if ch != '-' {
+				return false
+			}
+		default:
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isDateTimeLiteral(value string) bool {
+	if len(value) != 19 {
+		return false
+	}
+	for i, ch := range value {
+		switch i {
+		case 4, 7:
+			if ch != '-' {
+				return false
+			}
+		case 10:
+			if ch != ' ' {
+				return false
+			}
+		case 13, 16:
+			if ch != ':' {
+				return false
+			}
+		default:
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (Expr, Expr) {
+	if util.Chance(g.Rand, 60) {
+		left, colType := g.pickComparableExpr(tables)
+		right := g.literalForColumn(schema.Column{Type: colType})
+		return left, right
+	}
+	left := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	right := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	if t, ok := g.exprType(left); ok {
+		return left, g.literalForColumn(schema.Column{Type: t})
+	}
+	if t, ok := g.exprType(right); ok {
+		return g.literalForColumn(schema.Column{Type: t}), right
+	}
+	return left, right
 }
 
 func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
@@ -543,11 +804,18 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 		}
 		return g.randomLiteralExpr()
 	case 2:
-		left := g.GenerateScalarExpr(tables, depth-1, allowSubquery)
-		right := g.GenerateScalarExpr(tables, depth-1, allowSubquery)
+		left := g.GenerateNumericExpr(tables)
+		right := g.GenerateNumericExpr(tables)
 		return BinaryExpr{Left: left, Op: g.pickArithmetic(), Right: right}
 	case 3:
-		return FuncExpr{Name: g.pickFunc(), Args: []Expr{g.GenerateScalarExpr(tables, depth-1, allowSubquery)}}
+		name := g.pickFunc()
+		var arg Expr
+		if g.isNumericFunc(name) {
+			arg = g.GenerateNumericExpr(tables)
+		} else {
+			arg = g.GenerateStringExpr(tables)
+		}
+		return FuncExpr{Name: name, Args: []Expr{arg}}
 	case 4:
 		if allowSubquery && subqDepth > 0 {
 			sub := g.GenerateSubquery(tables, subqDepth-1)
@@ -700,11 +968,21 @@ func (g *Generator) randomColumn(tables []schema.Table) ColumnRef {
 }
 
 func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []string {
+	leftCounts := map[string]int{}
+	leftTypes := map[string]schema.ColumnType{}
+	for _, ltbl := range left {
+		for _, lcol := range ltbl.Columns {
+			leftCounts[lcol.Name]++
+			if _, ok := leftTypes[lcol.Name]; !ok {
+				leftTypes[lcol.Name] = lcol.Type
+			}
+		}
+	}
 	names := []string{}
 	for _, ltbl := range left {
 		for _, lcol := range ltbl.Columns {
 			for _, rcol := range right.Columns {
-				if lcol.Name == rcol.Name && lcol.Type == rcol.Type {
+				if lcol.Name == rcol.Name && lcol.Type == rcol.Type && leftCounts[lcol.Name] == 1 && leftTypes[lcol.Name] == lcol.Type {
 					names = append(names, lcol.Name)
 				}
 			}
@@ -989,8 +1267,8 @@ func (g *Generator) preparedCTEQuery() PreparedQuery {
 	arg1 := g.literalForColumn(col1).Value
 	arg2 := g.literalForColumn(col2).Value
 	query := fmt.Sprintf(
-		"WITH cte AS (SELECT %s, %s FROM %s WHERE %s = ?) SELECT %s FROM cte WHERE %s = ?",
-		col1.Name, col2.Name, tbl.Name, col1.Name, col2.Name, col2.Name,
+		"WITH cte AS (SELECT %s AS c0, %s AS c1 FROM %s WHERE %s = ?) SELECT c1 FROM cte WHERE c1 = ?",
+		col1.Name, col2.Name, tbl.Name, col1.Name,
 	)
 	return PreparedQuery{
 		SQL:      query,

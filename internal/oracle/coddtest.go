@@ -44,7 +44,9 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	if !phi.Deterministic() || exprHasSubquery(phi) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if gen.Config.Oracles.StrictPredicates && !isSimplePredicate(phi) {
+	policy := predicatePolicyFor(gen)
+	policy.allowIsNull = false
+	if !predicateMatches(phi, policy) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
 	columns := phi.Columns()
@@ -228,9 +230,7 @@ func buildLiteralFromBytes(b sql.RawBytes, colType schema.ColumnType) generator.
 		}
 		return generator.LiteralExpr{Value: text}
 	case schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
-		if v, err := strconv.ParseFloat(text, 64); err == nil {
-			return generator.LiteralExpr{Value: v}
-		}
+		// Preserve exact formatting to avoid float rounding mismatches in CASE mapping.
 		return generator.LiteralExpr{Value: text}
 	case schema.TypeBool:
 		if text == "1" || strings.EqualFold(text, "true") {

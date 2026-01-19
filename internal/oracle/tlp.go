@@ -47,22 +47,22 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if gen.Config.Oracles.StrictPredicates && !isSimplePredicate(query.Where) {
+	policy := predicatePolicyFor(gen)
+	policy.allowIsNull = false
+	if !predicateMatches(query.Where, policy) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
 
-	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
+	base := query.Clone()
+	base.Where = nil
+	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
 	}
 
-	q1 := query.Clone()
-	q2 := query.Clone()
-	q3 := query.Clone()
-
-	q1.With = nil
-	q2.With = nil
-	q3.With = nil
+	q1 := base.Clone()
+	q2 := base.Clone()
+	q3 := base.Clone()
 
 	q1.Where = query.Where
 	q2.Where = generator.UnaryExpr{Op: "NOT", Expr: query.Where}
@@ -78,17 +78,17 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
-			SQL:      []string{query.SQLString(), unionSQL},
+			SQL:      []string{base.SQLString(), unionSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", unionSig.Count, unionSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":         "signature",
-				"replay_expected_sql": query.SignatureSQL(),
+				"replay_expected_sql": base.SignatureSQL(),
 				"replay_actual_sql":   unionSQL,
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), unionSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), unionSQL}}
 }
 
 func signatureColumns(query *generator.SelectQuery) string {

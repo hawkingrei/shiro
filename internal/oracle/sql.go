@@ -8,6 +8,31 @@ import (
 	"shiro/internal/schema"
 )
 
+type predicatePolicy struct {
+	allowOr     bool
+	allowNot    bool
+	allowIsNull bool
+}
+
+func predicatePolicyFor(gen *generator.Generator) predicatePolicy {
+	level := strings.ToLower(strings.TrimSpace(gen.Config.Oracles.PredicateLevel))
+	if level == "" {
+		if gen.Config.Oracles.StrictPredicates {
+			level = "strict"
+		} else {
+			level = "moderate"
+		}
+	}
+	switch level {
+	case "loose":
+		return predicatePolicy{allowOr: true, allowNot: true, allowIsNull: true}
+	case "moderate":
+		return predicatePolicy{allowOr: true}
+	default:
+		return predicatePolicy{}
+	}
+}
+
 func buildExpr(expr generator.Expr) string {
 	b := generator.SQLBuilder{}
 	expr.Build(&b)
@@ -313,6 +338,42 @@ func isSimplePredicate(expr generator.Expr) bool {
 	}
 }
 
+func predicateMatches(expr generator.Expr, policy predicatePolicy) bool {
+	switch e := expr.(type) {
+	case generator.BinaryExpr:
+		op := strings.ToUpper(strings.TrimSpace(e.Op))
+		switch op {
+		case "AND":
+			return predicateMatches(e.Left, policy) && predicateMatches(e.Right, policy)
+		case "OR":
+			if !policy.allowOr {
+				return false
+			}
+			return predicateMatches(e.Left, policy) && predicateMatches(e.Right, policy)
+		case "IS", "IS NOT":
+			if !policy.allowIsNull {
+				return false
+			}
+			return isNullCheckOperand(e.Left) && isNullLiteral(e.Right)
+		default:
+			if !isComparisonOp(op) {
+				return false
+			}
+			return isSimpleOperand(e.Left) && isSimpleOperand(e.Right)
+		}
+	case generator.UnaryExpr:
+		if strings.EqualFold(strings.TrimSpace(e.Op), "NOT") {
+			if !policy.allowNot {
+				return false
+			}
+			return predicateMatches(e.Expr, policy)
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 func isComparisonOp(op string) bool {
 	switch strings.TrimSpace(strings.ToUpper(op)) {
 	case "=", "<>", "<", "<=", ">", ">=", "<=>":
@@ -320,6 +381,18 @@ func isComparisonOp(op string) bool {
 	default:
 		return false
 	}
+}
+
+func isNullCheckOperand(expr generator.Expr) bool {
+	_, ok := expr.(generator.ColumnExpr)
+	return ok
+}
+
+func isNullLiteral(expr generator.Expr) bool {
+	if lit, ok := expr.(generator.LiteralExpr); ok {
+		return lit.Value == nil
+	}
+	return false
 }
 
 func isSimpleOperand(expr generator.Expr) bool {

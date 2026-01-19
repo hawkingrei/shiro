@@ -49,8 +49,11 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if query.Where != nil && gen.Config.Oracles.StrictPredicates && !isSimplePredicate(query.Where) {
-		return Result{OK: true, Oracle: o.Name()}
+	if query.Where != nil {
+		policy := predicatePolicyFor(gen)
+		if !predicateMatches(query.Where, policy) {
+			return Result{OK: true, Oracle: o.Name()}
+		}
 	}
 	if queryHasSubquery(query) {
 		return Result{OK: true, Oracle: o.Name()}

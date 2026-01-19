@@ -759,7 +759,7 @@ func astCandidates(p *parser.Parser, stmt string) []string {
 func selectCandidates(p *parser.Parser, n *ast.SelectStmt) []string {
 	base := restoreSQL(n)
 	var candidates []string
-	if n.With != nil {
+	if n.With != nil && !selectUsesCTE(n) {
 		candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
 			s.With = nil
 		}))
@@ -918,7 +918,7 @@ func selectCandidates(p *parser.Parser, n *ast.SelectStmt) []string {
 func setOprCandidates(p *parser.Parser, n *ast.SetOprStmt) []string {
 	base := restoreSQL(n)
 	var candidates []string
-	if n.With != nil {
+	if n.With != nil && !setOprUsesCTE(n) {
 		candidates = append(candidates, mutateSetOpr(p, base, func(u *ast.SetOprStmt) {
 			u.With = nil
 		}))
@@ -980,6 +980,107 @@ func restoreSQL(node ast.Node) string {
 		return ""
 	}
 	return b.String()
+}
+
+func selectUsesCTE(stmt *ast.SelectStmt) bool {
+	if stmt == nil || stmt.With == nil {
+		return false
+	}
+	names := cteNames(stmt.With)
+	if len(names) == 0 {
+		return false
+	}
+	if stmt.From == nil || stmt.From.TableRefs == nil {
+		return false
+	}
+	return tableRefsUsesNames(stmt.From.TableRefs, names)
+}
+
+func setOprUsesCTE(stmt *ast.SetOprStmt) bool {
+	if stmt == nil || stmt.With == nil {
+		return false
+	}
+	names := cteNames(stmt.With)
+	if len(names) == 0 {
+		return false
+	}
+	if stmt.SelectList == nil {
+		return false
+	}
+	for _, sel := range stmt.SelectList.Selects {
+		switch v := sel.(type) {
+		case *ast.SelectStmt:
+			if v.From != nil && v.From.TableRefs != nil && tableRefsUsesNames(v.From.TableRefs, names) {
+				return true
+			}
+		case *ast.SetOprStmt:
+			if setOprUsesCTE(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func cteNames(with *ast.WithClause) []string {
+	if with == nil {
+		return nil
+	}
+	names := make([]string, 0, len(with.CTEs))
+	for _, cte := range with.CTEs {
+		if cte == nil {
+			continue
+		}
+		name := strings.TrimSpace(cte.Name.O)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func tableRefsUsesNames(node ast.ResultSetNode, names []string) bool {
+	switch v := node.(type) {
+	case *ast.Join:
+		if tableRefsUsesNames(v.Left, names) {
+			return true
+		}
+		if tableRefsUsesNames(v.Right, names) {
+			return true
+		}
+	case *ast.TableSource:
+		return tableSourceUsesNames(v, names)
+	case *ast.SelectStmt:
+		if v.From != nil && v.From.TableRefs != nil {
+			return tableRefsUsesNames(v.From.TableRefs, names)
+		}
+	case *ast.SetOprStmt:
+		return setOprUsesCTE(v)
+	}
+	return false
+}
+
+func tableSourceUsesNames(source *ast.TableSource, names []string) bool {
+	if source == nil {
+		return false
+	}
+	switch v := source.Source.(type) {
+	case *ast.TableName:
+		for _, name := range names {
+			if strings.EqualFold(name, v.Name.O) {
+				return true
+			}
+		}
+	case *ast.Join:
+		return tableRefsUsesNames(v, names)
+	case *ast.SelectStmt:
+		if v.From != nil && v.From.TableRefs != nil {
+			return tableRefsUsesNames(v.From.TableRefs, names)
+		}
+	case *ast.SetOprStmt:
+		return setOprUsesCTE(v)
+	}
+	return false
 }
 
 func uniqueStrings(values []string) []string {
@@ -1060,7 +1161,9 @@ func applyDeepSimplifySet(stmt *ast.SetOprStmt) {
 	}
 	stmt.OrderBy = nil
 	stmt.Limit = nil
-	stmt.With = nil
+	if stmt.With != nil && !setOprUsesCTE(stmt) {
+		stmt.With = nil
+	}
 	if stmt.SelectList != nil && len(stmt.SelectList.Selects) > 0 {
 		stmt.SelectList.Selects = stmt.SelectList.Selects[:1]
 		for _, sel := range stmt.SelectList.Selects {

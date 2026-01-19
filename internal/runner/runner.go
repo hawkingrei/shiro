@@ -322,7 +322,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	concreteSig, err := r.signatureForSQLOnConn(qctx, conn, concreteSQL)
 	if err != nil {
-		if logWhitelistedSQLError(concreteSQL, err) {
+		if logWhitelistedSQLError(concreteSQL, err, r.cfg.Logging.Verbose) {
 			return false
 		}
 		if isMySQLError(err) && !isPanicError(err) {
@@ -345,7 +345,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	stmt, err := conn.PrepareContext(qctx, pq.SQL)
 	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err) {
+		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 			return false
 		}
 		if isMySQLError(err) && !isPanicError(err) {
@@ -364,7 +364,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
 	rows1, err := stmt.QueryContext(qctx, args2...)
 	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err) {
+		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 			return false
 		}
 		if isMySQLError(err) && !isPanicError(err) {
@@ -408,7 +408,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 
 	rows2, err := stmt.QueryContext(qctx, pq.Args...)
 	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err) {
+		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 			return false
 		}
 		if isMySQLError(err) && !isPanicError(err) {
@@ -590,7 +590,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 		concreteSQL := materializeSQL(pq.SQL, pq.Args)
 
 		concreteSig, sigErr2 := r.signatureForSQLOnConn(ctx, conn, concreteSQL)
-		if sigErr2 != nil && logWhitelistedSQLError(concreteSQL, sigErr2) {
+		if sigErr2 != nil && logWhitelistedSQLError(concreteSQL, sigErr2, r.cfg.Logging.Verbose) {
 			conn.Close()
 			continue
 		}
@@ -608,7 +608,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 
 		stmt, err := conn.PrepareContext(ctx, pq.SQL)
 		if err != nil {
-			if logWhitelistedSQLError(pq.SQL, err) {
+			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 				conn.Close()
 				continue
 			}
@@ -629,7 +629,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 		args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
 		rows1, err := stmt.QueryContext(ctx, args2...)
 		if err != nil {
-			if logWhitelistedSQLError(pq.SQL, err) {
+			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 				stmt.Close()
 				conn.Close()
 				continue
@@ -687,7 +687,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 
 		rows2, err := stmt.QueryContext(ctx, pq.Args...)
 		if err != nil {
-			if logWhitelistedSQLError(pq.SQL, err) {
+			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
 				stmt.Close()
 				conn.Close()
 				continue
@@ -944,12 +944,20 @@ func (r *Runner) execOnConn(ctx context.Context, conn *sql.Conn, sql string) err
 func (r *Runner) execSQL(ctx context.Context, sql string) error {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	_, err := r.exec.ExecContext(qctx, sql)
+	conn, err := r.exec.Conn(qctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(qctx, sql)
 	if err == nil {
 		r.recordInsert(sql)
 		return nil
 	}
-	if logWhitelistedSQLError(sql, err) {
+	if logWhitelistedSQLError(sql, err, r.cfg.Logging.Verbose) {
 		return err
 	}
 	if isMySQLError(err) && !isPanicError(err) {
@@ -1884,8 +1892,14 @@ func isPanicError(err error) bool {
 
 // sqlErrorWhitelist lists MySQL error codes considered fuzz-tool faults.
 // 1064 is the generic SQL syntax error, common for malformed generated SQL.
+// 1292 is a type truncation error triggered by type-mismatched predicates.
+// 1451 is a foreign key constraint failure when deleting/updating parent rows.
+// 1452 is a foreign key constraint failure during child insert/update.
 var sqlErrorWhitelist = map[uint16]struct{}{
 	1064: {},
+	1292: {},
+	1451: {},
+	1452: {},
 }
 
 func isWhitelistedSQLError(err error) (uint16, bool) {
@@ -1900,12 +1914,14 @@ func isWhitelistedSQLError(err error) (uint16, bool) {
 	return 0, false
 }
 
-func logWhitelistedSQLError(sqlText string, err error) bool {
+func logWhitelistedSQLError(sqlText string, err error, verbose bool) bool {
 	code, ok := isWhitelistedSQLError(err)
 	if !ok {
 		return false
 	}
-	util.Infof("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
+	if verbose {
+		util.Infof("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
+	}
 	return true
 }
 

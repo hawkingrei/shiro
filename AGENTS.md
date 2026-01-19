@@ -66,6 +66,11 @@
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
 - Using `EXPLAIN` in replayer avoids executing the buggy SQL again during dump.
 - Tracking inserts in-memory provides a lightweight reproduction script without exporting full data dumps.
+- TLP oracle must compare against the base query without the predicate; otherwise false positives occur.
+- CODDTest mappings are sensitive to float formatting; preserving raw string literals avoids rounding mismatches.
+- Suppressing whitelist logs unless verbose keeps non-verbose runs clean.
+- CREATE VIEW should not strip WITH if the query references CTEs; regenerate without CTE or keep WITH.
+- Avoid ORDER BY numeric literals (TiDB treats them as column positions).
 - CODDTest requires careful NULL handling; current guard only enables when relevant columns have no NULLs, but some CODDTest cases still trigger.
 - TLP still produces occasional mismatches even after skipping subqueries/aggregates/non-deterministic predicates.
 - Plan replayer tokens already include `.zip` in TiDB master; when using a template ending in `.zip`, avoid double suffix.
@@ -81,8 +86,6 @@
 - SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
 
 ## TODO
-- Further restrict CODDTest to avoid three-valued logic pitfalls (e.g., only simple predicates, no NOT/OR, avoid IS NULL).
-- Tighten TLP predicate shape (pure comparisons, no CASE/functions) to reduce remaining mismatches.
 - QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
 - QPG: switch to TiDB-native plan hash when it becomes available.
 - Case minimization: expand AST reducer coverage (IN list trimming, expression simplification, order-by reduction) and validate impact on DQP cases.
@@ -93,3 +96,5 @@
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
 - Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
 - Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.
+- Low priority: CODDTest tightening to only run on integer/boolean predicates to reduce noise.
+- Low priority: CERT gating by base_est_rows threshold to avoid small-sample estimator noise.

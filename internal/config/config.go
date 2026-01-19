@@ -120,7 +120,8 @@ type Logging struct {
 
 // OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
-	StrictPredicates bool `yaml:"strict_predicates"`
+	StrictPredicates bool   `yaml:"strict_predicates"`
+	PredicateLevel   string `yaml:"predicate_level"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -225,7 +226,7 @@ func defaultConfig() Config {
 			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
-		Oracles:  OracleConfig{StrictPredicates: true},
+		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict"},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
 			Enabled:             false,
