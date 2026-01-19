@@ -130,7 +130,7 @@ func queryHasWindow(query *generator.SelectQuery) bool {
 
 func queryDeterministic(query *generator.SelectQuery) bool {
 	if query == nil {
-		return false
+		return true
 	}
 	for _, item := range query.Items {
 		if !item.Expr.Deterministic() {
@@ -249,6 +249,10 @@ func exprHasWindow(expr generator.Expr) bool {
 	switch e := expr.(type) {
 	case generator.WindowExpr:
 		return true
+	case generator.SubqueryExpr:
+		return queryHasWindow(e.Query)
+	case generator.ExistsExpr:
+		return queryHasWindow(e.Query)
 	case generator.UnaryExpr:
 		return exprHasWindow(e.Expr)
 	case generator.BinaryExpr:
