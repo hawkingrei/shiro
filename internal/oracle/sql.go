@@ -95,6 +95,72 @@ func queryHasSubquery(query *generator.SelectQuery) bool {
 	return false
 }
 
+func queryHasWindow(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if exprHasWindow(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasWindow(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasWindow(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasWindow(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasWindow(ob.Expr) {
+			return true
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && exprHasWindow(join.On) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryDeterministic(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if !item.Expr.Deterministic() {
+			return false
+		}
+	}
+	if query.Where != nil && !query.Where.Deterministic() {
+		return false
+	}
+	if query.Having != nil && !query.Having.Deterministic() {
+		return false
+	}
+	for _, expr := range query.GroupBy {
+		if !expr.Deterministic() {
+			return false
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if !ob.Expr.Deterministic() {
+			return false
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && !join.On.Deterministic() {
+			return false
+		}
+	}
+	return true
+}
+
 func exprHasAggregate(expr generator.Expr) bool {
 	switch e := expr.(type) {
 	case generator.FuncExpr:
@@ -170,6 +236,46 @@ func exprHasSubquery(expr generator.Expr) bool {
 	case generator.FuncExpr:
 		for _, arg := range e.Args {
 			if exprHasSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func exprHasWindow(expr generator.Expr) bool {
+	switch e := expr.(type) {
+	case generator.WindowExpr:
+		return true
+	case generator.UnaryExpr:
+		return exprHasWindow(e.Expr)
+	case generator.BinaryExpr:
+		return exprHasWindow(e.Left) || exprHasWindow(e.Right)
+	case generator.CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasWindow(w.When) || exprHasWindow(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasWindow(e.Else)
+		}
+		return false
+	case generator.InExpr:
+		if exprHasWindow(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasWindow(item) {
+				return true
+			}
+		}
+		return false
+	case generator.FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasWindow(arg) {
 				return true
 			}
 		}
