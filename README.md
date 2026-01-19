@@ -29,6 +29,7 @@ Set `workers` in `config.yaml`. Each worker runs in its own database (`<database
 
 ## SQL validity logging
 Every `report_interval_seconds`, Shiro logs the ratio of parser-valid SQL to total SQL observed in that interval.
+When QPG is enabled and `logging.verbose` is true, it also prints per-interval QPG coverage deltas (plans/shapes/ops/join types).
 
 ## EXISTS/IN coverage
 `features.not_exists` and `features.not_in` toggle negation forms, while `weights.features.not_exists_prob` and `weights.features.not_in_prob` control how often NOT EXISTS/NOT IN are generated.
@@ -45,6 +46,7 @@ QPG works alongside bandits: bandit weights are applied first, then QPG can temp
 ## Query Plan Guidance (QPG)
 Enable `qpg.enabled` to collect EXPLAIN plan signatures. When a repeated plan is observed, Shiro can mutate the database state (index/analyze) to explore new plans.
 Configure `qpg.explain_format` (default `brief`), `qpg.mutation_prob` (0-100), and the `qpg.seen_sql_*` cache controls.
+Default QPG cache values are tuned for longer runs: `seen_sql_ttl_seconds=60`, `seen_sql_max=4096`, `seen_sql_sweep_seconds=300`.
 QPG also tracks operator/shape coverage to temporarily boost join/aggregate/subquery generation when coverage stalls.
 To reduce overhead, QPG caches recent SQL strings and skips EXPLAIN for repeated queries within a short window.
 When `EXPLAIN FORMAT='json'` is used, QPG extracts operator IDs from the JSON to continue coverage tracking.

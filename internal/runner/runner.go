@@ -1242,12 +1242,6 @@ func (r *Runner) observePlanInfo(ctx context.Context, info planInfo) {
 		return
 	}
 	obs := r.qpgState.observe(info)
-	if obs.newPlan && r.cfg.Logging.Verbose && r.qpgState.canLog() {
-		util.Infof("qpg new plan ops=%d join=%t agg=%t", len(info.operators), info.hasJoin, info.hasAgg)
-	}
-	if obs.newJoinType && r.cfg.Logging.Verbose && r.qpgState.canLog() {
-		util.Infof("qpg new join type join=%v", info.joins)
-	}
 	if !obs.newPlan && r.cfg.QPG.MutationProb > 0 && util.Chance(r.gen.Rand, r.cfg.QPG.MutationProb) {
 		r.qpgMutate(ctx)
 	}
@@ -1299,15 +1293,15 @@ type qpgObservation struct {
 func newQPGState(cfg config.QPGConfig) *qpgState {
 	ttl := cfg.SeenSQLTTLSeconds
 	if ttl <= 0 {
-		ttl = 3
+		ttl = 60
 	}
 	maxEntries := cfg.SeenSQLMax
 	if maxEntries <= 0 {
-		maxEntries = 512
+		maxEntries = 4096
 	}
 	sweep := cfg.SeenSQLSweepSeconds
 	if sweep <= 0 {
-		sweep = 10
+		sweep = 300
 	}
 	return &qpgState{
 		seenPlans:     make(map[string]struct{}),
@@ -2250,6 +2244,10 @@ func (r *Runner) startStatsLogger() func() {
 		var lastNotEx int64
 		var lastIn int64
 		var lastNotIn int64
+		var lastPlans int
+		var lastShapes int
+		var lastOps int
+		var lastJoins int
 		for {
 			select {
 			case <-ticker.C:
@@ -2285,7 +2283,25 @@ func (r *Runner) startStatsLogger() func() {
 					)
 					if r.cfg.QPG.Enabled && r.cfg.Logging.Verbose && r.qpgState != nil {
 						plans, shapes, ops, joins := r.qpgState.stats()
-						util.Infof("qpg stats plans=%d shapes=%d ops=%d join_types=%d", plans, shapes, ops, joins)
+						deltaPlans := plans - lastPlans
+						deltaShapes := shapes - lastShapes
+						deltaOps := ops - lastOps
+						deltaJoins := joins - lastJoins
+						lastPlans = plans
+						lastShapes = shapes
+						lastOps = ops
+						lastJoins = joins
+						util.Infof(
+							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d)",
+							plans,
+							deltaPlans,
+							shapes,
+							deltaShapes,
+							ops,
+							deltaOps,
+							joins,
+							deltaJoins,
+						)
 					}
 				}
 			case <-done:
