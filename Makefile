@@ -11,6 +11,7 @@ help:
 	@echo "  web     - Build static web UI (Next.js)"
 
 build:
+	mkdir -p bin
 	go build -o bin/shiro ./cmd/shiro
 
 test:
