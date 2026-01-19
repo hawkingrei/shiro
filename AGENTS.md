@@ -81,8 +81,6 @@
 - SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
 
 ## TODO
-- Re-run `go mod tidy` / `go build` after dependency config changes.
-- Consider adding more join types and window function variations once dependencies are stable.
 - Evaluate remaining false positives for TLP/DQP and add oracle-specific constraints if needed.
 - Further restrict CODDTest to avoid three-valued logic pitfalls (e.g., only simple predicates, no NOT/OR, avoid IS NULL).
 - Tighten TLP predicate shape (pure comparisons, no CASE/functions) to reduce remaining mismatches.
