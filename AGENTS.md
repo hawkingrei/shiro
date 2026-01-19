@@ -26,6 +26,8 @@
 - Added join depth cap, USING/CROSS joins, and extra DDL coverage (index/view/check/fk).
 - Added concurrency via workers with per-database isolation; SQL validity ratio logging per interval.
 - Added plan-cache-only mode with PREPARE/EXECUTE and `@@last_plan_from_cache` verification.
+- Plan cache paths now capture `CONNECTION_ID()` and use `EXPLAIN FOR CONNECTION` to feed QPG plan-shape tracking (prepared statements only).
+- Plan cache miss handling checks `SHOW WARNINGS`; a miss with no warnings is treated as an error and reported.
 - On bug, rotate to a fresh database (`<database>_rN`) and reinitialize schema/data to avoid cross-case contamination.
 - Default config now lives in code (`defaultConfig`) and is printed at startup; `oracles.strict_predicates` is true by default with a config toggle to loosen it.
 - CODDTest only runs when the referenced columns have no NULLs; NULL creates unknown truth values and breaks the CASE mapping.
@@ -71,6 +73,12 @@
 - Feature-level bandit adaptation needs to set generator weights per-query and clear them after the query finishes.
 - Further reducing CODDTest/TLP false positives required limiting to simple predicates (AND of comparisons) and deterministic, non-subquery expressions.
 - Plan cache in TiDB master does not appear to cache CTE-based PREPARE statements; plan-cache-only mode skips CTEs.
+- Plan-cache sequence must run EXECUTE immediately before SHOW WARNINGS; otherwise warnings belong to the last `SELECT @@last_plan_from_cache`.
+- `EXPLAIN FOR CONNECTION` and `@@last_plan_from_cache` must be queried right after the target EXECUTE to avoid interleaving effects.
+- Go mysql driver can emit `busy buffer` if result sets are not fully drained; ensure rows are consumed before closing statement/connection.
+- Reports now emit `origin_result` from the second EXECUTE (signature + sample rows) to anchor prepared vs. original comparisons.
+- Prepared SQL in reports must use `SET @pN=...` + `EXECUTE ... USING @pN` form; limit PREPARE parameters to <= 8.
+- SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
 
 ## TODO
 - Re-run `go mod tidy` / `go build` after dependency config changes.
@@ -87,3 +95,4 @@
 - Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
 - Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
+- Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.

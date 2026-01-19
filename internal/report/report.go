@@ -64,11 +64,15 @@ func (r *Reporter) NewCase() (Case, error) {
 
 // WriteSummary writes summary.json into the case directory.
 func (r *Reporter) WriteSummary(c Case, summary Summary) error {
-	data, err := json.MarshalIndent(summary, "", "  ")
+	f, err := os.Create(filepath.Join(c.Dir, "summary.json"))
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(c.Dir, "summary.json"), data, 0o644)
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
+	return enc.Encode(summary)
 }
 
 // WriteSQL writes a SQL file from the provided statements.

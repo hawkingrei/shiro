@@ -33,6 +33,15 @@ type PreparedQuery struct {
 	ArgTypes []schema.ColumnType
 }
 
+// maxPreparedParams caps parameters for prepared statements.
+// This keeps generated queries readable and avoids driver/engine limits.
+const maxPreparedParams = 8
+
+const (
+	preparedExtraPredicateProb = 60
+	preparedAggExtraProb       = 50
+)
+
 // New constructs a Generator with a seed.
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 	if seed == 0 {
@@ -310,7 +319,9 @@ func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	for i := 0; i < len(candidates); i++ {
 		pick := candidates[g.Rand.Intn(len(candidates))]
 		if pq := pick(); pq.SQL != "" {
-			return pq
+			if len(pq.Args) <= maxPreparedParams {
+				return pq
+			}
 		}
 	}
 	return PreparedQuery{}
@@ -818,6 +829,34 @@ func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 	}
 }
 
+// orderedArgs expects comparable values of the same type and returns them ordered.
+// If types differ, it returns inputs unchanged.
+func orderedArgs(a, b any) (any, any) {
+	switch v := a.(type) {
+	case int:
+		vb, ok := b.(int)
+		if ok && v > vb {
+			return vb, v
+		}
+	case int64:
+		vb, ok := b.(int64)
+		if ok && v > vb {
+			return vb, v
+		}
+	case float64:
+		vb, ok := b.(float64)
+		if ok && v > vb {
+			return vb, v
+		}
+	case string:
+		vb, ok := b.(string)
+		if ok && v > vb {
+			return vb, v
+		}
+	}
+	return a, b
+}
+
 func (g *Generator) exprSQL(expr Expr) string {
 	b := SQLBuilder{}
 	expr.Build(&b)
@@ -829,10 +868,34 @@ func (g *Generator) preparedSingleTable() PreparedQuery {
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
-	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
-	arg := g.literalForColumn(col).Value
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", col.Name, tbl.Name, col.Name)
-	return PreparedQuery{SQL: query, Args: []any{arg}, ArgTypes: []schema.ColumnType{col.Type}}
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			// Avoid primary keys to reduce overly selective filters.
+			continue
+		}
+		cols = append(cols, col)
+	}
+	if len(cols) == 0 {
+		return PreparedQuery{}
+	}
+	col1 := cols[g.Rand.Intn(len(cols))]
+	arg1 := g.literalForColumn(col1).Value
+	arg2 := g.literalForColumn(col1).Value
+	arg1, arg2 = orderedArgs(arg1, arg2)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", col1.Name, tbl.Name, col1.Name, col1.Name)
+	args := []any{arg1, arg2}
+	argTypes := []schema.ColumnType{col1.Type, col1.Type}
+	if len(cols) > 1 && util.Chance(g.Rand, preparedExtraPredicateProb) {
+		col2 := cols[g.Rand.Intn(len(cols))]
+		if col2.Name != col1.Name {
+			arg3 := g.literalForColumn(col2).Value
+			query += fmt.Sprintf(" AND %s <> ?", col2.Name)
+			args = append(args, arg3)
+			argTypes = append(argTypes, col2.Type)
+		}
+	}
+	return PreparedQuery{SQL: query, Args: args, ArgTypes: argTypes}
 }
 
 func (g *Generator) preparedJoinQuery() PreparedQuery {
@@ -851,21 +914,27 @@ func (g *Generator) preparedJoinQuery() PreparedQuery {
 	if !ok {
 		return PreparedQuery{}
 	}
-	leftArg := g.literalForColumn(leftParam).Value
-	rightArg := g.literalForColumn(rightParam).Value
+	leftArg1 := g.literalForColumn(leftParam).Value
+	leftArg2 := g.literalForColumn(leftParam).Value
+	leftArg1, leftArg2 = orderedArgs(leftArg1, leftArg2)
+	rightArg1 := g.literalForColumn(rightParam).Value
+	rightArg2 := g.literalForColumn(rightParam).Value
+	rightArg1, rightArg2 = orderedArgs(rightArg1, rightArg2)
 	query := fmt.Sprintf(
-		"SELECT %s.%s, %s.%s FROM %s JOIN %s ON %s.%s = %s.%s WHERE %s.%s = ? AND %s.%s = ?",
+		"SELECT %s.%s, %s.%s FROM %s JOIN %s ON %s.%s = %s.%s WHERE %s.%s > ? AND %s.%s < ? AND %s.%s > ? AND %s.%s < ?",
 		leftTbl.Name, leftParam.Name,
 		rightTbl.Name, rightParam.Name,
 		leftTbl.Name, rightTbl.Name,
 		leftTbl.Name, leftJoin.Name, rightTbl.Name, rightJoin.Name,
 		leftTbl.Name, leftParam.Name,
+		leftTbl.Name, leftParam.Name,
+		rightTbl.Name, rightParam.Name,
 		rightTbl.Name, rightParam.Name,
 	)
 	return PreparedQuery{
 		SQL:      query,
-		Args:     []any{leftArg, rightArg},
-		ArgTypes: []schema.ColumnType{leftParam.Type, rightParam.Type},
+		Args:     []any{leftArg1, leftArg2, rightArg1, rightArg2},
+		ArgTypes: []schema.ColumnType{leftParam.Type, leftParam.Type, rightParam.Type, rightParam.Type},
 	}
 }
 
@@ -874,14 +943,37 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
-	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
-	arg := g.literalForColumn(col).Value
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	if len(cols) == 0 {
+		return PreparedQuery{}
+	}
+	col := cols[g.Rand.Intn(len(cols))]
+	arg1 := g.literalForColumn(col).Value
+	arg2 := g.literalForColumn(col).Value
+	arg1, arg2 = orderedArgs(arg1, arg2)
 	selectSQL := "COUNT(*) AS cnt"
-	if g.isNumericType(col.Type) && util.Chance(g.Rand, 50) {
+	if g.isNumericType(col.Type) && util.Chance(g.Rand, preparedAggExtraProb) {
 		selectSQL = "COUNT(*) AS cnt, SUM(" + col.Name + ") AS sum1"
 	}
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", selectSQL, tbl.Name, col.Name)
-	return PreparedQuery{SQL: query, Args: []any{arg}, ArgTypes: []schema.ColumnType{col.Type}}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", selectSQL, tbl.Name, col.Name, col.Name)
+	args := []any{arg1, arg2}
+	argTypes := []schema.ColumnType{col.Type, col.Type}
+	if len(cols) > 1 && util.Chance(g.Rand, preparedAggExtraProb) {
+		col2 := cols[g.Rand.Intn(len(cols))]
+		if col2.Name != col.Name {
+			arg3 := g.literalForColumn(col2).Value
+			query += fmt.Sprintf(" AND %s <> ?", col2.Name)
+			args = append(args, arg3)
+			argTypes = append(argTypes, col2.Type)
+		}
+	}
+	return PreparedQuery{SQL: query, Args: args, ArgTypes: argTypes}
 }
 
 func (g *Generator) preparedCTEQuery() PreparedQuery {
