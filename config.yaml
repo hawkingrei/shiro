@@ -106,9 +106,9 @@ qpg:
   enabled: true
   explain_format: "brief"
   mutation_prob: 30
-  seen_sql_ttl_seconds: 3
-  seen_sql_max: 512
-  seen_sql_sweep_seconds: 10
+  seen_sql_ttl_seconds: 60
+  seen_sql_max: 4096
+  seen_sql_sweep_seconds: 300
 
 minimize:
   enabled: true

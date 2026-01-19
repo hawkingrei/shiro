@@ -232,9 +232,9 @@ func defaultConfig() Config {
 			Enabled:             false,
 			ExplainFormat:       "brief",
 			MutationProb:        30,
-			SeenSQLTTLSeconds:   3,
-			SeenSQLMax:          512,
-			SeenSQLSweepSeconds: 10,
+			SeenSQLTTLSeconds:   60,
+			SeenSQLMax:          4096,
+			SeenSQLSweepSeconds: 300,
 		},
 		Minimize: MinimizeConfig{
 			Enabled:        true,
