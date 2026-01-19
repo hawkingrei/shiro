@@ -43,7 +43,13 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if len(query.With) > 0 {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if query.Limit != nil && len(query.OrderBy) == 0 {
+	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil || queryHasAggregate(query) || queryHasWindow(query) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
+	if !queryDeterministic(query) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
+	if query.Where != nil && gen.Config.Oracles.StrictPredicates && !isSimplePredicate(query.Where) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
 	if queryHasSubquery(query) {

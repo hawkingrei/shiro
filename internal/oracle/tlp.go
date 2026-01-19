@@ -41,10 +41,10 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil || queryHasAggregate(query) || queryHasSubquery(query) {
+	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil || queryHasAggregate(query) || queryHasSubquery(query) || queryHasWindow(query) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if !query.Where.Deterministic() {
+	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
 	if gen.Config.Oracles.StrictPredicates && !isSimplePredicate(query.Where) {
