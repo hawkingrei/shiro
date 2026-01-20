@@ -615,6 +615,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 			},
 		}
 		r.handleResult(ctx, result)
+		return true
 	}
 	if signatureMismatch && !hasWarnings {
 		result := oracle.Result{
@@ -631,6 +632,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 			},
 		}
 		r.handleResult(ctx, result)
+		return true
 	}
 	if hit2 != 1 {
 		if !hasWarnings {
@@ -650,6 +652,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 				},
 			}
 			r.handleResult(ctx, result)
+			return true
 		}
 	}
 	return false
