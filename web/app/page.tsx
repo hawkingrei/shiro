@@ -33,6 +33,18 @@ type ReportPayload = {
   cases: CaseEntry[];
 };
 
+const reasonForCase = (c: CaseEntry): string => {
+  if (c.error) return "exec_error";
+  const details = c.details as Record<string, unknown> | null;
+  const missWithoutWarnings = Boolean(details && details.miss_without_warnings);
+  const expected = c.expected || "";
+  const actual = c.actual || "";
+  if (missWithoutWarnings) return "cache_miss_no_warnings";
+  if (expected.startsWith("cnt=") && actual.startsWith("cnt=") && expected !== actual) return "result_mismatch";
+  if (expected.startsWith("last_plan_from_cache=") && expected !== actual) return "cache_miss";
+  return "other";
+};
+
 export default function Page() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
   const [query, setQuery] = useState("");
@@ -78,18 +90,6 @@ export default function Page() {
   const planSigFormatOptions = useMemo(() => {
     return Array.from(new Set(cases.map((c) => c.plan_signature_format).filter(Boolean))).sort();
   }, [cases]);
-
-  const reasonForCase = (c: CaseEntry): string => {
-    if (c.error) return "exec_error";
-    const details = c.details as Record<string, unknown> | null;
-    const missWithoutWarnings = Boolean(details && details.miss_without_warnings);
-    const expected = c.expected || "";
-    const actual = c.actual || "";
-    if (missWithoutWarnings) return "cache_miss_no_warnings";
-    if (expected.startsWith("cnt=") && actual.startsWith("cnt=") && expected !== actual) return "result_mismatch";
-    if (expected.startsWith("last_plan_from_cache=") && expected !== actual) return "cache_miss";
-    return "other";
-  };
 
   const reasonOptions = useMemo(() => {
     return Array.from(new Set(cases.map((c) => reasonForCase(c)))).sort();

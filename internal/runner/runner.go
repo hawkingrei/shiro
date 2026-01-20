@@ -1423,9 +1423,6 @@ func normalizeSignatureValue(raw []byte, roundScale int) string {
 	if roundScale <= 0 {
 		return text
 	}
-	if !strings.ContainsAny(text, ".eE") {
-		return text
-	}
 	if !looksNumeric(text) {
 		return text
 	}
@@ -1450,12 +1447,19 @@ func looksNumeric(s string) bool {
 		}
 		switch r {
 		case '+', '-', '.', 'e', 'E':
+			if (r == 'e' || r == 'E') && !hasDigit {
+				return false
+			}
 			if (r == '+' || r == '-') && i > 0 && s[i-1] != 'e' && s[i-1] != 'E' {
 				return false
 			}
 		default:
 			return false
 		}
+	}
+	last := s[len(s)-1]
+	if last == 'e' || last == 'E' || last == '+' || last == '-' {
+		return false
 	}
 	return hasDigit
 }
@@ -1490,10 +1494,10 @@ func (r *Runner) signatureRoundScale() int {
 }
 
 func (r *Runner) planCacheRoundScale() int {
-	if r.cfg.Signature.PlanCacheRoundScale > 0 {
-		return r.cfg.Signature.PlanCacheRoundScale
+	if r.cfg.Signature.PlanCacheRoundScale < 0 {
+		return r.signatureRoundScale()
 	}
-	return r.signatureRoundScale()
+	return r.cfg.Signature.PlanCacheRoundScale
 }
 
 func (r *Runner) observePlan(ctx context.Context, sqlText string) {
