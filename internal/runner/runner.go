@@ -476,15 +476,23 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	hasWarnings1 := warnErr1 == nil && len(warnings1) > 0
 	if cacheSig1 != baselinePreparedSig && (hit1 == 1 || (hit1 == 0 && !hasWarnings1)) {
-		sqlSeq := planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID)
-		sqlSeq = append([]string{
+		sqlSeq := []string{
 			"SET SESSION tidb_enable_prepared_plan_cache = 0",
 			"SET SESSION tidb_enable_plan_cache_for_param = 0",
-		}, sqlSeq...)
+		}
+		sqlSeq = append(sqlSeq, formatPrepareSQL(pq.SQL))
+		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
+		sqlSeq = append(sqlSeq, "SELECT @@last_plan_from_cache")
 		sqlSeq = append(sqlSeq,
 			"SET SESSION tidb_enable_prepared_plan_cache = 1",
 			"SET SESSION tidb_enable_plan_cache_for_param = 1",
 		)
+		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
+		sqlSeq = append(sqlSeq, "SELECT @@last_plan_from_cache")
+		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
+		sqlSeq = append(sqlSeq, "SHOW WARNINGS")
+		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
+		sqlSeq = append(sqlSeq, fmt.Sprintf("EXPLAIN FOR CONNECTION %d", connID))
 		result := oracle.Result{
 			OK:       false,
 			Oracle:   "PlanCache",
@@ -500,6 +508,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 			},
 		}
 		r.handleResult(ctx, result)
+		return true
 	}
 
 	rows2, err := stmt.QueryContext(qctx, pq.Args...)
@@ -1417,6 +1426,9 @@ func normalizeSignatureValue(raw []byte, roundScale int) string {
 	if !strings.ContainsAny(text, ".eE") {
 		return text
 	}
+	if !looksNumeric(text) {
+		return text
+	}
 	val, err := strconv.ParseFloat(text, 64)
 	if err != nil {
 		return text
@@ -1424,6 +1436,28 @@ func normalizeSignatureValue(raw []byte, roundScale int) string {
 	scale := math.Pow10(roundScale)
 	val = math.Round(val*scale) / scale
 	return strconv.FormatFloat(val, 'f', roundScale, 64)
+}
+
+func looksNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	hasDigit := false
+	for i, r := range s {
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+			continue
+		}
+		switch r {
+		case '+', '-', '.', 'e', 'E':
+			if (r == '+' || r == '-') && i > 0 && s[i-1] != 'e' && s[i-1] != 'E' {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return hasDigit
 }
 
 func (r *Runner) signatureForSQL(ctx context.Context, sqlText string) (db.Signature, error) {
