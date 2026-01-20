@@ -204,47 +204,50 @@ export default function Page() {
       </header>
 
       <main className="cases">
-        {filtered.map((c, idx) => (
-          <details className="case" key={c.id || idx}>
-            <summary>
-              <span className="case__title">
-                {c.timestamp} {c.oracle}
-              </span>
-              {reasonForCase(c) !== "other" && <span className="pill">{reasonForCase(c).replace(/_/g, " ")}</span>}
-              {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
-              {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
-              {c.plan_signature && <span className="pill">plan {c.plan_signature.slice(0, 10)}</span>}
-              {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
-            </summary>
-            <div className="case__grid">
-              <div>
-                <div className="label">Expected</div>
-                <pre>{c.expected || ""}</pre>
-                <div className="label">Actual</div>
-                <pre>{c.actual || ""}</pre>
-                <div className="label">Error</div>
-                <pre>{c.error || ""}</pre>
+        {filtered.map((c, idx) => {
+          const reasonLabel = reasonForCase(c);
+          return (
+            <details className="case" key={c.id || idx}>
+              <summary>
+                <span className="case__title">
+                  {c.timestamp} {c.oracle}
+                </span>
+                {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
+                {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
+                {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
+                {c.plan_signature && <span className="pill">plan {c.plan_signature.slice(0, 10)}</span>}
+                {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
+              </summary>
+              <div className="case__grid">
+                <div>
+                  <div className="label">Expected</div>
+                  <pre>{c.expected || ""}</pre>
+                  <div className="label">Actual</div>
+                  <pre>{c.actual || ""}</pre>
+                  <div className="label">Error</div>
+                  <pre>{c.error || ""}</pre>
+                </div>
+                <div>
+                  <div className="label">SQL</div>
+                  <pre>{(c.sql || []).join("\n\n")}</pre>
+                </div>
+                <div>
+                  {Object.keys(c.files || {}).map((key) => {
+                    const f = c.files[key];
+                    if (!f?.content) return null;
+                    const label = f.truncated ? `${f.name} (truncated)` : f.name;
+                    return (
+                      <div key={key}>
+                        <div className="label">{label}</div>
+                        <pre>{f.content}</pre>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div>
-                <div className="label">SQL</div>
-                <pre>{(c.sql || []).join("\n\n")}</pre>
-              </div>
-              <div>
-                {Object.keys(c.files || {}).map((key) => {
-                  const f = c.files[key];
-                  if (!f?.content) return null;
-                  const label = f.truncated ? `${f.name} (truncated)` : f.name;
-                  return (
-                    <div key={key}>
-                      <div className="label">{label}</div>
-                      <pre>{f.content}</pre>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </details>
-        ))}
+            </details>
+          );
+        })}
       </main>
     </div>
   );

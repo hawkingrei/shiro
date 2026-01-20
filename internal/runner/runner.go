@@ -446,7 +446,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	hit1, err := r.lastPlanFromCache(ctx, conn)
+	hit1, err := r.lastPlanFromCache(qctx, conn)
 	if err != nil {
 		return false
 	}
@@ -468,7 +468,10 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		r.handleResult(ctx, result)
 		return true
 	}
-	warnings1, warnErr1 := r.warningsOnConn(ctx, conn)
+	warnings1, warnErr1 := r.warningsOnConn(qctx, conn)
+	if warnErr1 != nil {
+		return false
+	}
 	hasWarnings1 := warnErr1 == nil && len(warnings1) > 0
 	if cacheSig1 != baselinePreparedSig && (hit1 == 1 || (hit1 == 0 && !hasWarnings1)) {
 		result := oracle.Result{
@@ -533,7 +536,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	signatureMismatch := preparedSig != concreteSig
 
-	hit2, err := r.lastPlanFromCache(ctx, conn)
+	hit2, err := r.lastPlanFromCache(qctx, conn)
 	if err != nil {
 		return false
 	}
@@ -555,7 +558,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		return true
 	}
 
-	warnings, warnErr := r.warningsOnConn(ctx, conn)
+	warnings, warnErr := r.warningsOnConn(qctx, conn)
 
 	rowsExplain, err := stmt.QueryContext(qctx, pq.Args...)
 	if err == nil {
@@ -728,7 +731,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		"columns":   originCols,
 		"rows":      originRows,
 	}
-	hit2, err := r.lastPlanFromCache(ctx, conn)
+	hit2, err := r.lastPlanFromCache(qctx, conn)
 	if err != nil {
 		return true, false
 	}
@@ -749,7 +752,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		r.handleResult(ctx, result)
 		return true, true
 	}
-	warnings, warnErr := r.warningsOnConn(ctx, conn)
+	warnings, warnErr := r.warningsOnConn(qctx, conn)
 	signatureMismatch := cacheSig != baselineSig
 
 	if signatureMismatch {
