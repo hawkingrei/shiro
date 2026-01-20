@@ -59,7 +59,6 @@ func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.Colu
 			out[i] = g.nextArgForType(types[i], out[i])
 			continue
 		}
-		out[i] = out[i]
 	}
 	return out
 }
