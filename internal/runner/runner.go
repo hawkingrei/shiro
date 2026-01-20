@@ -476,10 +476,19 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	hasWarnings1 := warnErr1 == nil && len(warnings1) > 0
 	if cacheSig1 != baselinePreparedSig && (hit1 == 1 || (hit1 == 0 && !hasWarnings1)) {
+		sqlSeq := planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID)
+		sqlSeq = append([]string{
+			"SET SESSION tidb_enable_prepared_plan_cache = 0",
+			"SET SESSION tidb_enable_plan_cache_for_param = 0",
+		}, sqlSeq...)
+		sqlSeq = append(sqlSeq,
+			"SET SESSION tidb_enable_prepared_plan_cache = 1",
+			"SET SESSION tidb_enable_plan_cache_for_param = 1",
+		)
 		result := oracle.Result{
 			OK:       false,
 			Oracle:   "PlanCache",
-			SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
+			SQL:      sqlSeq,
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", baselinePreparedSig.Count, baselinePreparedSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", cacheSig1.Count, cacheSig1.Checksum),
 			Details: map[string]any{

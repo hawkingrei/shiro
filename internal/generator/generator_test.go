@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pingcap/tidb/pkg/parser"
@@ -87,6 +88,83 @@ func TestGeneratorQueryConstraints(t *testing.T) {
 			}
 		}
 		checkExprTree(t, gen, q)
+	}
+}
+
+func TestCreateTablePartitionedSQL(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.PartitionTables = true
+	cfg.Weights.Features.PartitionProb = 100
+	state := schema.State{}
+	gen := New(cfg, &state, 1)
+	tbl := gen.GenerateTable()
+	tbl.Partitioned = true
+	tbl.PartitionCount = 3
+
+	sql := gen.CreateTableSQL(tbl)
+	if !strings.Contains(sql, "PARTITION BY HASH") {
+		t.Fatalf("expected partition clause, got: %s", sql)
+	}
+	p := parser.New()
+	if _, _, err := p.Parse(sql, "", ""); err != nil {
+		t.Fatalf("parse failed: %v\nsql=%s", err, sql)
+	}
+
+	tbl.Partitioned = false
+	sql = gen.CreateTableSQL(tbl)
+	if strings.Contains(sql, "PARTITION BY HASH") {
+		t.Fatalf("unexpected partition clause when disabled: %s", sql)
+	}
+}
+
+func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.NonPreparedPlanCache = true
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeDecimal},
+					{Name: "c1", Type: schema.TypeDouble},
+				},
+				Partitioned: true,
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeDecimal},
+					{Name: "c1", Type: schema.TypeVarchar},
+				},
+				Partitioned: false,
+			},
+		},
+	}
+	gen := New(cfg, &state, 2)
+	pq := gen.GenerateNonPreparedPlanCacheQuery()
+	if pq.SQL == "" {
+		t.Fatalf("expected non-prepared query")
+	}
+	if strings.Contains(pq.SQL, "t0") {
+		t.Fatalf("expected non-partitioned table only, got: %s", pq.SQL)
+	}
+	if len(pq.Args) == 0 || len(pq.Args) != len(pq.ArgTypes) {
+		t.Fatalf("args/types mismatch: args=%d types=%d", len(pq.Args), len(pq.ArgTypes))
+	}
+	p := parser.New()
+	if _, _, err := p.Parse(pq.SQL, "", ""); err != nil {
+		t.Fatalf("parse failed: %v\nsql=%s", err, pq.SQL)
+	}
+	if strings.Count(pq.SQL, "?") != len(pq.Args) {
+		t.Fatalf("placeholder count mismatch: sql=%s args=%d", pq.SQL, len(pq.Args))
 	}
 }
 
