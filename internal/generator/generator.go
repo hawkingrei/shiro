@@ -228,6 +228,9 @@ func (g *Generator) AddForeignKeySQL(state *schema.State) string {
 	if child.Name == parent.Name {
 		return ""
 	}
+	if child.Partitioned || parent.Partitioned {
+		return ""
+	}
 	childCol, parentCol := g.pickForeignKeyColumns(child, parent)
 	if childCol.Name == "" || parentCol.Name == "" {
 		return ""
