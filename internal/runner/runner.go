@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -326,7 +328,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
 		return false
 	}
-	concreteSig, err := r.signatureForSQLOnConn(qctx, conn, concreteSQL)
+	concreteSig, err := r.signatureForSQLOnConn(qctx, conn, concreteSQL, r.planCacheRoundScale())
 	if err != nil {
 		if logWhitelistedSQLError(concreteSQL, err, r.cfg.Logging.Verbose) {
 			return false
@@ -401,7 +403,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		}
 		return false
 	}
-	baselinePreparedSig, err := signatureFromRows(rowsBase)
+	baselinePreparedSig, err := signatureFromRows(rowsBase, r.planCacheRoundScale())
 	rowsBase.Close()
 	if err != nil {
 		return false
@@ -441,7 +443,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		}
 		return false
 	}
-	cacheSig1, err := signatureFromRows(rows1)
+	cacheSig1, err := signatureFromRows(rows1, r.planCacheRoundScale())
 	rows1.Close()
 	if err != nil {
 		return false
@@ -524,7 +526,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		}
 		return false
 	}
-	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit)
+	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
 	rows2.Close()
 	if err != nil {
 		return false
@@ -656,7 +658,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 	}
 
 	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_non_prepared_plan_cache = 0")
-	baselineSig, err := r.signatureForSQLOnConn(qctx, conn, sql2)
+	baselineSig, err := r.signatureForSQLOnConn(qctx, conn, sql2, r.planCacheRoundScale())
 	if err != nil {
 		if logWhitelistedSQLError(sql2, err, r.cfg.Logging.Verbose) {
 			return true, false
@@ -695,7 +697,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		}
 		return true, false
 	}
-	if _, err := signatureFromRows(rows1); err != nil {
+	if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
 		rows1.Close()
 		return true, false
 	}
@@ -721,7 +723,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		}
 		return true, false
 	}
-	cacheSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit)
+	cacheSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
 	rows2.Close()
 	if err != nil {
 		return true, false
@@ -831,7 +833,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 		r.observeSQL(pq.SQL, nil)
 		concreteSQL := materializeSQL(pq.SQL, pq.Args)
 
-		concreteSig, sigErr2 := r.signatureForSQLOnConn(ctx, conn, concreteSQL)
+		concreteSig, sigErr2 := r.signatureForSQLOnConn(ctx, conn, concreteSQL, r.planCacheRoundScale())
 		if sigErr2 != nil && logWhitelistedSQLError(concreteSQL, sigErr2, r.cfg.Logging.Verbose) {
 			conn.Close()
 			continue
@@ -913,7 +915,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 			}
 			continue
 		}
-		if _, err := signatureFromRows(rows1); err != nil {
+		if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
 			rows1.Close()
 			stmt.Close()
 			conn.Close()
@@ -971,7 +973,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 			}
 			continue
 		}
-		preparedSig, originCols, originRows, sigErr := signatureAndSampleFromRows(rows2, originSampleLimit)
+		preparedSig, originCols, originRows, sigErr := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
 		rows2.Close()
 		if sigErr != nil {
 			stmt.Close()
@@ -1309,7 +1311,7 @@ func drainRows(rows *sql.Rows) error {
 	return rows.Err()
 }
 
-func signatureFromRows(rows *sql.Rows) (db.Signature, error) {
+func signatureFromRows(rows *sql.Rows, roundScale int) (db.Signature, error) {
 	cols, err := rows.Columns()
 	if err != nil {
 		return db.Signature{}, err
@@ -1335,7 +1337,7 @@ func signatureFromRows(rows *sql.Rows) (db.Signature, error) {
 			if v == nil {
 				b.WriteString("NULL")
 			} else {
-				b.Write(v)
+				b.WriteString(normalizeSignatureValue(v, roundScale))
 			}
 		}
 		sig.Checksum ^= int64(crc32.ChecksumIEEE([]byte(b.String())))
@@ -1346,7 +1348,7 @@ func signatureFromRows(rows *sql.Rows) (db.Signature, error) {
 	return sig, nil
 }
 
-func signatureAndSampleFromRows(rows *sql.Rows, limit int) (db.Signature, []string, [][]string, error) {
+func signatureAndSampleFromRows(rows *sql.Rows, limit int, roundScale int) (db.Signature, []string, [][]string, error) {
 	cols, err := rows.Columns()
 	if err != nil {
 		return db.Signature{}, nil, nil, err
@@ -1373,7 +1375,7 @@ func signatureAndSampleFromRows(rows *sql.Rows, limit int) (db.Signature, []stri
 			if v == nil {
 				b.WriteString("NULL")
 			} else {
-				b.Write(v)
+				b.WriteString(normalizeSignatureValue(v, roundScale))
 			}
 		}
 		sig.Checksum ^= int64(crc32.ChecksumIEEE([]byte(b.String())))
@@ -1383,7 +1385,7 @@ func signatureAndSampleFromRows(rows *sql.Rows, limit int) (db.Signature, []stri
 				if v == nil {
 					row[i] = "NULL"
 				} else {
-					row[i] = string(v)
+					row[i] = normalizeSignatureValue(v, roundScale)
 				}
 			}
 			samples = append(samples, row)
@@ -1395,6 +1397,26 @@ func signatureAndSampleFromRows(rows *sql.Rows, limit int) (db.Signature, []stri
 	return sig, cols, samples, nil
 }
 
+func normalizeSignatureValue(raw []byte, roundScale int) string {
+	if raw == nil {
+		return "NULL"
+	}
+	text := string(raw)
+	if roundScale <= 0 {
+		return text
+	}
+	if !strings.ContainsAny(text, ".eE") {
+		return text
+	}
+	val, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return text
+	}
+	scale := math.Pow10(roundScale)
+	val = math.Round(val*scale) / scale
+	return strconv.FormatFloat(val, 'f', roundScale, 64)
+}
+
 func (r *Runner) signatureForSQL(ctx context.Context, sqlText string) (db.Signature, error) {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1403,10 +1425,10 @@ func (r *Runner) signatureForSQL(ctx context.Context, sqlText string) (db.Signat
 		return db.Signature{}, err
 	}
 	defer rows.Close()
-	return signatureFromRows(rows)
+	return signatureFromRows(rows, r.signatureRoundScale())
 }
 
-func (r *Runner) signatureForSQLOnConn(ctx context.Context, conn *sql.Conn, sqlText string) (db.Signature, error) {
+func (r *Runner) signatureForSQLOnConn(ctx context.Context, conn *sql.Conn, sqlText string, roundScale int) (db.Signature, error) {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	rows, err := conn.QueryContext(qctx, sqlText)
@@ -1414,7 +1436,21 @@ func (r *Runner) signatureForSQLOnConn(ctx context.Context, conn *sql.Conn, sqlT
 		return db.Signature{}, err
 	}
 	defer rows.Close()
-	return signatureFromRows(rows)
+	return signatureFromRows(rows, roundScale)
+}
+
+func (r *Runner) signatureRoundScale() int {
+	if r.cfg.Signature.RoundScale < 0 {
+		return 0
+	}
+	return r.cfg.Signature.RoundScale
+}
+
+func (r *Runner) planCacheRoundScale() int {
+	if r.cfg.Signature.PlanCacheRoundScale > 0 {
+		return r.cfg.Signature.PlanCacheRoundScale
+	}
+	return r.signatureRoundScale()
 }
 
 func (r *Runner) observePlan(ctx context.Context, sqlText string) {

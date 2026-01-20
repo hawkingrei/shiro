@@ -8,29 +8,30 @@ import (
 
 // Config captures all runtime options for the fuzz runner.
 type Config struct {
-	DSN                 string         `yaml:"dsn"`
-	Database            string         `yaml:"database"`
-	Seed                int64          `yaml:"seed"`
-	Iterations          int            `yaml:"iterations"`
-	Workers             int            `yaml:"workers"`
-	PlanCacheOnly       bool           `yaml:"plan_cache_only"`
-	MaxTables           int            `yaml:"max_tables"`
-	MaxJoinTables       int            `yaml:"max_join_tables"`
-	MaxColumns          int            `yaml:"max_columns"`
-	MaxRowsPerTable     int            `yaml:"max_rows_per_table"`
-	MaxDataDumpRows     int            `yaml:"max_data_dump_rows"`
-	MaxInsertStatements int            `yaml:"max_insert_statements"`
-	StatementTimeoutMs  int            `yaml:"statement_timeout_ms"`
-	PlanReplayer        PlanReplayer   `yaml:"plan_replayer"`
-	DQP                 DQPConfig      `yaml:"dqp"`
-	Storage             StorageConfig  `yaml:"storage"`
-	Features            Features       `yaml:"features"`
-	Weights             Weights        `yaml:"weights"`
-	Adaptive            Adaptive       `yaml:"adaptive"`
-	Logging             Logging        `yaml:"logging"`
-	Oracles             OracleConfig   `yaml:"oracles"`
-	QPG                 QPGConfig      `yaml:"qpg"`
-	Minimize            MinimizeConfig `yaml:"minimize"`
+	DSN                 string          `yaml:"dsn"`
+	Database            string          `yaml:"database"`
+	Seed                int64           `yaml:"seed"`
+	Iterations          int             `yaml:"iterations"`
+	Workers             int             `yaml:"workers"`
+	PlanCacheOnly       bool            `yaml:"plan_cache_only"`
+	MaxTables           int             `yaml:"max_tables"`
+	MaxJoinTables       int             `yaml:"max_join_tables"`
+	MaxColumns          int             `yaml:"max_columns"`
+	MaxRowsPerTable     int             `yaml:"max_rows_per_table"`
+	MaxDataDumpRows     int             `yaml:"max_data_dump_rows"`
+	MaxInsertStatements int             `yaml:"max_insert_statements"`
+	StatementTimeoutMs  int             `yaml:"statement_timeout_ms"`
+	PlanReplayer        PlanReplayer    `yaml:"plan_replayer"`
+	DQP                 DQPConfig       `yaml:"dqp"`
+	Storage             StorageConfig   `yaml:"storage"`
+	Features            Features        `yaml:"features"`
+	Weights             Weights         `yaml:"weights"`
+	Adaptive            Adaptive        `yaml:"adaptive"`
+	Logging             Logging         `yaml:"logging"`
+	Oracles             OracleConfig    `yaml:"oracles"`
+	QPG                 QPGConfig       `yaml:"qpg"`
+	Signature           SignatureConfig `yaml:"signature"`
+	Minimize            MinimizeConfig  `yaml:"minimize"`
 }
 
 // PlanReplayer controls plan replayer dumping and download.
@@ -100,19 +101,20 @@ type OracleWeights struct {
 
 // FeatureWeights sets feature generation weights.
 type FeatureWeights struct {
-	JoinCount     int `yaml:"join_count"`
-	CTECount      int `yaml:"cte_count"`
-	SubqCount     int `yaml:"subquery_count"`
-	AggProb       int `yaml:"aggregate_prob"`
-	GroupByProb   int `yaml:"group_by_prob"`
-	HavingProb    int `yaml:"having_prob"`
-	OrderByProb   int `yaml:"order_by_prob"`
-	LimitProb     int `yaml:"limit_prob"`
-	DistinctProb  int `yaml:"distinct_prob"`
-	WindowProb    int `yaml:"window_prob"`
-	PartitionProb int `yaml:"partition_prob"`
-	NotExistsProb int `yaml:"not_exists_prob"`
-	NotInProb     int `yaml:"not_in_prob"`
+	JoinCount      int `yaml:"join_count"`
+	CTECount       int `yaml:"cte_count"`
+	SubqCount      int `yaml:"subquery_count"`
+	AggProb        int `yaml:"aggregate_prob"`
+	DecimalAggProb int `yaml:"decimal_agg_prob"`
+	GroupByProb    int `yaml:"group_by_prob"`
+	HavingProb     int `yaml:"having_prob"`
+	OrderByProb    int `yaml:"order_by_prob"`
+	LimitProb      int `yaml:"limit_prob"`
+	DistinctProb   int `yaml:"distinct_prob"`
+	WindowProb     int `yaml:"window_prob"`
+	PartitionProb  int `yaml:"partition_prob"`
+	NotExistsProb  int `yaml:"not_exists_prob"`
+	NotInProb      int `yaml:"not_in_prob"`
 }
 
 // Logging controls stdout logging behavior.
@@ -135,6 +137,12 @@ type QPGConfig struct {
 	SeenSQLTTLSeconds   int    `yaml:"seen_sql_ttl_seconds"`
 	SeenSQLMax          int    `yaml:"seen_sql_max"`
 	SeenSQLSweepSeconds int    `yaml:"seen_sql_sweep_seconds"`
+}
+
+// SignatureConfig controls signature rounding for comparisons.
+type SignatureConfig struct {
+	RoundScale          int `yaml:"round_scale"`
+	PlanCacheRoundScale int `yaml:"plan_cache_round_scale"`
 }
 
 // MinimizeConfig configures case minimization.
@@ -228,7 +236,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 2, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 2, CODDTest: 2, DQE: 2},
-			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
+			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
 		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict"},
@@ -240,6 +248,10 @@ func defaultConfig() Config {
 			SeenSQLTTLSeconds:   60,
 			SeenSQLMax:          4096,
 			SeenSQLSweepSeconds: 300,
+		},
+		Signature: SignatureConfig{
+			RoundScale:          6,
+			PlanCacheRoundScale: 4,
 		},
 		Minimize: MinimizeConfig{
 			Enabled:        true,

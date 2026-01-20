@@ -44,6 +44,7 @@ weights:
     cte_count: 2
     subquery_count: 3
     aggregate_prob: 40
+    decimal_agg_prob: 70
     group_by_prob: 30
     having_prob: 20
     order_by_prob: 40
@@ -65,3 +66,7 @@ qpg:
   seen_sql_ttl_seconds: 60
   seen_sql_max: 4096
   seen_sql_sweep_seconds: 300
+
+signature:
+  round_scale: 6
+  plan_cache_round_scale: 4

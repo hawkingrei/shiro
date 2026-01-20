@@ -486,7 +486,7 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroupBy bool) []SelectItem {
 	items := make([]SelectItem, 0, 3)
 	items = append(items, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
-	items = append(items, SelectItem{Expr: FuncExpr{Name: "SUM", Args: []Expr{g.GenerateNumericExpr(tables)}}, Alias: "sum1"})
+	items = append(items, SelectItem{Expr: FuncExpr{Name: "SUM", Args: []Expr{g.GenerateNumericExprPreferDecimal(tables)}}, Alias: "sum1"})
 	if withGroupBy {
 		items = append(items, SelectItem{Expr: g.GenerateScalarExpr(tables, g.maxDepth-1, false), Alias: "g1"})
 	}
@@ -505,6 +505,14 @@ func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 		}
 	}
 	return LiteralExpr{Value: g.Rand.Intn(100)}
+}
+
+// GenerateNumericExprPreferDecimal prefers DECIMAL columns for aggregates.
+func (g *Generator) GenerateNumericExprPreferDecimal(tables []schema.Table) Expr {
+	if col, ok := g.pickNumericColumnPreferDecimal(tables); ok {
+		return ColumnExpr{Ref: col}
+	}
+	return g.GenerateNumericExpr(tables)
 }
 
 // GenerateStringExpr returns a varchar expression or literal.
@@ -1249,17 +1257,10 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
-	cols := make([]schema.Column, 0, len(tbl.Columns))
-	for _, col := range tbl.Columns {
-		if col.Name == "id" {
-			continue
-		}
-		cols = append(cols, col)
-	}
-	if len(cols) == 0 {
+	col, ok := g.pickNumericColumnPreferDecimalForTable(tbl)
+	if !ok {
 		return PreparedQuery{}
 	}
-	col := cols[g.Rand.Intn(len(cols))]
 	arg1 := g.literalForColumn(col).Value
 	arg2 := g.literalForColumn(col).Value
 	arg1, arg2 = orderedArgs(arg1, arg2)
@@ -1270,6 +1271,7 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", selectSQL, tbl.Name, col.Name, col.Name)
 	args := []any{arg1, arg2}
 	argTypes := []schema.ColumnType{col.Type, col.Type}
+	cols := g.collectNonIDColumns(tbl)
 	if len(cols) > 1 && util.Chance(g.Rand, preparedAggExtraProb) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col.Name {
@@ -1316,6 +1318,68 @@ func (g *Generator) pickPreparedTable() schema.Table {
 		return partitioned[g.Rand.Intn(len(partitioned))]
 	}
 	return g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+}
+
+func (g *Generator) collectNonIDColumns(tbl schema.Table) []schema.Column {
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
+func (g *Generator) pickNumericColumnPreferDecimal(tables []schema.Table) (ColumnRef, bool) {
+	decimalCols := make([]ColumnRef, 0)
+	numericCols := make([]ColumnRef, 0)
+	for _, tbl := range tables {
+		for _, col := range tbl.Columns {
+			if col.Name == "id" {
+				continue
+			}
+			if !g.isNumericType(col.Type) {
+				continue
+			}
+			ref := ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
+			numericCols = append(numericCols, ref)
+			if col.Type == schema.TypeDecimal {
+				decimalCols = append(decimalCols, ref)
+			}
+		}
+	}
+	if len(numericCols) == 0 {
+		return ColumnRef{}, false
+	}
+	if len(decimalCols) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.DecimalAggProb) {
+		return decimalCols[g.Rand.Intn(len(decimalCols))], true
+	}
+	return numericCols[g.Rand.Intn(len(numericCols))], true
+}
+
+func (g *Generator) pickNumericColumnPreferDecimalForTable(tbl schema.Table) (schema.Column, bool) {
+	decimalCols := make([]schema.Column, 0)
+	numericCols := make([]schema.Column, 0)
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		if !g.isNumericType(col.Type) {
+			continue
+		}
+		numericCols = append(numericCols, col)
+		if col.Type == schema.TypeDecimal {
+			decimalCols = append(decimalCols, col)
+		}
+	}
+	if len(numericCols) == 0 {
+		return schema.Column{}, false
+	}
+	if len(decimalCols) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.DecimalAggProb) {
+		return decimalCols[g.Rand.Intn(len(decimalCols))], true
+	}
+	return numericCols[g.Rand.Intn(len(numericCols))], true
 }
 
 func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
