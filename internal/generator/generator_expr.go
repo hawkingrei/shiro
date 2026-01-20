@@ -8,6 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
+// GenerateNumericExpr picks a numeric column or literal.
 func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 	for i := 0; i < 3; i++ {
 		col := g.randomColumn(tables)

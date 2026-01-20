@@ -7,6 +7,7 @@ import (
 	"shiro/internal/util"
 )
 
+// GenerateSelectQuery builds a randomized SELECT query for current schema.
 func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	baseTables := g.pickTables()
 	if len(baseTables) == 0 {
@@ -64,7 +65,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	return query
 }
 
-// GeneratePreparedQuery builds a prepared query candidate for plan cache testing.
+// GenerateCTEQuery builds a small SELECT query for a CTE.
 func (g *Generator) GenerateCTEQuery(tbl schema.Table) *SelectQuery {
 	query := &SelectQuery{}
 	query.Items = g.GenerateCTESelectList(tbl)
@@ -149,7 +150,7 @@ func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroup
 	return items
 }
 
-// GenerateNumericExpr returns a numeric expression or literal.
+// GenerateGroupBy selects a single grouping expression.
 func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
 	col := g.randomColumn(tables)
 	if col.Table == "" {
@@ -264,6 +265,7 @@ func (g *Generator) GenerateScalarExpr(tables []schema.Table, depth int, allowSu
 	return g.generateScalarExpr(tables, depth, allowSubquery, g.maxSubqDepth)
 }
 
+// GenerateSubquery builds a COUNT-based subquery, optionally correlated.
 func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) *SelectQuery {
 	if len(g.State.Tables) == 0 {
 		return nil

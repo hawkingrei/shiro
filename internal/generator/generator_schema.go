@@ -8,6 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
+// GenerateTable creates a randomized table definition.
 func (g *Generator) GenerateTable() schema.Table {
 	colCount := g.Rand.Intn(g.Config.MaxColumns-2) + 2
 	cols := make([]schema.Column, 0, colCount+1)

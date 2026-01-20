@@ -8,6 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
+// InsertSQL emits an INSERT statement and advances auto IDs.
 func (g *Generator) InsertSQL(tbl *schema.Table) string {
 	rowCount := g.Rand.Intn(3) + 1
 	cols := make([]string, 0, len(tbl.Columns))

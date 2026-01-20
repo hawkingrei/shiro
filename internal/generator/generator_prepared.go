@@ -8,6 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
+// GeneratePreparedQuery builds a prepared query candidate for plan cache testing.
 func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	if len(g.State.Tables) == 0 {
 		return PreparedQuery{}
