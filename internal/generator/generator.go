@@ -103,11 +103,20 @@ func (g *Generator) GenerateTable() schema.Table {
 		cols = append(cols, col)
 	}
 
+	partitioned := false
+	partitionCount := 0
+	if g.Config.Features.PartitionTables && util.Chance(g.Rand, g.Config.Weights.Features.PartitionProb) {
+		partitioned = true
+		partitionCount = g.Rand.Intn(3) + 2
+	}
+
 	return schema.Table{
-		Name:    g.NextTableName(),
-		Columns: cols,
-		HasPK:   true,
-		NextID:  1,
+		Name:           g.NextTableName(),
+		Columns:        cols,
+		HasPK:          true,
+		NextID:         1,
+		Partitioned:    partitioned,
+		PartitionCount: partitionCount,
 	}
 }
 
@@ -129,7 +138,11 @@ func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 			parts = append(parts, fmt.Sprintf("INDEX idx_%s (%s)", col.Name, col.Name))
 		}
 	}
-	return fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
+	stmt := fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
+	if tbl.Partitioned && tbl.PartitionCount > 1 {
+		stmt += fmt.Sprintf(" PARTITION BY HASH(id) PARTITIONS %d", tbl.PartitionCount)
+	}
+	return stmt
 }
 
 // CreateIndexSQL emits a CREATE INDEX statement and updates table metadata.
@@ -355,6 +368,21 @@ func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	for i := 0; i < len(candidates); i++ {
 		pick := candidates[g.Rand.Intn(len(candidates))]
 		if pq := pick(); pq.SQL != "" {
+			if len(pq.Args) <= maxPreparedParams {
+				return pq
+			}
+		}
+	}
+	return PreparedQuery{}
+}
+
+// GenerateNonPreparedPlanCacheQuery builds a simple query for non-prepared plan cache testing.
+func (g *Generator) GenerateNonPreparedPlanCacheQuery() PreparedQuery {
+	if len(g.State.Tables) == 0 {
+		return PreparedQuery{}
+	}
+	for i := 0; i < 4; i++ {
+		if pq := g.nonPreparedSingleTable(); pq.SQL != "" {
 			if len(pq.Args) <= maxPreparedParams {
 				return pq
 			}
@@ -1142,7 +1170,7 @@ func (g *Generator) exprSQL(expr Expr) string {
 }
 
 func (g *Generator) preparedSingleTable() PreparedQuery {
-	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	tbl := g.pickPreparedTable()
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
@@ -1217,7 +1245,7 @@ func (g *Generator) preparedJoinQuery() PreparedQuery {
 }
 
 func (g *Generator) preparedAggregateQuery() PreparedQuery {
-	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	tbl := g.pickPreparedTable()
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
@@ -1252,6 +1280,55 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 		}
 	}
 	return PreparedQuery{SQL: query, Args: args, ArgTypes: argTypes}
+}
+
+func (g *Generator) nonPreparedSingleTable() PreparedQuery {
+	tbl, ok := g.pickNonPartitionedTable()
+	if !ok || len(tbl.Columns) == 0 {
+		return PreparedQuery{}
+	}
+	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	arg1 := g.literalForColumn(col).Value
+	arg2 := g.literalForColumn(col).Value
+	arg1, arg2 = orderedArgs(arg1, arg2)
+	selectCols := []string{col.Name}
+	if len(tbl.Columns) > 1 && util.Chance(g.Rand, 50) {
+		col2 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+		if col2.Name != col.Name {
+			selectCols = append(selectCols, col2.Name)
+		}
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", strings.Join(selectCols, ", "), tbl.Name, col.Name, col.Name)
+	return PreparedQuery{SQL: query, Args: []any{arg1, arg2}, ArgTypes: []schema.ColumnType{col.Type, col.Type}}
+}
+
+func (g *Generator) pickPreparedTable() schema.Table {
+	if len(g.State.Tables) == 0 {
+		return schema.Table{}
+	}
+	partitioned := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.State.Tables {
+		if tbl.Partitioned {
+			partitioned = append(partitioned, tbl)
+		}
+	}
+	if len(partitioned) > 0 && util.Chance(g.Rand, 60) {
+		return partitioned[g.Rand.Intn(len(partitioned))]
+	}
+	return g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+}
+
+func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
+	candidates := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.State.Tables {
+		if !tbl.Partitioned {
+			candidates = append(candidates, tbl)
+		}
+	}
+	if len(candidates) == 0 {
+		return schema.Table{}, false
+	}
+	return candidates[g.Rand.Intn(len(candidates))], true
 }
 
 func (g *Generator) preparedCTEQuery() PreparedQuery {

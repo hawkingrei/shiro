@@ -61,8 +61,10 @@ features:
   indexes: true
   foreign_keys: true
   check_constraints: true
+  partition_tables: true
   not_exists: true
   not_in: true
+  non_prepared_plan_cache: true
 
 weights:
   actions:
@@ -91,6 +93,7 @@ weights:
     limit_prob: 40
     distinct_prob: 20
     window_prob: 10
+    partition_prob: 30
     not_exists_prob: 40
     not_in_prob: 40
 

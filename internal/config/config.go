@@ -44,24 +44,26 @@ type PlanReplayer struct {
 
 // Features toggles SQL capabilities in generation.
 type Features struct {
-	Joins            bool `yaml:"joins"`
-	CTE              bool `yaml:"cte"`
-	Subqueries       bool `yaml:"subqueries"`
-	Aggregates       bool `yaml:"aggregates"`
-	GroupBy          bool `yaml:"group_by"`
-	Having           bool `yaml:"having"`
-	OrderBy          bool `yaml:"order_by"`
-	Limit            bool `yaml:"limit"`
-	Distinct         bool `yaml:"distinct"`
-	PlanCache        bool `yaml:"plan_cache"`
-	WindowFuncs      bool `yaml:"window_funcs"`
-	CorrelatedSubq   bool `yaml:"correlated_subqueries"`
-	Views            bool `yaml:"views"`
-	Indexes          bool `yaml:"indexes"`
-	ForeignKeys      bool `yaml:"foreign_keys"`
-	CheckConstraints bool `yaml:"check_constraints"`
-	NotExists        bool `yaml:"not_exists"`
-	NotIn            bool `yaml:"not_in"`
+	Joins                bool `yaml:"joins"`
+	CTE                  bool `yaml:"cte"`
+	Subqueries           bool `yaml:"subqueries"`
+	Aggregates           bool `yaml:"aggregates"`
+	GroupBy              bool `yaml:"group_by"`
+	Having               bool `yaml:"having"`
+	OrderBy              bool `yaml:"order_by"`
+	Limit                bool `yaml:"limit"`
+	Distinct             bool `yaml:"distinct"`
+	PlanCache            bool `yaml:"plan_cache"`
+	WindowFuncs          bool `yaml:"window_funcs"`
+	CorrelatedSubq       bool `yaml:"correlated_subqueries"`
+	Views                bool `yaml:"views"`
+	Indexes              bool `yaml:"indexes"`
+	ForeignKeys          bool `yaml:"foreign_keys"`
+	CheckConstraints     bool `yaml:"check_constraints"`
+	PartitionTables      bool `yaml:"partition_tables"`
+	NotExists            bool `yaml:"not_exists"`
+	NotIn                bool `yaml:"not_in"`
+	NonPreparedPlanCache bool `yaml:"non_prepared_plan_cache"`
 }
 
 // Weights controls weighted selections for actions and features.
@@ -108,6 +110,7 @@ type FeatureWeights struct {
 	LimitProb     int `yaml:"limit_prob"`
 	DistinctProb  int `yaml:"distinct_prob"`
 	WindowProb    int `yaml:"window_prob"`
+	PartitionProb int `yaml:"partition_prob"`
 	NotExistsProb int `yaml:"not_exists_prob"`
 	NotInProb     int `yaml:"not_in_prob"`
 }
@@ -210,8 +213,10 @@ func defaultConfig() Config {
 		MaxInsertStatements: 200,
 		StatementTimeoutMs:  15000,
 		Features: Features{
-			NotExists: true,
-			NotIn:     true,
+			PartitionTables:      true,
+			NonPreparedPlanCache: true,
+			NotExists:            true,
+			NotIn:                true,
 		},
 		PlanReplayer: PlanReplayer{
 			OutputDir:           "reports",
@@ -223,7 +228,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 2, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 2, CODDTest: 2, DQE: 2},
-			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, NotExistsProb: 40, NotInProb: 40},
+			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
 		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict"},

@@ -9,7 +9,7 @@ Shiro is a SQL fuzzing CLI for TiDB that targets optimizer bugs. It generates ra
 - Query Plan Guidance (QPG) for plan-diversity-driven state mutations
 - Panic/crash detection with automatic `PLAN REPLAYER DUMP` and artifact download
 - Case reports with SQL, schema, and bounded data samples
-- Optional DDL coverage for indexes, views, check constraints, and foreign keys
+- Optional DDL coverage for indexes, views, check constraints, foreign keys, and partitioned tables
 
 ## Quick start
 1) Start TiDB (nightly or latest stable)
@@ -60,6 +60,7 @@ In normal mode, Shiro still runs prepared statements and applies the same plan-c
 The plan-cache check verifies `SELECT @@last_plan_from_cache = 1` on the second execution (when no warning indicates a cache skip).
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.
+Enable `features.non_prepared_plan_cache` to test non-prepared plan cache behavior; Shiro replays parameterized variants and compares cached vs. non-cached results when the cache hits.
 
 ## Case minimization
 Enable `minimize.enabled` to shrink captured cases. Shiro attempts to remove redundant INSERTs and SQL statements while rechecking the failure in a fresh database.
