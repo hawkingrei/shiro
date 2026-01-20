@@ -103,11 +103,20 @@ func (g *Generator) GenerateTable() schema.Table {
 		cols = append(cols, col)
 	}
 
+	partitioned := false
+	partitionCount := 0
+	if g.Config.Features.PartitionTables && util.Chance(g.Rand, g.Config.Weights.Features.PartitionProb) {
+		partitioned = true
+		partitionCount = g.Rand.Intn(3) + 2
+	}
+
 	return schema.Table{
-		Name:    g.NextTableName(),
-		Columns: cols,
-		HasPK:   true,
-		NextID:  1,
+		Name:           g.NextTableName(),
+		Columns:        cols,
+		HasPK:          true,
+		NextID:         1,
+		Partitioned:    partitioned,
+		PartitionCount: partitionCount,
 	}
 }
 
@@ -129,7 +138,11 @@ func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 			parts = append(parts, fmt.Sprintf("INDEX idx_%s (%s)", col.Name, col.Name))
 		}
 	}
-	return fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
+	stmt := fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
+	if tbl.Partitioned && tbl.PartitionCount > 1 {
+		stmt += fmt.Sprintf(" PARTITION BY HASH(id) PARTITIONS %d", tbl.PartitionCount)
+	}
+	return stmt
 }
 
 // CreateIndexSQL emits a CREATE INDEX statement and updates table metadata.
@@ -213,6 +226,9 @@ func (g *Generator) AddForeignKeySQL(state *schema.State) string {
 	child := state.Tables[g.Rand.Intn(len(state.Tables))]
 	parent := state.Tables[g.Rand.Intn(len(state.Tables))]
 	if child.Name == parent.Name {
+		return ""
+	}
+	if child.Partitioned || parent.Partitioned {
 		return ""
 	}
 	childCol, parentCol := g.pickForeignKeyColumns(child, parent)
@@ -363,6 +379,21 @@ func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	return PreparedQuery{}
 }
 
+// GenerateNonPreparedPlanCacheQuery builds a simple query for non-prepared plan cache testing.
+func (g *Generator) GenerateNonPreparedPlanCacheQuery() PreparedQuery {
+	if len(g.State.Tables) == 0 {
+		return PreparedQuery{}
+	}
+	for i := 0; i < 4; i++ {
+		if pq := g.nonPreparedSingleTable(); pq.SQL != "" {
+			if len(pq.Args) <= maxPreparedParams {
+				return pq
+			}
+		}
+	}
+	return PreparedQuery{}
+}
+
 // GeneratePreparedArgsForQuery mutates previous args to produce a new execution.
 func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.ColumnType) []any {
 	if len(prev) == 0 {
@@ -458,7 +489,7 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroupBy bool) []SelectItem {
 	items := make([]SelectItem, 0, 3)
 	items = append(items, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
-	items = append(items, SelectItem{Expr: FuncExpr{Name: "SUM", Args: []Expr{g.GenerateNumericExpr(tables)}}, Alias: "sum1"})
+	items = append(items, SelectItem{Expr: FuncExpr{Name: "SUM", Args: []Expr{g.GenerateNumericExprPreferDecimal(tables)}}, Alias: "sum1"})
 	if withGroupBy {
 		items = append(items, SelectItem{Expr: g.GenerateScalarExpr(tables, g.maxDepth-1, false), Alias: "g1"})
 	}
@@ -477,6 +508,14 @@ func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 		}
 	}
 	return LiteralExpr{Value: g.Rand.Intn(100)}
+}
+
+// GenerateNumericExprPreferDecimal prefers DECIMAL columns for aggregates.
+func (g *Generator) GenerateNumericExprPreferDecimal(tables []schema.Table) Expr {
+	if col, ok := g.pickNumericColumnPreferDecimal(tables); ok {
+		return ColumnExpr{Ref: col}
+	}
+	return g.GenerateNumericExpr(tables)
 }
 
 // GenerateStringExpr returns a varchar expression or literal.
@@ -1142,7 +1181,7 @@ func (g *Generator) exprSQL(expr Expr) string {
 }
 
 func (g *Generator) preparedSingleTable() PreparedQuery {
-	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	tbl := g.pickPreparedTable()
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
@@ -1217,21 +1256,14 @@ func (g *Generator) preparedJoinQuery() PreparedQuery {
 }
 
 func (g *Generator) preparedAggregateQuery() PreparedQuery {
-	tbl := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	tbl := g.pickPreparedTable()
 	if len(tbl.Columns) == 0 {
 		return PreparedQuery{}
 	}
-	cols := make([]schema.Column, 0, len(tbl.Columns))
-	for _, col := range tbl.Columns {
-		if col.Name == "id" {
-			continue
-		}
-		cols = append(cols, col)
-	}
-	if len(cols) == 0 {
+	col, ok := g.pickNumericColumnPreferDecimalForTable(tbl)
+	if !ok {
 		return PreparedQuery{}
 	}
-	col := cols[g.Rand.Intn(len(cols))]
 	arg1 := g.literalForColumn(col).Value
 	arg2 := g.literalForColumn(col).Value
 	arg1, arg2 = orderedArgs(arg1, arg2)
@@ -1242,6 +1274,7 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", selectSQL, tbl.Name, col.Name, col.Name)
 	args := []any{arg1, arg2}
 	argTypes := []schema.ColumnType{col.Type, col.Type}
+	cols := g.collectNonIDColumns(tbl)
 	if len(cols) > 1 && util.Chance(g.Rand, preparedAggExtraProb) {
 		col2 := cols[g.Rand.Intn(len(cols))]
 		if col2.Name != col.Name {
@@ -1252,6 +1285,117 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 		}
 	}
 	return PreparedQuery{SQL: query, Args: args, ArgTypes: argTypes}
+}
+
+func (g *Generator) nonPreparedSingleTable() PreparedQuery {
+	tbl, ok := g.pickNonPartitionedTable()
+	if !ok || len(tbl.Columns) == 0 {
+		return PreparedQuery{}
+	}
+	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+	arg1 := g.literalForColumn(col).Value
+	arg2 := g.literalForColumn(col).Value
+	arg1, arg2 = orderedArgs(arg1, arg2)
+	selectCols := []string{col.Name}
+	if len(tbl.Columns) > 1 && util.Chance(g.Rand, 50) {
+		col2 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
+		if col2.Name != col.Name {
+			selectCols = append(selectCols, col2.Name)
+		}
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", strings.Join(selectCols, ", "), tbl.Name, col.Name, col.Name)
+	return PreparedQuery{SQL: query, Args: []any{arg1, arg2}, ArgTypes: []schema.ColumnType{col.Type, col.Type}}
+}
+
+func (g *Generator) pickPreparedTable() schema.Table {
+	if len(g.State.Tables) == 0 {
+		return schema.Table{}
+	}
+	partitioned := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.State.Tables {
+		if tbl.Partitioned {
+			partitioned = append(partitioned, tbl)
+		}
+	}
+	if len(partitioned) > 0 && util.Chance(g.Rand, 60) {
+		return partitioned[g.Rand.Intn(len(partitioned))]
+	}
+	return g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+}
+
+func (g *Generator) collectNonIDColumns(tbl schema.Table) []schema.Column {
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
+func (g *Generator) pickNumericColumnPreferDecimal(tables []schema.Table) (ColumnRef, bool) {
+	decimalCols := make([]ColumnRef, 0)
+	numericCols := make([]ColumnRef, 0)
+	for _, tbl := range tables {
+		for _, col := range tbl.Columns {
+			if col.Name == "id" {
+				continue
+			}
+			if !g.isNumericType(col.Type) {
+				continue
+			}
+			ref := ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
+			numericCols = append(numericCols, ref)
+			if col.Type == schema.TypeDecimal {
+				decimalCols = append(decimalCols, ref)
+			}
+		}
+	}
+	if len(numericCols) == 0 {
+		return ColumnRef{}, false
+	}
+	if len(decimalCols) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.DecimalAggProb) {
+		return decimalCols[g.Rand.Intn(len(decimalCols))], true
+	}
+	return numericCols[g.Rand.Intn(len(numericCols))], true
+}
+
+func (g *Generator) pickNumericColumnPreferDecimalForTable(tbl schema.Table) (schema.Column, bool) {
+	decimalCols := make([]schema.Column, 0)
+	numericCols := make([]schema.Column, 0)
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		if !g.isNumericType(col.Type) {
+			continue
+		}
+		numericCols = append(numericCols, col)
+		if col.Type == schema.TypeDecimal {
+			decimalCols = append(decimalCols, col)
+		}
+	}
+	if len(numericCols) == 0 {
+		return schema.Column{}, false
+	}
+	if len(decimalCols) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.DecimalAggProb) {
+		return decimalCols[g.Rand.Intn(len(decimalCols))], true
+	}
+	return numericCols[g.Rand.Intn(len(numericCols))], true
+}
+
+func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
+	candidates := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.State.Tables {
+		if !tbl.Partitioned {
+			candidates = append(candidates, tbl)
+		}
+	}
+	if len(candidates) == 0 {
+		return schema.Table{}, false
+	}
+	return candidates[g.Rand.Intn(len(candidates))], true
 }
 
 func (g *Generator) preparedCTEQuery() PreparedQuery {

@@ -79,6 +79,9 @@
 - Further reducing CODDTest/TLP false positives required limiting to simple predicates (AND of comparisons) and deterministic, non-subquery expressions.
 - Plan cache in TiDB master does not appear to cache CTE-based PREPARE statements; plan-cache-only mode skips CTEs.
 - Plan-cache sequence must run EXECUTE immediately before SHOW WARNINGS; otherwise warnings belong to the last `SELECT @@last_plan_from_cache`.
+- For plan cache checks: run the target statement, then `SELECT @@last_plan_from_cache`, then re-run the target statement and `SHOW WARNINGS` so warnings are bound to the target SQL (not the `SELECT`).
+- Prepared plan cache oracle should compare a cache-disabled baseline execution (same prepared stmt/args) against a cache-enabled execution; treat mismatches as bugs when cache hit or when miss has no warnings.
+- Non-prepared plan cache: a miss without warnings can be normal; only treat result-signature mismatches as bugs.
 - `EXPLAIN FOR CONNECTION` and `@@last_plan_from_cache` must be queried right after the target EXECUTE to avoid interleaving effects.
 - Go mysql driver can emit `busy buffer` if result sets are not fully drained; ensure rows are consumed before closing statement/connection.
 - Reports now emit `origin_result` from the second EXECUTE (signature + sample rows) to anchor prepared vs. original comparisons.

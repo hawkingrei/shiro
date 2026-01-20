@@ -31,10 +31,12 @@ type Column struct {
 
 // Table describes a database table.
 type Table struct {
-	Name    string
-	Columns []Column
-	HasPK   bool
-	NextID  int64
+	Name           string
+	Columns        []Column
+	HasPK          bool
+	NextID         int64
+	Partitioned    bool
+	PartitionCount int
 }
 
 // State tracks the current schema state.
