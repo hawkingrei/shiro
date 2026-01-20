@@ -5,13 +5,13 @@ description: Inspect and triage Shiro reports under a reports/ directory, review
 
 # Shiro Report Analysis
 
-Use this skill when a user asks to read Shiro reports (per-case directories under `reports/`) and fix issues in the current TiDB repo.
+Use this skill when a user asks to read Shiro reports (per-case directories under `reports/`) and fix issues in the current workspace (often a TiDB repo).
 
 ## Quick workflow
 
 1. Locate the reports directory relative to the current working directory.
    - Prefer `reports/` in repo root; if missing, ask for the correct path.
-   - Example path seen in practice: `/Users/weizhenwang/devel/opensource/shiro/reports`.
+   - Example path: `/path/to/reports` (for example, a TiDB workspace `reports/` directory).
 2. Enumerate case directories and pick the one referenced by the user (or the latest by mtime).
 3. Inspect the report files inside the case directory.
    - If JSON: summarize key fields (issue type, file path, line, message).
