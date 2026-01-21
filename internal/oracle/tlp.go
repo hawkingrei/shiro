@@ -41,9 +41,6 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil || queryHasAggregate(query) || queryHasSubquery(query) || queryHasWindow(query) {
-		return Result{OK: true, Oracle: o.Name()}
-	}
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
@@ -55,6 +52,7 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	base := query.Clone()
 	base.Where = nil
+	ensureTLPOrderBy(base)
 	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
 	if err != nil {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
@@ -101,4 +99,39 @@ func signatureColumns(query *generator.SelectQuery) string {
 		return "COUNT(*) AS cnt, 0 AS checksum"
 	}
 	return fmt.Sprintf("COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum", strings.Join(cols, ", "))
+}
+
+func ensureTLPOrderBy(query *generator.SelectQuery) {
+	if query == nil || len(query.OrderBy) > 0 {
+		return
+	}
+	cols := tlpOrderColumns(query.Items)
+	if len(cols) == 0 {
+		return
+	}
+	orderBy := make([]generator.OrderBy, 0, len(cols))
+	for _, col := range cols {
+		orderBy = append(orderBy, generator.OrderBy{Expr: generator.ColumnExpr{Ref: col}})
+	}
+	query.OrderBy = orderBy
+}
+
+func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
+	const maxOrderByCols = 3
+	cols := make([]generator.ColumnRef, 0, maxOrderByCols)
+	seen := make(map[string]struct{}, maxOrderByCols)
+	for _, item := range items {
+		for _, col := range item.Expr.Columns() {
+			key := col.Table + "." + col.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			cols = append(cols, col)
+			if len(cols) >= maxOrderByCols {
+				return cols
+			}
+		}
+	}
+	return cols
 }

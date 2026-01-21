@@ -17,7 +17,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	query := &SelectQuery{}
 	queryTables := append([]schema.Table{}, baseTables...)
 
-	if g.Config.Features.CTE && util.Chance(g.Rand, g.Config.Weights.Features.CTECount*10) {
+	if g.Config.Features.CTE && (util.Chance(g.Rand, g.Config.Weights.Features.CTECount*10) || (len(baseTables) > 1 && util.Chance(g.Rand, 50))) {
 		cteCount := g.Rand.Intn(2) + 1
 		for i := 0; i < cteCount; i++ {
 			cteBase := baseTables[g.Rand.Intn(len(baseTables))]
@@ -28,6 +28,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 	}
 
+	queryTables = g.maybeShuffleTables(queryTables)
 	query.From = g.buildFromClause(queryTables)
 	query.Items = g.GenerateSelectList(queryTables)
 
@@ -278,7 +279,7 @@ func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) 
 		From: FromClause{BaseTable: inner.Name},
 	}
 
-	if g.Config.Features.CorrelatedSubq && len(outerTables) > 0 && util.Chance(g.Rand, 40) {
+	if g.Config.Features.CorrelatedSubq && len(outerTables) > 0 && util.Chance(g.Rand, 90) {
 		outerCol := g.randomColumn(outerTables)
 		innerCol := g.pickColumnByType(inner, outerCol.Type)
 		if outerCol.Table != "" && innerCol.Name != "" {
@@ -304,6 +305,18 @@ func (g *Generator) pickTables() []schema.Table {
 	if g.Config.Features.Joins && max > 1 {
 		limit := min(max, g.Config.MaxJoinTables)
 		count = g.Rand.Intn(min(limit, g.joinCount()+1)) + 1
+		if count == 1 && util.Chance(g.Rand, 85) {
+			count = min(2, limit)
+		}
+		if count == 2 && limit >= 3 && util.Chance(g.Rand, 60) {
+			count = 3
+		}
+		if count == 3 && limit >= 4 && util.Chance(g.Rand, 40) {
+			count = 4
+		}
+		if count == 4 && limit >= 5 && util.Chance(g.Rand, 30) {
+			count = 5
+		}
 	}
 	idxs := g.Rand.Perm(max)[:count]
 	picked := make([]schema.Table, 0, count)
@@ -311,6 +324,17 @@ func (g *Generator) pickTables() []schema.Table {
 		picked = append(picked, g.State.Tables[idx])
 	}
 	return picked
+}
+
+func (g *Generator) maybeShuffleTables(tables []schema.Table) []schema.Table {
+	if len(tables) < 2 || !g.Config.Features.Joins {
+		return tables
+	}
+	if !util.Chance(g.Rand, 80) {
+		return tables
+	}
+	g.Rand.Shuffle(len(tables), func(i, j int) { tables[i], tables[j] = tables[j], tables[i] })
+	return tables
 }
 
 func (g *Generator) joinCount() int {

@@ -132,6 +132,17 @@ code {
   gap: 10px;
   align-items: center;
 }
+.case__toggle {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #6b6f76;
+  border-bottom: 2px solid #6b6f76;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+}
+.case[open] .case__toggle {
+  transform: rotate(45deg);
+}
 
 .case__title {
   font-size: 14px;
@@ -157,6 +168,26 @@ code {
   color: var(--muted);
   margin: 10px 0 6px;
 }
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.copy-btn {
+  border: 1px solid #cfd4d8;
+  background: #f5f6f7;
+  color: #3b3f45;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.copy-btn:hover {
+  background: #e9ecef;
+}
 
 pre {
   background: #f6f0ea;
@@ -167,6 +198,31 @@ pre {
   font-size: 12px;
   overflow-x: auto;
   margin: 0;
+}
+.fold summary {
+  list-style: none;
+}
+.fold summary::-webkit-details-marker {
+  display: none;
+}
+.fold summary .label-row {
+  cursor: pointer;
+}
+.fold__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fold__icon {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid #6b6f76;
+  border-bottom: 2px solid #6b6f76;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+}
+.fold[open] .fold__icon {
+  transform: rotate(45deg);
 }
 
 .error {

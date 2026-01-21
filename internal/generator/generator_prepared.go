@@ -13,16 +13,20 @@ func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	if len(g.State.Tables) == 0 {
 		return PreparedQuery{}
 	}
-	candidates := []func() PreparedQuery{
-		g.preparedSingleTable,
-		g.preparedJoinQuery,
-		g.preparedAggregateQuery,
-	}
+	candidates := make([]func() PreparedQuery, 0, 4)
+	weights := make([]int, 0, 4)
+	candidates = append(candidates, g.preparedSingleTable)
+	weights = append(weights, 1)
+	candidates = append(candidates, g.preparedJoinQuery)
+	weights = append(weights, 4)
+	candidates = append(candidates, g.preparedAggregateQuery)
+	weights = append(weights, 2)
 	if !g.Config.PlanCacheOnly {
 		candidates = append(candidates, g.preparedCTEQuery)
+		weights = append(weights, 3)
 	}
 	for i := 0; i < len(candidates); i++ {
-		pick := candidates[g.Rand.Intn(len(candidates))]
+		pick := candidates[util.PickWeighted(g.Rand, weights)]
 		if pq := pick(); pq.SQL != "" {
 			if len(pq.Args) <= maxPreparedParams {
 				return pq
@@ -53,12 +57,28 @@ func (g *Generator) GeneratePreparedArgsForQuery(prev []any, types []schema.Colu
 		return prev
 	}
 	out := make([]any, len(prev))
-	copy(out, prev)
-	for i := range out {
-		if i < len(types) {
-			out[i] = g.nextArgForType(types[i], out[i])
+	if !g.Config.PlanCacheMeaningful {
+		copy(out, prev)
+		for i := range out {
+			if i < len(types) {
+				out[i] = g.nextArgForType(types[i], out[i])
+			}
+		}
+		return out
+	}
+	for i := 0; i < len(out); {
+		if i+1 < len(out) && i+1 < len(types) && types[i] == types[i+1] && isOrderableType(types[i]) {
+			a, b := g.orderedArgsForType(types[i])
+			out[i], out[i+1] = a, b
+			i += 2
 			continue
 		}
+		if i < len(types) {
+			out[i] = g.nextArgForType(types[i], prev[i])
+		} else {
+			out[i] = prev[i]
+		}
+		i++
 	}
 	return out
 }
@@ -83,7 +103,7 @@ func (g *Generator) preparedSingleTable() PreparedQuery {
 	col1 := cols[g.Rand.Intn(len(cols))]
 	arg1 := g.literalForColumn(col1).Value
 	arg2 := g.literalForColumn(col1).Value
-	arg1, arg2 = orderedArgs(arg1, arg2)
+	arg1, arg2 = g.orderPlanCacheArgs(arg1, arg2)
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", col1.Name, tbl.Name, col1.Name, col1.Name)
 	args := []any{arg1, arg2}
 	argTypes := []schema.ColumnType{col1.Type, col1.Type}
@@ -117,10 +137,10 @@ func (g *Generator) preparedJoinQuery() PreparedQuery {
 	}
 	leftArg1 := g.literalForColumn(leftParam).Value
 	leftArg2 := g.literalForColumn(leftParam).Value
-	leftArg1, leftArg2 = orderedArgs(leftArg1, leftArg2)
+	leftArg1, leftArg2 = g.orderPlanCacheArgs(leftArg1, leftArg2)
 	rightArg1 := g.literalForColumn(rightParam).Value
 	rightArg2 := g.literalForColumn(rightParam).Value
-	rightArg1, rightArg2 = orderedArgs(rightArg1, rightArg2)
+	rightArg1, rightArg2 = g.orderPlanCacheArgs(rightArg1, rightArg2)
 	query := fmt.Sprintf(
 		"SELECT %s.%s, %s.%s FROM %s JOIN %s ON %s.%s = %s.%s WHERE %s.%s > ? AND %s.%s < ? AND %s.%s > ? AND %s.%s < ?",
 		leftTbl.Name, leftParam.Name,
@@ -150,7 +170,7 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	}
 	arg1 := g.literalForColumn(col).Value
 	arg2 := g.literalForColumn(col).Value
-	arg1, arg2 = orderedArgs(arg1, arg2)
+	arg1, arg2 = g.orderPlanCacheArgs(arg1, arg2)
 	selectSQL := "COUNT(*) AS cnt"
 	if g.isNumericType(col.Type) && util.Chance(g.Rand, preparedAggExtraProb) {
 		selectSQL = "COUNT(*) AS cnt, SUM(" + col.Name + ") AS sum1"
@@ -179,7 +199,7 @@ func (g *Generator) nonPreparedSingleTable() PreparedQuery {
 	col := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
 	arg1 := g.literalForColumn(col).Value
 	arg2 := g.literalForColumn(col).Value
-	arg1, arg2 = orderedArgs(arg1, arg2)
+	arg1, arg2 = g.orderPlanCacheArgs(arg1, arg2)
 	selectCols := []string{col.Name}
 	if len(tbl.Columns) > 1 && util.Chance(g.Rand, 50) {
 		col2 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
@@ -360,5 +380,41 @@ func (g *Generator) nextArgForType(t schema.ColumnType, prev any) any {
 		return g.literalForColumn(schema.Column{Type: t}).Value
 	default:
 		return prev
+	}
+}
+
+func (g *Generator) orderPlanCacheArgs(a, b any) (any, any) {
+	if !g.Config.PlanCacheMeaningful {
+		return a, b
+	}
+	return orderedArgs(a, b)
+}
+
+func (g *Generator) orderedArgsForType(t schema.ColumnType) (any, any) {
+	col := schema.Column{Type: t}
+	a := g.literalForColumn(col).Value
+	b := g.literalForColumn(col).Value
+	a, b = orderedArgs(a, b)
+	for a == b {
+		b = g.nextArgForType(t, b)
+		if a != b {
+			break
+		}
+		b = g.literalForColumn(col).Value
+		if a != b {
+			break
+		}
+	}
+	return a, b
+}
+
+func isOrderableType(t schema.ColumnType) bool {
+	switch t {
+	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
+		return true
+	case schema.TypeVarchar, schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+		return true
+	default:
+		return false
 	}
 }

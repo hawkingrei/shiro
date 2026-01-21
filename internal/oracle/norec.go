@@ -36,9 +36,6 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}
 	}
-	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil || queryHasAggregate(query) || queryHasSubquery(query) {
-		return Result{OK: true, Oracle: o.Name()}
-	}
 	optimized := query.SQLString()
 	optimizedCount := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", optimized)
 
@@ -61,9 +58,12 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 			Expected: fmt.Sprintf("optimized count=%d", optCount),
 			Actual:   fmt.Sprintf("unoptimized count=%d", unoptCount),
 			Details: map[string]any{
-				"replay_kind":         "count",
-				"replay_expected_sql": optimizedCount,
-				"replay_actual_sql":   unoptimizedCount,
+				"replay_kind":           "count",
+				"replay_expected_sql":   optimizedCount,
+				"replay_actual_sql":     unoptimizedCount,
+				"norec_optimized_sql":   optimizedCount,
+				"norec_unoptimized_sql": unoptimizedCount,
+				"norec_predicate":       buildExpr(query.Where),
 			},
 		}
 	}

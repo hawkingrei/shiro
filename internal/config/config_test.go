@@ -34,11 +34,8 @@ func TestLoadDefaults(t *testing.T) {
 	if !strings.Contains(cfg.PlanReplayer.DownloadURLTemplate, "plan_replayer/dump") {
 		t.Fatalf("unexpected plan replayer url template: %s", cfg.PlanReplayer.DownloadURLTemplate)
 	}
-	if cfg.MaxJoinTables != 4 {
+	if cfg.MaxJoinTables != 5 {
 		t.Fatalf("unexpected max join tables: %d", cfg.MaxJoinTables)
-	}
-	if len(cfg.DQP.Variables) == 0 {
-		t.Fatalf("expected default DQP variables")
 	}
 	if cfg.Logging.ReportIntervalSeconds != 30 {
 		t.Fatalf("unexpected report interval: %d", cfg.Logging.ReportIntervalSeconds)

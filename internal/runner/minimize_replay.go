@@ -24,7 +24,7 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 	if err := r.resetDatabaseOnConn(ctx, conn, minDB); err != nil {
 		return false
 	}
-	if err := r.execOnConn(ctx, conn, "USE "+minDB); err != nil {
+	if err := r.prepareConn(ctx, conn, minDB); err != nil {
 		return false
 	}
 	if err := execStatements(ctx, conn, schemaSQL, r.validator); err != nil {

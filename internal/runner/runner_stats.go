@@ -53,6 +53,9 @@ func (r *Runner) startStatsLogger() func() {
 		var lastShapes int
 		var lastOps int
 		var lastJoins int
+		var lastJoinOrders int
+		var lastOpSigs int
+		var lastSeenSQL int
 		for {
 			select {
 			case <-ticker.C:
@@ -87,17 +90,23 @@ func (r *Runner) startStatsLogger() func() {
 						deltaNotIn,
 					)
 					if r.cfg.QPG.Enabled && r.cfg.Logging.Verbose && r.qpgState != nil {
-						plans, shapes, ops, joins := r.qpgState.stats()
+						plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
 						deltaPlans := plans - lastPlans
 						deltaShapes := shapes - lastShapes
 						deltaOps := ops - lastOps
 						deltaJoins := joins - lastJoins
+						deltaJoinOrders := joinOrders - lastJoinOrders
+						deltaOpSigs := opSigs - lastOpSigs
+						deltaSeenSQL := seenSQL - lastSeenSQL
 						lastPlans = plans
 						lastShapes = shapes
 						lastOps = ops
 						lastJoins = joins
+						lastJoinOrders = joinOrders
+						lastOpSigs = opSigs
+						lastSeenSQL = seenSQL
 						util.Infof(
-							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d)",
+							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d(+%d)",
 							plans,
 							deltaPlans,
 							shapes,
@@ -106,12 +115,19 @@ func (r *Runner) startStatsLogger() func() {
 							deltaOps,
 							joins,
 							deltaJoins,
+							joinOrders,
+							deltaJoinOrders,
+							opSigs,
+							deltaOpSigs,
+							seenSQL,
+							deltaSeenSQL,
 						)
 						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
 							util.Infof("qpg override=%s", r.qpgState.lastOverride)
 							r.qpgState.lastOverrideLogged = r.qpgState.lastOverride
 						}
 					}
+					r.dumpDynamicState()
 				}
 			case <-done:
 				return

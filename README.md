@@ -46,7 +46,7 @@ QPG works alongside bandits: bandit weights are applied first, then QPG can temp
 ## Query Plan Guidance (QPG)
 Enable `qpg.enabled` to collect EXPLAIN plan signatures. When a repeated plan is observed, Shiro can mutate the database state (index/analyze) to explore new plans.
 Configure `qpg.explain_format` (default `brief`), `qpg.mutation_prob` (0-100), and the `qpg.seen_sql_*` cache controls.
-Default QPG cache values are tuned for longer runs: `seen_sql_ttl_seconds=60`, `seen_sql_max=4096`, `seen_sql_sweep_seconds=300`.
+Default QPG cache values are tuned for longer runs: `seen_sql_ttl_seconds=120`, `seen_sql_max=8192`, `seen_sql_sweep_seconds=600`.
 QPG also tracks operator/shape coverage to temporarily boost join/aggregate/subquery generation when coverage stalls.
 To reduce overhead, QPG caches recent SQL strings and skips EXPLAIN for repeated queries within a short window.
 When `EXPLAIN FORMAT='json'` is used, QPG extracts operator IDs from the JSON to continue coverage tracking.
@@ -89,16 +89,23 @@ npm install
 npm run build
 ```
 
+Or run both steps with:
+```bash
+make report-web
+```
+
 Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `report.json` at runtime, so you only need to update the JSON to refresh the view.
 
 The report JSON now includes `plan_signature` (QPG EXPLAIN hash) and `plan_signature_format` (plain/json); the UI can filter by both.
+
+## Dynamic state dump
+At each report interval, Shiro writes `dynamic_state.json` in the working directory with bandit/QPG/feature weights so runs can be resumed or compared.
 
 ## Notes
 - If `PLAN REPLAYER DUMP` returns only a file name, set `plan_replayer.download_url_template` in `config.yaml`.
 - Shiro uses `PLAN REPLAYER DUMP EXPLAIN` to avoid executing the query.
 - TiDB returns a token (zip name). If the dump output does not include a URL, configure `plan_replayer.download_url_template` using your TiDB status port, e.g. `http://127.0.0.1:10080/plan_replayer/dump/%s`.
 - The parser validation uses `github.com/pingcap/tidb/pkg/parser` only.
-- DQP supports custom optimizer settings via `dqp.hint_sets` and `dqp.variables` (format: `var=value`).
 - Join chain length is capped by `max_join_tables`.
 
 ## Papers and techniques

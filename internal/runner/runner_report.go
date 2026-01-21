@@ -101,11 +101,23 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		Expected:      result.Expected,
 		Actual:        result.Actual,
 		Details:       result.Details,
+		Seed:          r.gen.Seed,
 		Timestamp:     time.Now().Format(time.RFC3339),
 		PlanReplay:    planPath,
 		TiDBVersion:   r.tidbVersion(ctx),
 		PlanSignature: planSignature,
 		PlanSigFormat: planSigFormat,
+	}
+	if result.Oracle == "NoREC" && result.Details != nil {
+		if optimized, ok := result.Details["norec_optimized_sql"].(string); ok {
+			summary.NoRECOptimizedSQL = optimized
+		}
+		if unoptimized, ok := result.Details["norec_unoptimized_sql"].(string); ok {
+			summary.NoRECUnoptimizedSQL = unoptimized
+		}
+		if predicate, ok := result.Details["norec_predicate"].(string); ok {
+			summary.NoRECPredicate = predicate
+		}
 	}
 	if result.Err != nil {
 		summary.Error = result.Err.Error()

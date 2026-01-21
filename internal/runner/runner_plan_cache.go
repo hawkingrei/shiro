@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
 	"strings"
 
+	"shiro/internal/db"
 	"shiro/internal/oracle"
 	"shiro/internal/util"
 )
+
+const maxFirstExecuteRetries = 1
 
 func (r *Runner) runPrepared(ctx context.Context) bool {
 	pq := r.gen.GeneratePreparedQuery()
@@ -23,281 +27,57 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		return false
 	}
 	defer conn.Close()
-	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
+	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return false
 	}
-	concreteSig, err := r.signatureForSQLOnConn(qctx, conn, concreteSQL, r.planCacheRoundScale())
-	if err != nil {
-		if logWhitelistedSQLError(concreteSQL, err, r.cfg.Logging.Verbose) {
-			return false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    []string{concreteSQL},
-				Err:    err,
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		return false
+	concreteSig, ok, bug := r.preparedConcreteSignature(qctx, conn, concreteSQL)
+	if !ok {
+		return bug
 	}
-	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_prepared_plan_cache = 0")
-	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_plan_cache_for_param = 0")
+	args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
+	concreteSig2 := concreteSig
+	if !reflect.DeepEqual(args2, pq.Args) {
+		sql2 := materializeSQL(pq.SQL, args2)
+		concreteSig2, ok, bug = r.preparedConcreteSignature(qctx, conn, sql2)
+		if !ok {
+			return bug
+		}
+	}
 	connID, err := r.connectionID(qctx, conn)
 	if err != nil {
 		return false
 	}
-	stmt, err := conn.PrepareContext(qctx, pq.SQL)
-	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-			return false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    []string{pq.SQL},
-				Err:    err,
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		return false
+	stmt, ok, bug := r.preparePlanCacheStatement(qctx, conn, pq.SQL)
+	if !ok {
+		return bug
 	}
 	defer stmt.Close()
-	args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
-	rowsBase, err := stmt.QueryContext(qctx, args2...)
-	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-			return false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		if isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    []string{concreteSQL, pq.SQL},
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		return false
+	baseSig, hit1, hit1Unexpected, ok, bug := r.preparedFirstExecute(qctx, conn, stmt, pq.SQL, concreteSQL, connID, pq.Args, args2)
+	if !ok {
+		return bug
 	}
-	baselinePreparedSig, err := signatureFromRows(rowsBase, r.planCacheRoundScale())
-	rowsBase.Close()
-	if err != nil {
-		return false
+	preparedSig, originResult, hit2, warnings, warnErr, ok, bug := r.preparedCacheExecute(qctx, conn, stmt, pq.SQL, concreteSQL, connID, pq.Args, args2)
+	if !ok {
+		return bug
 	}
-	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_prepared_plan_cache = 1")
-	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_plan_cache_for_param = 1")
-	rows1, err := stmt.QueryContext(qctx, args2...)
-	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-			return false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		if isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    []string{concreteSQL, pq.SQL},
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		return false
-	}
-	cacheSig1, err := signatureFromRows(rows1, r.planCacheRoundScale())
-	rows1.Close()
-	if err != nil {
-		return false
-	}
-	hit1, err := r.lastPlanFromCache(qctx, conn)
-	if err != nil {
-		return false
-	}
-	hit1Unexpected := hit1 == 1
-	rowsWarn1, err := stmt.QueryContext(qctx, args2...)
-	if err == nil {
-		_ = drainRows(rowsWarn1)
-		rowsWarn1.Close()
-	} else if isPanicError(err) {
-		result := oracle.Result{
-			OK:     false,
-			Oracle: "PlanCache",
-			SQL:    []string{concreteSQL, pq.SQL},
-			Err:    err,
-			Details: map[string]any{
-				"replay_sql": concreteSQL,
-			},
-		}
-		r.handleResult(ctx, result)
-		return true
-	}
-	warnings1, warnErr1 := r.warningsOnConn(qctx, conn)
-	if warnErr1 != nil {
-		return false
-	}
-	hasWarnings1 := warnErr1 == nil && len(warnings1) > 0
-	if cacheSig1 != baselinePreparedSig && (hit1 == 1 || (hit1 == 0 && !hasWarnings1)) {
-		sqlSeq := []string{
-			"SET SESSION tidb_enable_prepared_plan_cache = 0",
-			"SET SESSION tidb_enable_plan_cache_for_param = 0",
-		}
-		sqlSeq = append(sqlSeq, formatPrepareSQL(pq.SQL))
-		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
-		sqlSeq = append(sqlSeq, "SELECT @@last_plan_from_cache")
-		sqlSeq = append(sqlSeq,
-			"SET SESSION tidb_enable_prepared_plan_cache = 1",
-			"SET SESSION tidb_enable_plan_cache_for_param = 1",
-		)
-		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
-		sqlSeq = append(sqlSeq, "SELECT @@last_plan_from_cache")
-		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
-		sqlSeq = append(sqlSeq, "SHOW WARNINGS")
-		sqlSeq = append(sqlSeq, formatExecuteSQLWithVars("stmt", args2)...)
-		sqlSeq = append(sqlSeq, fmt.Sprintf("EXPLAIN FOR CONNECTION %d", connID))
+	signatureMismatch := preparedSig != concreteSig2
+
+	hasWarnings := warnErr == nil && len(warnings) > 0
+	if baseSig != concreteSig {
 		result := oracle.Result{
 			OK:       false,
 			Oracle:   "PlanCache",
-			SQL:      sqlSeq,
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", baselinePreparedSig.Count, baselinePreparedSig.Checksum),
-			Actual:   fmt.Sprintf("cnt=%d checksum=%d", cacheSig1.Count, cacheSig1.Checksum),
+			SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, pq.Args, args2, connID),
+			Expected: fmt.Sprintf("cnt=%d checksum=%d", concreteSig.Count, concreteSig.Checksum),
+			Actual:   fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
 			Details: map[string]any{
-				"warnings":      warnings1,
-				"warnings_err":  warnErr1,
-				"hit_first":     hit1,
-				"replay_sql":    concreteSQL,
-				"args_prepared": formatArgs(args2),
-			},
-		}
-		r.handleResult(ctx, result)
-		return true
-	}
-
-	rows2, err := stmt.QueryContext(qctx, pq.Args...)
-	if err != nil {
-		if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-			return false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		if isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCache",
-				SQL:    []string{concreteSQL, pq.SQL},
-				Err:    err,
-				Details: map[string]any{
-					"replay_sql": concreteSQL,
-				},
-			}
-			r.handleResult(ctx, result)
-			return true
-		}
-		return false
-	}
-	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
-	rows2.Close()
-	if err != nil {
-		return false
-	}
-	originResult := map[string]any{
-		"signature": fmt.Sprintf("cnt=%d checksum=%d", preparedSig.Count, preparedSig.Checksum),
-		"columns":   originCols,
-		"rows":      originRows,
-	}
-	signatureMismatch := preparedSig != concreteSig
-
-	hit2, err := r.lastPlanFromCache(qctx, conn)
-	if err != nil {
-		return false
-	}
-	rowsWarn, err := stmt.QueryContext(qctx, pq.Args...)
-	if err == nil {
-		_ = drainRows(rowsWarn)
-		rowsWarn.Close()
-	} else if isPanicError(err) {
-		result := oracle.Result{
-			OK:     false,
-			Oracle: "PlanCache",
-			SQL:    []string{concreteSQL, pq.SQL},
-			Err:    err,
-			Details: map[string]any{
+				"phase":      "first_execute",
 				"replay_sql": concreteSQL,
 			},
 		}
 		r.handleResult(ctx, result)
 		return true
 	}
-
-	warnings, warnErr := r.warningsOnConn(qctx, conn)
-
-	rowsExplain, err := stmt.QueryContext(qctx, pq.Args...)
-	if err == nil {
-		_ = drainRows(rowsExplain)
-		rowsExplain.Close()
-		r.observePlanForConnection(ctx, connID)
-	} else if isPanicError(err) {
-		result := oracle.Result{
-			OK:     false,
-			Oracle: "PlanCache",
-			SQL:    []string{concreteSQL, pq.SQL},
-			Err:    err,
-			Details: map[string]any{
-				"replay_sql": concreteSQL,
-			},
-		}
-		r.handleResult(ctx, result)
-		return true
-	}
-
-	hasWarnings := warnErr == nil && len(warnings) > 0
 	if hit1Unexpected {
 		plan, _ := r.explainForConnection(ctx, connID)
 		result := oracle.Result{
@@ -319,8 +99,8 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		result := oracle.Result{
 			OK:       false,
 			Oracle:   "PlanCache",
-			SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", concreteSig.Count, concreteSig.Checksum),
+			SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, pq.Args, args2, connID),
+			Expected: fmt.Sprintf("cnt=%d checksum=%d", concreteSig2.Count, concreteSig2.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", preparedSig.Count, preparedSig.Checksum),
 			Details: map[string]any{
 				"origin_result": originResult,
@@ -332,28 +112,231 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 		r.handleResult(ctx, result)
 		return true
 	}
-	if hit2 != 1 {
-		if !hasWarnings {
-			plan, _ := r.explainForConnection(ctx, connID)
+	if hit2 == 1 || hasWarnings {
+		return false
+	}
+	plan, _ := r.explainForConnection(ctx, connID)
+	result := oracle.Result{
+		OK:       false,
+		Oracle:   "PlanCache",
+		SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, pq.Args, args2, connID),
+		Expected: "last_plan_from_cache=1",
+		Actual:   "last_plan_from_cache=0",
+		Details: map[string]any{
+			"origin_result":          originResult,
+			"warnings":               warnings,
+			"warnings_err":           warnErr,
+			"explain_for_connection": plan,
+			"replay_sql":             concreteSQL,
+		},
+	}
+	r.handleResult(ctx, result)
+	return true
+	return false
+}
+
+func (r *Runner) preparedConcreteSignature(ctx context.Context, conn *sql.Conn, concreteSQL string) (db.Signature, bool, bool) {
+	sig, err := r.signatureForSQLOnConn(ctx, conn, concreteSQL, r.planCacheRoundScale())
+	if err != nil {
+		if logWhitelistedSQLError(concreteSQL, err, r.cfg.Logging.Verbose) {
+			return db.Signature{}, false, false
+		}
+		if isMySQLError(err) && !isPanicError(err) {
 			result := oracle.Result{
-				OK:       false,
-				Oracle:   "PlanCache",
-				SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-				Expected: "last_plan_from_cache=1",
-				Actual:   fmt.Sprintf("last_plan_from_cache=%d", hit2),
+				OK:     false,
+				Oracle: "PlanCache",
+				SQL:    []string{concreteSQL},
+				Err:    err,
+			}
+			r.handleResult(ctx, result)
+			return db.Signature{}, false, true
+		}
+		return db.Signature{}, false, false
+	}
+	return sig, true, false
+}
+
+func (r *Runner) preparePlanCacheStatement(ctx context.Context, conn *sql.Conn, sql string) (*sql.Stmt, bool, bool) {
+	stmt, err := conn.PrepareContext(ctx, sql)
+	if err != nil {
+		if logWhitelistedSQLError(sql, err, r.cfg.Logging.Verbose) {
+			return nil, false, false
+		}
+		if isMySQLError(err) && !isPanicError(err) {
+			result := oracle.Result{
+				OK:     false,
+				Oracle: "PlanCache",
+				SQL:    []string{sql},
+				Err:    err,
+			}
+			r.handleResult(ctx, result)
+			return nil, false, true
+		}
+		return nil, false, false
+	}
+	return stmt, true, false
+}
+
+func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) (db.Signature, int, bool, bool, bool) {
+	for attempt := 0; attempt < maxFirstExecuteRetries; attempt++ {
+		rowsBase, err := stmt.QueryContext(ctx, argsFirst...)
+		if err != nil {
+			if logWhitelistedSQLError(preparedSQL, err, r.cfg.Logging.Verbose) {
+				return db.Signature{}, 0, false, false, false
+			}
+			if isMySQLError(err) && !isPanicError(err) {
+				result := oracle.Result{
+					OK:     false,
+					Oracle: "PlanCache",
+					SQL:    planCacheSQLSequence(concreteSQL, preparedSQL, argsFirst, argsSecond, connID),
+					Err:    err,
+					Details: map[string]any{
+						"replay_sql": concreteSQL,
+					},
+				}
+				r.handleResult(ctx, result)
+				return db.Signature{}, 0, false, false, true
+			}
+			if isPanicError(err) {
+				result := oracle.Result{
+					OK:     false,
+					Oracle: "PlanCache",
+					SQL:    []string{concreteSQL, preparedSQL},
+					Err:    err,
+					Details: map[string]any{
+						"replay_sql": concreteSQL,
+					},
+				}
+				r.handleResult(ctx, result)
+				return db.Signature{}, 0, false, false, true
+			}
+			return db.Signature{}, 0, false, false, false
+		}
+		baseSig, err := signatureFromRows(rowsBase, r.planCacheRoundScale())
+		rowsBase.Close()
+		if err != nil {
+			return db.Signature{}, 0, false, false, false
+		}
+		// Capture hit info right after the first EXECUTE to avoid later SELECTs overwriting it.
+		hit1, err := r.lastPlanFromCache(ctx, conn)
+		if err != nil {
+			return db.Signature{}, 0, false, false, false
+		}
+		// Run the statement again before SHOW WARNINGS so warnings are bound to the EXECUTE,
+		// not to the SELECT @@last_plan_from_cache.
+		rowsWarn, err := stmt.QueryContext(ctx, argsFirst...)
+		if err == nil {
+			_ = drainRows(rowsWarn)
+			rowsWarn.Close()
+		} else if isPanicError(err) {
+			result := oracle.Result{
+				OK:     false,
+				Oracle: "PlanCache",
+				SQL:    planCacheSQLSequence(concreteSQL, preparedSQL, argsFirst, argsSecond, connID),
+				Err:    err,
 				Details: map[string]any{
-					"origin_result":          originResult,
-					"warnings":               warnings,
-					"warnings_err":           warnErr,
-					"explain_for_connection": plan,
-					"replay_sql":             concreteSQL,
+					"replay_sql": concreteSQL,
 				},
 			}
 			r.handleResult(ctx, result)
-			return true
+			return db.Signature{}, 0, false, false, true
+		}
+		warnings, warnErr := r.warningsOnConn(ctx, conn)
+		if warnErr != nil {
+			return db.Signature{}, 0, false, false, false
+		}
+		if len(warnings) == 0 {
+			return baseSig, hit1, hit1 == 1, true, false
 		}
 	}
-	return false
+	return db.Signature{}, 0, false, false, false
+}
+
+func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) (db.Signature, map[string]any, int, []string, error, bool, bool) {
+	rows2, err := stmt.QueryContext(ctx, argsSecond...)
+	if err != nil {
+		if logWhitelistedSQLError(preparedSQL, err, r.cfg.Logging.Verbose) {
+			return db.Signature{}, nil, 0, nil, nil, false, false
+		}
+		if isMySQLError(err) && !isPanicError(err) {
+			result := oracle.Result{
+				OK:     false,
+				Oracle: "PlanCache",
+				SQL:    planCacheSQLSequence(concreteSQL, preparedSQL, argsFirst, argsSecond, connID),
+				Err:    err,
+				Details: map[string]any{
+					"replay_sql": concreteSQL,
+				},
+			}
+			r.handleResult(ctx, result)
+			return db.Signature{}, nil, 0, nil, nil, false, true
+		}
+		if isPanicError(err) {
+			result := oracle.Result{
+				OK:     false,
+				Oracle: "PlanCache",
+				SQL:    []string{concreteSQL, preparedSQL},
+				Err:    err,
+				Details: map[string]any{
+					"replay_sql": concreteSQL,
+				},
+			}
+			r.handleResult(ctx, result)
+			return db.Signature{}, nil, 0, nil, nil, false, true
+		}
+		return db.Signature{}, nil, 0, nil, nil, false, false
+	}
+	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
+	rows2.Close()
+	if err != nil {
+		return db.Signature{}, nil, 0, nil, nil, false, false
+	}
+	originResult := map[string]any{
+		"signature": fmt.Sprintf("cnt=%d checksum=%d", preparedSig.Count, preparedSig.Checksum),
+		"columns":   originCols,
+		"rows":      originRows,
+	}
+	hit2, err := r.lastPlanFromCache(ctx, conn)
+	if err != nil {
+		return db.Signature{}, nil, 0, nil, nil, false, false
+	}
+	rowsWarn, err := stmt.QueryContext(ctx, argsSecond...)
+	if err == nil {
+		_ = drainRows(rowsWarn)
+		rowsWarn.Close()
+	} else if isPanicError(err) {
+		result := oracle.Result{
+			OK:     false,
+			Oracle: "PlanCache",
+			SQL:    []string{concreteSQL, preparedSQL},
+			Err:    err,
+			Details: map[string]any{
+				"replay_sql": concreteSQL,
+			},
+		}
+		r.handleResult(ctx, result)
+		return db.Signature{}, nil, 0, nil, nil, false, true
+	}
+	warnings, warnErr := r.warningsOnConn(ctx, conn)
+	rowsExplain, err := stmt.QueryContext(ctx, argsSecond...)
+	if err == nil {
+		_ = drainRows(rowsExplain)
+		rowsExplain.Close()
+		r.observePlanForConnection(ctx, connID)
+	} else if isPanicError(err) {
+		result := oracle.Result{
+			OK:     false,
+			Oracle: "PlanCache",
+			SQL:    []string{concreteSQL, preparedSQL},
+			Err:    err,
+			Details: map[string]any{
+				"replay_sql": concreteSQL,
+			},
+		}
+		r.handleResult(ctx, result)
+		return db.Signature{}, nil, 0, nil, nil, false, true
+	}
+	return preparedSig, originResult, hit2, warnings, warnErr, true, false
 }
 
 func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
@@ -372,27 +355,8 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		return false, false
 	}
 	defer conn.Close()
-	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
+	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return false, false
-	}
-
-	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_non_prepared_plan_cache = 0")
-	baselineSig, err := r.signatureForSQLOnConn(qctx, conn, sql2, r.planCacheRoundScale())
-	if err != nil {
-		if logWhitelistedSQLError(sql2, err, r.cfg.Logging.Verbose) {
-			return true, false
-		}
-		if isMySQLError(err) && !isPanicError(err) {
-			result := oracle.Result{
-				OK:     false,
-				Oracle: "PlanCacheNonPrepared",
-				SQL:    []string{sql2},
-				Err:    err,
-			}
-			r.handleResult(ctx, result)
-			return true, true
-		}
-		return true, false
 	}
 
 	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_non_prepared_plan_cache = 1")
@@ -474,6 +438,24 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		return true, true
 	}
 	warnings, warnErr := r.warningsOnConn(qctx, conn)
+	_ = r.execOnConn(qctx, conn, "SET SESSION tidb_enable_non_prepared_plan_cache = 0")
+	baselineSig, err := r.signatureForSQLOnConn(qctx, conn, sql2, r.planCacheRoundScale())
+	if err != nil {
+		if logWhitelistedSQLError(sql2, err, r.cfg.Logging.Verbose) {
+			return true, false
+		}
+		if isMySQLError(err) && !isPanicError(err) {
+			result := oracle.Result{
+				OK:     false,
+				Oracle: "PlanCacheNonPrepared",
+				SQL:    []string{sql2},
+				Err:    err,
+			}
+			r.handleResult(ctx, result)
+			return true, true
+		}
+		return true, false
+	}
 	signatureMismatch := cacheSig != baselineSig
 
 	if signatureMismatch {
@@ -501,8 +483,6 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 
 func planCacheNonPreparedSQLSequence(sql1, sql2 string) []string {
 	return []string{
-		"SET SESSION tidb_enable_non_prepared_plan_cache = 0",
-		sql2,
 		"SET SESSION tidb_enable_non_prepared_plan_cache = 1",
 		sql1,
 		sql2,
@@ -510,6 +490,7 @@ func planCacheNonPreparedSQLSequence(sql1, sql2 string) []string {
 		sql2,
 		"SHOW WARNINGS",
 		"SET SESSION tidb_enable_non_prepared_plan_cache = 0",
+		sql2,
 	}
 }
 
@@ -520,6 +501,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 	var hitSecond int
 	var missSecond int
 	var hitFirstUnexpected int
+nextIteration:
 	for i := 0; i < r.cfg.Iterations; i++ {
 		total++
 		conn, err := r.exec.Conn(ctx)
@@ -531,12 +513,11 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 			conn.Close()
 			continue
 		}
-		if err := r.execOnConn(ctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
+		if err := r.prepareConn(ctx, conn, r.cfg.Database); err != nil {
 			conn.Close()
 			return err
 		}
 		_ = r.execOnConn(ctx, conn, "SET SESSION tidb_enable_prepared_plan_cache = 1")
-		_ = r.execOnConn(ctx, conn, "SET SESSION tidb_enable_plan_cache_for_param = 1")
 
 		pq := r.gen.GeneratePreparedQuery()
 		if pq.SQL == "" {
@@ -589,58 +570,77 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 			conn.Close()
 			continue
 		}
-		args2 := r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
-		rows1, err := stmt.QueryContext(ctx, args2...)
-		if err != nil {
-			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
+		var args2 []any
+		acceptedFirst := false
+		for attempt := 0; attempt < maxFirstExecuteRetries; attempt++ {
+			args2 = r.gen.GeneratePreparedArgsForQuery(pq.Args, pq.ArgTypes)
+			rows1, err := stmt.QueryContext(ctx, args2...)
+			if err != nil {
+				if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
+					stmt.Close()
+					conn.Close()
+					continue nextIteration
+				}
+				if isMySQLError(err) && !isPanicError(err) {
+					result := oracle.Result{
+						OK:     false,
+						Oracle: "PlanCacheOnly",
+						SQL:    planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
+						Err:    err,
+						Details: map[string]any{
+							"replay_sql": concreteSQL,
+						},
+					}
+					r.handleResult(ctx, result)
+					stmt.Close()
+					conn.Close()
+					continue nextIteration
+				}
+				warnings, warnErr := r.warningsOnConn(ctx, conn)
 				stmt.Close()
 				conn.Close()
-				continue
-			}
-			if isMySQLError(err) && !isPanicError(err) {
-				result := oracle.Result{
-					OK:     false,
-					Oracle: "PlanCacheOnly",
-					SQL:    planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
-					Err:    err,
-					Details: map[string]any{
-						"replay_sql": concreteSQL,
-					},
+				execErrors++
+				if isPanicError(err) {
+					plan, _ := r.explainForConnection(ctx, connID)
+					result := oracle.Result{
+						OK:     false,
+						Oracle: "PlanCacheOnly",
+						SQL:    []string{pq.SQL, fmt.Sprintf("EXPLAIN FOR CONNECTION %d", connID)},
+						Err:    err,
+						Details: map[string]any{
+							"warnings":               warnings,
+							"warnings_err":           warnErr,
+							"explain_for_connection": plan,
+							"replay_sql":             concreteSQL,
+						},
+					}
+					r.handleResult(ctx, result)
 				}
-				r.handleResult(ctx, result)
+				continue nextIteration
+			}
+			if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
+				rows1.Close()
 				stmt.Close()
 				conn.Close()
-				continue
+				continue nextIteration
 			}
-			warnings, warnErr := r.warningsOnConn(ctx, conn)
-			stmt.Close()
-			conn.Close()
-			execErrors++
-			if isPanicError(err) {
-				plan, _ := r.explainForConnection(ctx, connID)
-				result := oracle.Result{
-					OK:     false,
-					Oracle: "PlanCacheOnly",
-					SQL:    []string{pq.SQL, fmt.Sprintf("EXPLAIN FOR CONNECTION %d", connID)},
-					Err:    err,
-					Details: map[string]any{
-						"warnings":               warnings,
-						"warnings_err":           warnErr,
-						"explain_for_connection": plan,
-						"replay_sql":             concreteSQL,
-					},
-				}
-				r.handleResult(ctx, result)
-			}
-			continue
-		}
-		if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
 			rows1.Close()
+			warnings, warnErr := r.warningsOnConn(ctx, conn)
+			if warnErr != nil {
+				stmt.Close()
+				conn.Close()
+				continue nextIteration
+			}
+			if len(warnings) == 0 {
+				acceptedFirst = true
+				break
+			}
+		}
+		if !acceptedFirst {
 			stmt.Close()
 			conn.Close()
 			continue
 		}
-		rows1.Close()
 
 		hit1, err := r.lastPlanFromCache(ctx, conn)
 		hit1Unexpected := err == nil && hit1 == 1
@@ -809,7 +809,7 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 					Oracle:   "PlanCacheOnly",
 					SQL:      planCacheSQLSequence(concreteSQL, pq.SQL, args2, pq.Args, connID),
 					Expected: "last_plan_from_cache=1",
-					Actual:   fmt.Sprintf("last_plan_from_cache=%d", hit2),
+					Actual:   "last_plan_from_cache=0",
 					Details: map[string]any{
 						"args_first":             formatArgs(pq.Args),
 						"args_second":            formatArgs(args2),

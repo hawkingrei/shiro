@@ -14,6 +14,9 @@ type Config struct {
 	Iterations          int             `yaml:"iterations"`
 	Workers             int             `yaml:"workers"`
 	PlanCacheOnly       bool            `yaml:"plan_cache_only"`
+	PlanCacheProb       int             `yaml:"plan_cache_prob"`
+	NonPreparedProb     int             `yaml:"non_prepared_plan_cache_prob"`
+	PlanCacheMeaningful bool            `yaml:"plan_cache_meaningful_predicates"`
 	MaxTables           int             `yaml:"max_tables"`
 	MaxJoinTables       int             `yaml:"max_join_tables"`
 	MaxColumns          int             `yaml:"max_columns"`
@@ -22,7 +25,6 @@ type Config struct {
 	MaxInsertStatements int             `yaml:"max_insert_statements"`
 	StatementTimeoutMs  int             `yaml:"statement_timeout_ms"`
 	PlanReplayer        PlanReplayer    `yaml:"plan_replayer"`
-	DQP                 DQPConfig       `yaml:"dqp"`
 	Storage             StorageConfig   `yaml:"storage"`
 	Features            Features        `yaml:"features"`
 	Weights             Weights         `yaml:"weights"`
@@ -164,12 +166,6 @@ type Adaptive struct {
 	AdaptFeatures  bool    `yaml:"adapt_features"`
 }
 
-// DQPConfig configures DQP hints and variables.
-type DQPConfig struct {
-	HintSets  []string `yaml:"hint_sets"`
-	Variables []string `yaml:"variables"`
-}
-
 // StorageConfig holds external storage settings.
 type StorageConfig struct {
 	S3 S3Config `yaml:"s3"`
@@ -206,6 +202,15 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Adaptive.Enabled && !cfg.Adaptive.AdaptActions && !cfg.Adaptive.AdaptOracles && !cfg.Adaptive.AdaptDML && !cfg.Adaptive.AdaptFeatures {
 		cfg.Adaptive.AdaptOracles = true
 	}
+	if cfg.PlanCacheProb <= 0 {
+		cfg.PlanCacheProb = 50
+	}
+	if cfg.NonPreparedProb <= 0 {
+		cfg.NonPreparedProb = 50
+	}
+	if cfg.MaxJoinTables > 0 && cfg.Weights.Features.JoinCount > cfg.MaxJoinTables {
+		cfg.Weights.Features.JoinCount = cfg.MaxJoinTables
+	}
 }
 
 func defaultConfig() Config {
@@ -214,8 +219,11 @@ func defaultConfig() Config {
 		Database:            "shiro_fuzz",
 		Iterations:          1000,
 		Workers:             1,
+		PlanCacheProb:       50,
+		NonPreparedProb:     50,
+		PlanCacheMeaningful: true,
 		MaxTables:           5,
-		MaxJoinTables:       4,
+		MaxJoinTables:       15,
 		MaxColumns:          8,
 		MaxRowsPerTable:     50,
 		MaxDataDumpRows:     50,
@@ -226,6 +234,7 @@ func defaultConfig() Config {
 			NonPreparedPlanCache: true,
 			NotExists:            true,
 			NotIn:                true,
+			CorrelatedSubq:       true,
 		},
 		PlanReplayer: PlanReplayer{
 			OutputDir:           "reports",
@@ -235,9 +244,9 @@ func defaultConfig() Config {
 		},
 		Weights: Weights{
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
-			DML:      DMLWeights{Insert: 3, Update: 2, Delete: 1},
-			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 2, CODDTest: 2, DQE: 2},
-			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
+			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
+			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2},
+			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
 		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50},
@@ -260,21 +269,5 @@ func defaultConfig() Config {
 			TimeoutSeconds: 60,
 			MergeInserts:   true,
 		},
-		DQP: DQPConfig{Variables: []string{
-			"tidb_opt_enable_hash_join=ON",
-			"tidb_opt_enable_hash_join=OFF",
-			"tidb_opt_enable_late_materialization=ON",
-			"tidb_opt_enable_late_materialization=OFF",
-			"tidb_opt_enable_non_eval_scalar_subquery=ON",
-			"tidb_opt_enable_non_eval_scalar_subquery=OFF",
-			"tidb_opt_enable_semi_join_rewrite=ON",
-			"tidb_opt_enable_semi_join_rewrite=OFF",
-			"tidb_opt_enable_no_decorrelate_in_select=ON",
-			"tidb_opt_enable_no_decorrelate_in_select=OFF",
-			"tidb_opt_force_inline_cte=ON",
-			"tidb_opt_force_inline_cte=OFF",
-			"tidb_opt_join_reorder_threshold=0",
-			"tidb_opt_join_reorder_threshold=8",
-		}},
 	}
 }

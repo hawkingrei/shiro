@@ -75,7 +75,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
-			oracle.DQP{HintSets: cfg.DQP.HintSets, Variables: cfg.DQP.Variables},
+			oracle.DQP{},
 			oracle.CERT{MinBaseRows: cfg.Oracles.CertMinBaseRows},
 			oracle.CODDTest{},
 			oracle.DQE{},
@@ -136,7 +136,6 @@ func (r *Runner) setupDatabase(ctx context.Context) error {
 	}
 	if r.cfg.Features.PlanCache {
 		_, _ = r.exec.ExecContext(ctx, "SET SESSION tidb_enable_prepared_plan_cache = 1")
-		_, _ = r.exec.ExecContext(ctx, "SET SESSION tidb_enable_plan_cache_for_param = 1")
 	}
 	return nil
 }
@@ -257,8 +256,8 @@ func (r *Runner) runDML(ctx context.Context) {
 }
 
 func (r *Runner) runQuery(ctx context.Context) bool {
-	if r.cfg.Features.PlanCache && util.Chance(r.gen.Rand, 20) {
-		if r.cfg.Features.NonPreparedPlanCache && util.Chance(r.gen.Rand, 50) {
+	if r.cfg.Features.PlanCache && util.Chance(r.gen.Rand, r.cfg.PlanCacheProb) {
+		if r.cfg.Features.NonPreparedPlanCache && util.Chance(r.gen.Rand, r.cfg.NonPreparedProb) {
 			ran, bug := r.runNonPreparedPlanCache(ctx)
 			if ran {
 				return bug

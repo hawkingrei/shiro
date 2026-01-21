@@ -5,7 +5,7 @@ iterations: 2000
 workers: 1
 plan_cache_only: true
 max_tables: 6
-max_join_tables: 4
+max_join_tables: 15
 max_columns: 8
 max_rows_per_table: 50
 max_data_dump_rows: 50
@@ -39,6 +39,10 @@ weights:
     ddl: 1
     dml: 3
     query: 8
+  dml:
+    insert: 3
+    update: 1
+    delete: 1
   features:
     join_count: 3
     cte_count: 2
