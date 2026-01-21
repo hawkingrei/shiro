@@ -107,6 +107,10 @@ func (r *Runner) startStatsLogger() func() {
 							joins,
 							deltaJoins,
 						)
+						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
+							util.Infof("qpg override=%s", r.qpgState.lastOverride)
+							r.qpgState.lastOverrideLogged = r.qpgState.lastOverride
+						}
 					}
 				}
 			case <-done:

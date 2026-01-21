@@ -50,6 +50,9 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		return Result{OK: true, Oracle: o.Name()}
 	}
 	columns := phi.Columns()
+	if !onlyIntOrBoolColumns(columns) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
 	if !o.noNullsInTable(ctx, exec, tbl, columns) {
 		return Result{OK: true, Oracle: o.Name()}
 	}
@@ -57,6 +60,21 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		return o.runIndependent(ctx, exec, gen, tbl, phi)
 	}
 	return o.runDependent(ctx, exec, gen, tbl, phi, columns)
+}
+
+func onlyIntOrBoolColumns(columns []generator.ColumnRef) bool {
+	if len(columns) == 0 {
+		return false
+	}
+	for _, col := range columns {
+		switch col.Type {
+		case schema.TypeInt, schema.TypeBigInt, schema.TypeBool:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (o CODDTest) noNullsInTable(ctx context.Context, exec *db.DB, tbl schema.Table, columns []generator.ColumnRef) bool {

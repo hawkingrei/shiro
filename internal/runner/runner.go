@@ -76,7 +76,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.NoREC{},
 			oracle.TLP{},
 			oracle.DQP{HintSets: cfg.DQP.HintSets, Variables: cfg.DQP.Variables},
-			oracle.CERT{},
+			oracle.CERT{MinBaseRows: cfg.Oracles.CertMinBaseRows},
 			oracle.CODDTest{},
 			oracle.DQE{},
 		},

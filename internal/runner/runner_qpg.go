@@ -110,28 +110,28 @@ type planInfo struct {
 }
 
 type qpgState struct {
-	seenPlans      map[string]struct{}
-	seenShapes     map[string]struct{}
-	seenOps        map[string]struct{}
-	seenJoins      map[string]struct{}
-	seenJoinOrder  map[string]struct{}
-	seenOpSig      map[string]struct{}
-	seenSQL        map[string]int64
-	noNewPlan      int
-	noNewOp        int
-	noJoin         int
-	noAgg          int
-	noNewJoinType  int
-	noNewShape     int
-	noNewOpSig     int
-	noNewJoinOrder int
-	override       *generator.AdaptiveWeights
-	overrideTTL    int
-	lastOverride   string
-	lastLog        time.Time
-	seenSQLTTL     int64
-	seenSQLMax     int
-	seenSQLSweep   int64
+	seenPlans          map[string]struct{}
+	seenShapes         map[string]struct{}
+	seenOps            map[string]struct{}
+	seenJoins          map[string]struct{}
+	seenJoinOrder      map[string]struct{}
+	seenOpSig          map[string]struct{}
+	seenSQL            map[string]int64
+	noNewPlan          int
+	noNewOp            int
+	noJoin             int
+	noAgg              int
+	noNewJoinType      int
+	noNewShape         int
+	noNewOpSig         int
+	noNewJoinOrder     int
+	override           *generator.AdaptiveWeights
+	overrideTTL        int
+	lastOverride       string
+	lastOverrideLogged string
+	seenSQLTTL         int64
+	seenSQLMax         int
+	seenSQLSweep       int64
 }
 
 type qpgObservation struct {
@@ -435,10 +435,9 @@ func (r *Runner) applyQPGWeights() bool {
 			r.qpgState.overrideTTL = 5
 			setOverride = true
 		}
-		if setOverride && r.cfg.Logging.Verbose && r.qpgState.override != nil && r.qpgState.canLog() {
+		if setOverride && r.cfg.Logging.Verbose && r.qpgState.override != nil {
 			sig := fmt.Sprintf("%d/%d/%d/%d", r.qpgState.override.JoinCount, r.qpgState.override.SubqCount, r.qpgState.override.AggProb, r.qpgState.overrideTTL)
 			if sig != r.qpgState.lastOverride {
-				util.Infof("qpg weight boost join=%d subq=%d agg=%d ttl=%d", r.qpgState.override.JoinCount, r.qpgState.override.SubqCount, r.qpgState.override.AggProb, r.qpgState.overrideTTL)
 				r.qpgState.lastOverride = sig
 			}
 		}
@@ -514,14 +513,6 @@ func (s *qpgState) shouldSkipExplain(sqlText string) bool {
 		}
 	}
 	return false
-}
-
-func (s *qpgState) canLog() bool {
-	if time.Since(s.lastLog) < time.Second {
-		return false
-	}
-	s.lastLog = time.Now()
-	return true
 }
 
 func joinTypeFromOp(op string) string {
