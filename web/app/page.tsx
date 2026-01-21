@@ -24,6 +24,7 @@ type CaseEntry = {
   norec_optimized_sql: string;
   norec_unoptimized_sql: string;
   norec_predicate: string;
+  case_dir: string;
   sql: string[];
   plan_replayer: string;
   upload_location: string;
@@ -268,6 +269,8 @@ export default function Page() {
           const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
           const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
           const norecPredicate = c.norec_predicate || "";
+          const unoptimizedExplain = detailString(c.details, "unoptimized_explain");
+          const optimizedExplain = detailString(c.details, "optimized_explain");
           return (
             <details className="case" key={c.id || idx}>
               <summary>
@@ -275,6 +278,7 @@ export default function Page() {
                   {c.timestamp} {c.oracle}
                 </span>
                 <span className="case__toggle" aria-hidden="true" />
+                {c.case_dir && <span className="pill">{c.case_dir}</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
                 {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
                 {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
@@ -291,6 +295,12 @@ export default function Page() {
                       <pre>{formatSQL(expectedSQL)}</pre>
                     </>
                   )}
+                  {optimizedExplain && (
+                    <>
+                      <LabelRow label="Optimized EXPLAIN" onCopy={() => copyText("optimized explain", optimizedExplain)} />
+                      <pre>{optimizedExplain}</pre>
+                    </>
+                  )}
                 </div>
                 <div>
                   <LabelRow label="Actual" onCopy={() => copyText("actual", c.actual || "")} />
@@ -299,6 +309,12 @@ export default function Page() {
                     <>
                       <LabelRow label="Actual SQL" onCopy={() => copyText("actual sql", actualSQL)} />
                       <pre>{formatSQL(actualSQL)}</pre>
+                    </>
+                  )}
+                  {unoptimizedExplain && (
+                    <>
+                      <LabelRow label="Unoptimized EXPLAIN" onCopy={() => copyText("unoptimized explain", unoptimizedExplain)} />
+                      <pre>{unoptimizedExplain}</pre>
                     </>
                   )}
                   {c.error && (

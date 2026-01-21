@@ -1,5 +1,6 @@
 package oracle
 
+// Hint tokens used across oracles.
 const (
 	HintHashJoin       = "HASH_JOIN"
 	HintNoHashJoin     = "NO_HASH_JOIN"
@@ -22,6 +23,7 @@ const (
 	HintUseIndexMergeFmt = "USE_INDEX_MERGE(%s)"
 )
 
+// SET_VAR hint strings used by DQP.
 const (
 	SetVarEnableHashJoinOn               = "SET_VAR(tidb_opt_enable_hash_join=ON)"
 	SetVarEnableHashJoinOff              = "SET_VAR(tidb_opt_enable_hash_join=OFF)"

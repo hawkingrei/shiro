@@ -36,6 +36,7 @@ type Summary struct {
 	Seed                int64          `json:"seed"`
 	PlanReplay          string         `json:"plan_replayer"`
 	UploadLocation      string         `json:"upload_location"`
+	CaseDir             string         `json:"case_dir"`
 	NoRECOptimizedSQL   string         `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL string         `json:"norec_unoptimized_sql"`
 	NoRECPredicate      string         `json:"norec_predicate"`

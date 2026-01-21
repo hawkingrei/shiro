@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -108,6 +109,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		PlanSignature: planSignature,
 		PlanSigFormat: planSigFormat,
 	}
+	summary.CaseDir = filepath.Base(caseData.Dir)
 	if result.Oracle == "NoREC" && result.Details != nil {
 		if optimized, ok := result.Details["norec_optimized_sql"].(string); ok {
 			summary.NoRECOptimizedSQL = optimized

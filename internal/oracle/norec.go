@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
@@ -51,6 +52,8 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err}
 	}
 	if optCount != unoptCount {
+		unoptimizedExplain, _ := explainSQL(ctx, exec, unoptimizedCount)
+		optimizedExplain, _ := explainSQL(ctx, exec, optimizedCount)
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -64,6 +67,8 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 				"norec_optimized_sql":   optimizedCount,
 				"norec_unoptimized_sql": unoptimizedCount,
 				"norec_predicate":       buildExpr(query.Where),
+				"unoptimized_explain":   unoptimizedExplain,
+				"optimized_explain":     optimizedExplain,
 			},
 		}
 	}
@@ -72,4 +77,40 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 
 func buildNoRECQuery(query *generator.SelectQuery) string {
 	return fmt.Sprintf("SELECT (CASE WHEN %s THEN 1 ELSE 0 END) AS b FROM %s", buildExpr(query.Where), buildFrom(query))
+}
+
+func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) {
+	rows, err := exec.QueryContext(ctx, "EXPLAIN "+query)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return "", err
+	}
+	values := make([][]byte, len(cols))
+	scanArgs := make([]any, len(cols))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+	var b strings.Builder
+	for rows.Next() {
+		if err := rows.Scan(scanArgs...); err != nil {
+			return "", err
+		}
+		for i, v := range values {
+			if i > 0 {
+				b.WriteByte('\t')
+			}
+			if v == nil {
+				b.WriteString("NULL")
+			} else {
+				b.Write(v)
+			}
+		}
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
 }

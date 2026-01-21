@@ -49,6 +49,7 @@ type CaseEntry struct {
 	NoRECOptimizedSQL   string                 `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL string                 `json:"norec_unoptimized_sql"`
 	NoRECPredicate      string                 `json:"norec_predicate"`
+	CaseDir             string                 `json:"case_dir"`
 	SQL                 []string               `json:"sql"`
 	PlanReplay          string                 `json:"plan_replayer"`
 	UploadLocation      string                 `json:"upload_location"`
@@ -176,6 +177,7 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
 		NoRECPredicate:      summary.NoRECPredicate,
+		CaseDir:             summary.CaseDir,
 		SQL:                 summary.SQL,
 		PlanReplay:          summary.PlanReplay,
 		UploadLocation:      summary.UploadLocation,
@@ -318,6 +320,7 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
 		NoRECPredicate:      summary.NoRECPredicate,
+		CaseDir:             summary.CaseDir,
 		SQL:                 summary.SQL,
 		PlanReplay:          summary.PlanReplay,
 		UploadLocation:      summary.UploadLocation,
