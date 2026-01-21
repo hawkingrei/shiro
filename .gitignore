@@ -9,4 +9,4 @@ bin/
 web/node_modules
 web/.next
 web/out
-web/public/report.json
+web/public
