@@ -15,7 +15,8 @@ import (
 // drastically increase) the estimated row count in EXPLAIN. A large increase after
 // adding a filter is suspicious and may indicate optimizer cardinality bugs.
 type CERT struct {
-	Tolerance float64
+	Tolerance   float64
+	MinBaseRows float64
 }
 
 // Name returns the oracle identifier.
@@ -52,6 +53,9 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		tables = state.Tables
 	}
 	restricted.Where = generator.BinaryExpr{Left: query.Where, Op: "AND", Right: gen.GeneratePredicate(tables, 1, false, 0)}
+	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), restricted.SQLString()}}
+	}
 	restrictedExplain := "EXPLAIN " + restricted.SQLString()
 	restrictedRows, err := exec.QueryPlanRows(ctx, restrictedExplain)
 	if err != nil {

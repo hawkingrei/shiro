@@ -125,8 +125,9 @@ type Logging struct {
 
 // OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
-	StrictPredicates bool   `yaml:"strict_predicates"`
-	PredicateLevel   string `yaml:"predicate_level"`
+	StrictPredicates bool    `yaml:"strict_predicates"`
+	PredicateLevel   string  `yaml:"predicate_level"`
+	CertMinBaseRows  float64 `yaml:"cert_min_base_rows"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -239,15 +240,15 @@ func defaultConfig() Config {
 			Features: FeatureWeights{JoinCount: 3, CTECount: 2, SubqCount: 3, AggProb: 40, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 10, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
-		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict"},
+		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
 			Enabled:             false,
 			ExplainFormat:       "brief",
 			MutationProb:        30,
-			SeenSQLTTLSeconds:   60,
-			SeenSQLMax:          4096,
-			SeenSQLSweepSeconds: 300,
+			SeenSQLTTLSeconds:   120,
+			SeenSQLMax:          8192,
+			SeenSQLSweepSeconds: 600,
 		},
 		Signature: SignatureConfig{
 			RoundScale:          6,
