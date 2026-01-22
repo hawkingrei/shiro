@@ -246,7 +246,7 @@ func (g *Generator) pickColumnByType(tbl schema.Table, t schema.ColumnType) sche
 	return tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
 }
 
-func (g *Generator) pickForeignKeyColumns(child, parent schema.Table) (schema.Column, schema.Column) {
+func (g *Generator) pickForeignKeyColumns(child, parent schema.Table) (childCol schema.Column, parentCol schema.Column) {
 	for _, ccol := range child.Columns {
 		for _, pcol := range parent.Columns {
 			if ccol.Type == pcol.Type {
@@ -341,7 +341,7 @@ func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 
 // orderedArgs expects comparable values of the same type and returns them ordered.
 // If types differ, it returns inputs unchanged.
-func orderedArgs(a, b any) (any, any) {
+func orderedArgs(a, b any) (left any, right any) {
 	switch v := a.(type) {
 	case int:
 		vb, ok := b.(int)

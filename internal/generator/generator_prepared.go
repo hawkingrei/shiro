@@ -325,7 +325,7 @@ func (g *Generator) preparedCTEQuery() PreparedQuery {
 	}
 }
 
-func (g *Generator) pickJoinColumns() (schema.Table, schema.Table, schema.Column, schema.Column) {
+func (g *Generator) pickJoinColumns() (left schema.Table, right schema.Table, leftCol schema.Column, rightCol schema.Column) {
 	if len(g.State.Tables) < 2 {
 		return schema.Table{}, schema.Table{}, schema.Column{}, schema.Column{}
 	}

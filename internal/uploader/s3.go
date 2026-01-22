@@ -32,6 +32,7 @@ func NewS3(cfg cfg.S3Config) (*S3Uploader, error) {
 		opts = append(opts, awsconfig.WithRegion(cfg.Region))
 	}
 	if cfg.Endpoint != "" {
+		//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 		resolver := aws.EndpointResolverWithOptionsFunc(func(service, _ string, _ ...any) (aws.Endpoint, error) {
 			if service == s3.ServiceID {
 				//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
