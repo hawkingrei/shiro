@@ -151,7 +151,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	return true
 }
 
-func (r *Runner) preparedConcreteSignature(ctx context.Context, conn *sql.Conn, concreteSQL string) (db.Signature, bool, bool) {
+func (r *Runner) preparedConcreteSignature(ctx context.Context, conn *sql.Conn, concreteSQL string) (sig db.Signature, ok bool, bug bool) {
 	sig, err := r.signatureForSQLOnConn(ctx, conn, concreteSQL, r.planCacheRoundScale())
 	if err != nil {
 		if logWhitelistedSQLError(concreteSQL, err, r.cfg.Logging.Verbose) {
@@ -172,7 +172,7 @@ func (r *Runner) preparedConcreteSignature(ctx context.Context, conn *sql.Conn, 
 	return sig, true, false
 }
 
-func (r *Runner) preparePlanCacheStatement(ctx context.Context, conn *sql.Conn, sql string) (*sql.Stmt, bool, bool) {
+func (r *Runner) preparePlanCacheStatement(ctx context.Context, conn *sql.Conn, sql string) (stmt *sql.Stmt, ok bool, bug bool) {
 	stmt, err := conn.PrepareContext(ctx, sql)
 	if err != nil {
 		if logWhitelistedSQLError(sql, err, r.cfg.Logging.Verbose) {
@@ -193,7 +193,7 @@ func (r *Runner) preparePlanCacheStatement(ctx context.Context, conn *sql.Conn, 
 	return stmt, true, false
 }
 
-func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) (db.Signature, int, bool, bool, bool) {
+func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) (sig db.Signature, hit int, hitUnexpected bool, ok bool, bug bool) {
 	for attempt := 0; attempt < maxFirstExecuteRetries; attempt++ {
 		rowsBase, err := stmt.QueryContext(ctx, argsFirst...)
 		if err != nil {
