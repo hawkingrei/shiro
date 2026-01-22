@@ -1,11 +1,14 @@
 package oracle
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 type predicatePolicy struct {
@@ -151,6 +154,49 @@ func queryHasWindow(query *generator.SelectQuery) bool {
 		}
 	}
 	return false
+}
+
+func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) {
+	rows, err := exec.QueryContext(ctx, "EXPLAIN "+query)
+	if err != nil {
+		return "", err
+	}
+	defer util.CloseWithErr(rows, "oracle explain rows")
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return "", err
+	}
+	values := make([][]byte, len(cols))
+	scanArgs := make([]any, len(cols))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+	var b strings.Builder
+	for rows.Next() {
+		if err := rows.Scan(scanArgs...); err != nil {
+			return "", err
+		}
+		for i, v := range values {
+			if i > 0 {
+				b.WriteByte('\t')
+			}
+			if v == nil {
+				b.WriteString("NULL")
+			} else {
+				b.Write(v)
+			}
+		}
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func queryDeterministic(query *generator.SelectQuery) bool {

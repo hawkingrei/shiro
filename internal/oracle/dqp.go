@@ -78,11 +78,17 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			continue
 		}
 		if variantSig != baseSig {
+			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
+			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
 			details := map[string]any{
 				"hint":                variant.hint,
 				"replay_kind":         "signature",
 				"replay_expected_sql": query.SignatureSQL(),
 				"replay_actual_sql":   variant.signatureSQL,
+				"expected_explain":    expectedExplain,
+				"actual_explain":      actualExplain,
+				"expected_explain_err": errString(expectedExplainErr),
+				"actual_explain_err":   errString(actualExplainErr),
 			}
 			return Result{
 				OK:       false,

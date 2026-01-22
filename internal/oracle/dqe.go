@@ -57,6 +57,8 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 		affected, _ := res.RowsAffected()
 		if affected != count {
+			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, countSQL)
+			actualExplain, actualExplainErr := explainSQL(ctx, exec, updateSQL)
 			return Result{
 				OK:       false,
 				Oracle:   o.Name(),
@@ -67,6 +69,10 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 					"replay_kind":         "rows_affected",
 					"replay_expected_sql": countSQL,
 					"replay_actual_sql":   updateSQL,
+					"expected_explain":    expectedExplain,
+					"actual_explain":      actualExplain,
+					"expected_explain_err": errString(expectedExplainErr),
+					"actual_explain_err":   errString(actualExplainErr),
 				},
 			}
 		}
@@ -91,6 +97,8 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	affected, _ := res.RowsAffected()
 	if affected != count {
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, countSQL)
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, deleteSQL)
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -101,6 +109,10 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				"replay_kind":         "rows_affected",
 				"replay_expected_sql": countSQL,
 				"replay_actual_sql":   deleteSQL,
+				"expected_explain":    expectedExplain,
+				"actual_explain":      actualExplain,
+				"expected_explain_err": errString(expectedExplainErr),
+				"actual_explain_err":   errString(actualExplainErr),
 			},
 		}
 	}
