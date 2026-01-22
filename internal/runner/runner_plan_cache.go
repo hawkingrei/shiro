@@ -132,7 +132,6 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	}
 	r.handleResult(ctx, result)
 	return true
-	return false
 }
 
 func (r *Runner) preparedConcreteSignature(ctx context.Context, conn *sql.Conn, concreteSQL string) (db.Signature, bool, bool) {

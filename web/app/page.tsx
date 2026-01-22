@@ -88,8 +88,6 @@ const formatSQL = (sql: string) => {
   }
 };
 
-const joinSQL = (lines: string[]) => formatSQL((lines || []).join("\n\n"));
-
 const reasonForCase = (c: CaseEntry): string => {
   if (c.error) return "exec_error";
   const details = c.details as Record<string, unknown> | null;
