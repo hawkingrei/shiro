@@ -26,4 +26,5 @@ linters:
         - name: unnecessary-stmt
         - name: call-to-gc
         - name: unexported-naming
+        - name: "useless-break"
 
