@@ -372,7 +372,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 	}
 }
 
-func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
+func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (ok bool, bug bool) {
 	pq := r.gen.GenerateNonPreparedPlanCacheQuery()
 	if pq.SQL == "" {
 		return false, false

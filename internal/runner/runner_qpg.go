@@ -42,7 +42,7 @@ func (r *Runner) observePlan(ctx context.Context, sqlText string) {
 	r.observePlanInfo(ctx, info)
 }
 
-func (r *Runner) explainSignature(ctx context.Context, sqlText string) (string, string) {
+func (r *Runner) explainSignature(ctx context.Context, sqlText string) (signature string, version string) {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	explainSQL := "EXPLAIN " + sqlText
@@ -272,7 +272,7 @@ func parsePlanNode(id string) (int, string) {
 	return depth, op
 }
 
-func splitPlanPrefix(id string) (string, string) {
+func splitPlanPrefix(id string) (prefix string, rest string) {
 	for i, r := range id {
 		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			return id[:i], id[i:]
@@ -355,7 +355,7 @@ func (s *qpgState) observe(info planInfo) qpgObservation {
 	return obs
 }
 
-func (s *qpgState) stats() (int, int, int, int, int, int, int) {
+func (s *qpgState) stats() (plans int, shapes int, ops int, joins int, joinOrder int, opSig int, seenSQL int) {
 	return len(s.seenPlans),
 		len(s.seenShapes),
 		len(s.seenOps),
