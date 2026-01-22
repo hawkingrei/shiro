@@ -192,6 +192,13 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 	return b.String(), nil
 }
 
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func queryDeterministic(query *generator.SelectQuery) bool {
 	if query == nil {
 		return true

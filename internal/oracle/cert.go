@@ -67,8 +67,8 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 
 	if restrictedRows > baseRows*(1.0+o.Tolerance) {
-		expectedExplain, _ := explainSQL(ctx, exec, query.SQLString())
-		actualExplain, _ := explainSQL(ctx, exec, restricted.SQLString())
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SQLString())
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, restricted.SQLString())
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -79,11 +79,13 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 				"base_est_rows":       baseRows,
 				"restricted_est_rows": restrictedRows,
 				"replay_kind":         "plan_rows",
-				"replay_expected_sql": baseExplain,
-				"replay_actual_sql":   restrictedExplain,
+				"replay_expected_sql": query.SQLString(),
+				"replay_actual_sql":   restricted.SQLString(),
 				"replay_tolerance":    o.Tolerance,
 				"expected_explain":    expectedExplain,
 				"actual_explain":      actualExplain,
+				"expected_explain_err": errString(expectedExplainErr),
+				"actual_explain_err":   errString(actualExplainErr),
 			},
 		}
 	}
