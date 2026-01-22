@@ -3,11 +3,9 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
-	"shiro/internal/util"
 	"shiro/internal/schema"
 )
 
@@ -97,40 +95,4 @@ func shouldSkipNoREC(query *generator.SelectQuery) bool {
 		return true
 	}
 	return false
-}
-
-func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) {
-	rows, err := exec.QueryContext(ctx, "EXPLAIN "+query)
-	if err != nil {
-		return "", err
-	}
-	defer util.CloseWithErr(rows, "norec explain rows")
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return "", err
-	}
-	values := make([][]byte, len(cols))
-	scanArgs := make([]any, len(cols))
-	for i := range values {
-		scanArgs[i] = &values[i]
-	}
-	var b strings.Builder
-	for rows.Next() {
-		if err := rows.Scan(scanArgs...); err != nil {
-			return "", err
-		}
-		for i, v := range values {
-			if i > 0 {
-				b.WriteByte('\t')
-			}
-			if v == nil {
-				b.WriteString("NULL")
-			} else {
-				b.Write(v)
-			}
-		}
-		b.WriteByte('\n')
-	}
-	return b.String(), nil
 }

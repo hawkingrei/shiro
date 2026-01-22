@@ -73,6 +73,8 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	}
 
 	if origSig != unionSig {
+		expectedExplain, _ := explainSQL(ctx, exec, base.SignatureSQL())
+		actualExplain, _ := explainSQL(ctx, exec, unionSQL)
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -83,6 +85,8 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 				"replay_kind":         "signature",
 				"replay_expected_sql": base.SignatureSQL(),
 				"replay_actual_sql":   unionSQL,
+				"expected_explain":    expectedExplain,
+				"actual_explain":      actualExplain,
 			},
 		}
 	}

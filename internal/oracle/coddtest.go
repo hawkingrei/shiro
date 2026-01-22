@@ -137,6 +137,8 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
 	}
 	if origSig != foldSig {
+		expectedExplain, _ := explainSQL(ctx, exec, query.SignatureSQL())
+		actualExplain, _ := explainSQL(ctx, exec, folded.SignatureSQL())
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -147,6 +149,8 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 				"replay_kind":         "signature",
 				"replay_expected_sql": query.SignatureSQL(),
 				"replay_actual_sql":   folded.SignatureSQL(),
+				"expected_explain":    expectedExplain,
+				"actual_explain":      actualExplain,
 			},
 		}
 	}
@@ -221,6 +225,8 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
 	}
 	if origSig != foldSig {
+		expectedExplain, _ := explainSQL(ctx, exec, query.SignatureSQL())
+		actualExplain, _ := explainSQL(ctx, exec, folded.SignatureSQL())
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -231,6 +237,8 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 				"replay_kind":         "signature",
 				"replay_expected_sql": query.SignatureSQL(),
 				"replay_actual_sql":   folded.SignatureSQL(),
+				"expected_explain":    expectedExplain,
+				"actual_explain":      actualExplain,
 			},
 		}
 	}

@@ -267,6 +267,8 @@ export default function Page() {
           const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
           const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
           const norecPredicate = c.norec_predicate || "";
+          const expectedExplain = detailString(c.details, "expected_explain");
+          const actualExplain = detailString(c.details, "actual_explain");
           const unoptimizedExplain = detailString(c.details, "unoptimized_explain");
           const optimizedExplain = detailString(c.details, "optimized_explain");
           return (
@@ -293,6 +295,12 @@ export default function Page() {
                       <pre>{formatSQL(expectedSQL)}</pre>
                     </>
                   )}
+                  {expectedExplain && (
+                    <>
+                      <LabelRow label="Expected EXPLAIN" onCopy={() => copyText("expected explain", expectedExplain)} />
+                      <pre>{expectedExplain}</pre>
+                    </>
+                  )}
                   {optimizedExplain && (
                     <>
                       <LabelRow label="Optimized EXPLAIN" onCopy={() => copyText("optimized explain", optimizedExplain)} />
@@ -307,6 +315,12 @@ export default function Page() {
                     <>
                       <LabelRow label="Actual SQL" onCopy={() => copyText("actual sql", actualSQL)} />
                       <pre>{formatSQL(actualSQL)}</pre>
+                    </>
+                  )}
+                  {actualExplain && (
+                    <>
+                      <LabelRow label="Actual EXPLAIN" onCopy={() => copyText("actual explain", actualExplain)} />
+                      <pre>{actualExplain}</pre>
                     </>
                   )}
                   {unoptimizedExplain && (
