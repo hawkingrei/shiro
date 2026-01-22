@@ -14,8 +14,3 @@ linters:
     - staticcheck
     - unused
     - revive
-
-  settings:
-    revive:
-      rules:
-        - name: exported
