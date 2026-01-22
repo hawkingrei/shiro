@@ -44,40 +44,6 @@ func (g *Generator) GenerateStringExpr(tables []schema.Table) Expr {
 	return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
 }
 
-// GenerateGroupBy builds a GROUP BY list.
-func (g *Generator) literalForExprType(expr Expr) Expr {
-	switch v := expr.(type) {
-	case ColumnExpr:
-		return g.literalForColumn(schema.Column{Type: v.Ref.Type})
-	case LiteralExpr:
-		return g.literalForValue(v.Value)
-	case FuncExpr:
-		if g.isNumericFunc(v.Name) {
-			return g.literalForColumn(schema.Column{Type: schema.TypeInt})
-		}
-		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
-	default:
-		return g.randomLiteralExpr()
-	}
-}
-
-func (g *Generator) literalForValue(val any) Expr {
-	switch val.(type) {
-	case int:
-		return g.literalForColumn(schema.Column{Type: schema.TypeInt})
-	case int64:
-		return g.literalForColumn(schema.Column{Type: schema.TypeBigInt})
-	case float64:
-		return g.literalForColumn(schema.Column{Type: schema.TypeDouble})
-	case bool:
-		return g.literalForColumn(schema.Column{Type: schema.TypeBool})
-	case string:
-		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
-	default:
-		return g.randomLiteralExpr()
-	}
-}
-
 func (g *Generator) isNumericExpr(expr Expr) bool {
 	switch v := expr.(type) {
 	case ColumnExpr:

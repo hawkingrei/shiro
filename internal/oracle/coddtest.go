@@ -10,6 +10,7 @@ import (
 	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 // CODDTest implements the constant folding oracle.
@@ -163,7 +164,7 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 	if err != nil {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "coddtest rows")
 
 	caseExpr := generator.CaseExpr{}
 	for rows.Next() {

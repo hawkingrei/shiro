@@ -8,6 +8,7 @@ import (
 
 	"shiro/internal/db"
 	"shiro/internal/oracle"
+	"shiro/internal/util"
 	"shiro/internal/validator"
 )
 
@@ -19,7 +20,7 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer util.CloseWithErr(conn, "minimize conn")
 	minDB := r.baseDB + "_min"
 	if err := r.resetDatabaseOnConn(ctx, conn, minDB); err != nil {
 		return false
@@ -254,7 +255,7 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "plan rows")
 
 	cols, err := rows.Columns()
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/report"
+	"shiro/internal/util"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -199,7 +200,7 @@ func readFileLimited(path string, maxBytes int) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report input")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
@@ -220,7 +221,7 @@ func writeJSON(output string, site SiteData) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report output")
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
@@ -345,7 +346,7 @@ func readObjectBytesLimited(ctx context.Context, client *s3.Client, bucket, key 
 	if err != nil {
 		return nil, false, err
 	}
-	defer resp.Body.Close()
+	defer util.CloseWithErr(resp.Body, "s3 response body")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
@@ -370,7 +371,7 @@ func readObjectLimited(ctx context.Context, client *s3.Client, bucket, key strin
 		}
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer util.CloseWithErr(resp.Body, "s3 response body")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
@@ -432,7 +433,7 @@ func extractCommitFromPlanReplayer(zipPath string, maxBytes int) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report output")
 	info, err := f.Stat()
 	if err != nil {
 		return ""
@@ -470,7 +471,7 @@ func extractCommitFromPlanReplayerData(data []byte) string {
 			continue
 		}
 		content, err := io.ReadAll(rc)
-		rc.Close()
+		util.CloseWithErr(rc, "zip entry")
 		if err != nil {
 			continue
 		}

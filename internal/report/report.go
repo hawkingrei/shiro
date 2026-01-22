@@ -10,6 +10,7 @@ import (
 
 	"shiro/internal/db"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 
 	"github.com/google/uuid"
 )
@@ -73,7 +74,7 @@ func (r *Reporter) WriteSummary(c Case, summary Summary) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "summary output")
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
@@ -134,7 +135,7 @@ func (r *Reporter) DumpData(ctx context.Context, c Case, exec *db.DB, state *sch
 			b.WriteString(strings.Join(row, "\t"))
 			b.WriteString("\n")
 		}
-		rows.Close()
+		util.CloseWithErr(rows, "schema rows")
 		b.WriteString("\n")
 	}
 	return os.WriteFile(filepath.Join(c.Dir, "data.tsv"), []byte(b.String()), 0o644)

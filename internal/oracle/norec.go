@@ -7,6 +7,7 @@ import (
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
+	"shiro/internal/util"
 	"shiro/internal/schema"
 )
 
@@ -84,7 +85,7 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "norec explain rows")
 
 	cols, err := rows.Columns()
 	if err != nil {

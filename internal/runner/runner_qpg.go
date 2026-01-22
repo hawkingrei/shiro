@@ -34,7 +34,7 @@ func (r *Runner) observePlan(ctx context.Context, sqlText string) {
 			return
 		}
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "qpg explain rows")
 	info, err := parsePlan(rows)
 	if err != nil || info.signature == "" {
 		return
@@ -58,7 +58,7 @@ func (r *Runner) explainSignature(ctx context.Context, sqlText string) (string, 
 			return "", ""
 		}
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "qpg explain rows")
 	info, err := parsePlan(rows)
 	if err != nil {
 		return "", ""
@@ -79,7 +79,7 @@ func (r *Runner) observePlanForConnection(ctx context.Context, connID int64) {
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "qpg explain rows")
 	info, err := parsePlan(rows)
 	if err != nil || info.signature == "" {
 		return
@@ -261,9 +261,10 @@ func parsePlanNode(id string) (int, string) {
 	spaceCount := 0
 	barCount := 0
 	for _, r := range prefix {
-		if r == ' ' {
+		switch r {
+		case ' ':
 			spaceCount++
-		} else if r == '│' || r == '|' {
+		case '│', '|':
 			barCount++
 		}
 	}

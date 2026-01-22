@@ -14,6 +14,18 @@ import (
 
 const maxFirstExecuteRetries = 1
 
+func closePlanCacheConn(conn *sql.Conn) {
+	util.CloseWithErr(conn, "plan cache conn")
+}
+
+func closePlanCacheStmt(stmt *sql.Stmt) {
+	util.CloseWithErr(stmt, "plan cache stmt")
+}
+
+func closePlanCacheRows(rows *sql.Rows) {
+	util.CloseWithErr(rows, "plan cache rows")
+}
+
 func (r *Runner) runPrepared(ctx context.Context) bool {
 	pq := r.gen.GeneratePreparedQuery()
 	if pq.SQL == "" {
@@ -26,7 +38,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer closePlanCacheConn(conn)
 	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return false
 	}
@@ -51,7 +63,7 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if !ok {
 		return bug
 	}
-	defer stmt.Close()
+	defer closePlanCacheStmt(stmt)
 	baseSig, hit1, hit1Unexpected, ok, bug := r.preparedFirstExecute(qctx, conn, stmt, pq.SQL, concreteSQL, connID, pq.Args, args2)
 	if !ok {
 		return bug
@@ -212,7 +224,7 @@ func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt 
 			return db.Signature{}, 0, false, false, false
 		}
 		baseSig, err := signatureFromRows(rowsBase, r.planCacheRoundScale())
-		rowsBase.Close()
+		closePlanCacheRows(rowsBase)
 		if err != nil {
 			return db.Signature{}, 0, false, false, false
 		}
@@ -226,7 +238,7 @@ func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt 
 		rowsWarn, err := stmt.QueryContext(ctx, argsFirst...)
 		if err == nil {
 			_ = drainRows(rowsWarn)
-			rowsWarn.Close()
+			closePlanCacheRows(rowsWarn)
 		} else if isPanicError(err) {
 			result := oracle.Result{
 				OK:     false,
@@ -286,7 +298,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 		return db.Signature{}, nil, 0, nil, nil, false, false
 	}
 	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
-	rows2.Close()
+	closePlanCacheRows(rows2)
 	if err != nil {
 		return db.Signature{}, nil, 0, nil, nil, false, false
 	}
@@ -302,7 +314,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 	rowsWarn, err := stmt.QueryContext(ctx, argsSecond...)
 	if err == nil {
 		_ = drainRows(rowsWarn)
-		rowsWarn.Close()
+		closePlanCacheRows(rowsWarn)
 	} else if isPanicError(err) {
 		result := oracle.Result{
 			OK:     false,
@@ -320,7 +332,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 	rowsExplain, err := stmt.QueryContext(ctx, argsSecond...)
 	if err == nil {
 		_ = drainRows(rowsExplain)
-		rowsExplain.Close()
+		closePlanCacheRows(rowsExplain)
 		r.observePlanForConnection(ctx, connID)
 	} else if isPanicError(err) {
 		result := oracle.Result{
@@ -353,7 +365,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 	if err != nil {
 		return false, false
 	}
-	defer conn.Close()
+	defer closePlanCacheConn(conn)
 	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return false, false
 	}
@@ -380,10 +392,10 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		return true, false
 	}
 	if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
-		rows1.Close()
+		closePlanCacheRows(rows1)
 		return true, false
 	}
-	rows1.Close()
+	closePlanCacheRows(rows1)
 
 	rows2, err := conn.QueryContext(qctx, sql2)
 	if err != nil {
@@ -406,7 +418,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 		return true, false
 	}
 	cacheSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
-	rows2.Close()
+	closePlanCacheRows(rows2)
 	if err != nil {
 		return true, false
 	}
@@ -422,7 +434,7 @@ func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
 	rowsWarn, err := conn.QueryContext(qctx, sql2)
 	if err == nil {
 		_ = drainRows(rowsWarn)
-		rowsWarn.Close()
+		closePlanCacheRows(rowsWarn)
 	} else if isPanicError(err) {
 		result := oracle.Result{
 			OK:     false,
@@ -509,24 +521,24 @@ nextIteration:
 		}
 		connID, err := r.connectionID(ctx, conn)
 		if err != nil {
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 		if err := r.prepareConn(ctx, conn, r.cfg.Database); err != nil {
-			conn.Close()
+			closePlanCacheConn(conn)
 			return err
 		}
 		_ = r.execOnConn(ctx, conn, "SET SESSION tidb_enable_prepared_plan_cache = 1")
 
 		pq := r.gen.GeneratePreparedQuery()
 		if pq.SQL == "" {
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 		if err := r.validator.Validate(pq.SQL); err != nil {
 			r.observeSQL(pq.SQL, err)
 			invalid++
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 		r.observeSQL(pq.SQL, nil)
@@ -534,7 +546,7 @@ nextIteration:
 
 		concreteSig, sigErr2 := r.signatureForSQLOnConn(ctx, conn, concreteSQL, r.planCacheRoundScale())
 		if sigErr2 != nil && logWhitelistedSQLError(concreteSQL, sigErr2, r.cfg.Logging.Verbose) {
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 		if sigErr2 != nil && isMySQLError(sigErr2) && !isPanicError(sigErr2) {
@@ -545,14 +557,14 @@ nextIteration:
 				Err:    sigErr2,
 			}
 			r.handleResult(ctx, result)
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 
 		stmt, err := conn.PrepareContext(ctx, pq.SQL)
 		if err != nil {
 			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-				conn.Close()
+				closePlanCacheConn(conn)
 				continue
 			}
 			if isMySQLError(err) && !isPanicError(err) {
@@ -563,10 +575,10 @@ nextIteration:
 					Err:    err,
 				}
 				r.handleResult(ctx, result)
-				conn.Close()
+				closePlanCacheConn(conn)
 				continue
 			}
-			conn.Close()
+			closePlanCacheConn(conn)
 			continue
 		}
 		var args2 []any
@@ -576,8 +588,8 @@ nextIteration:
 			rows1, err := stmt.QueryContext(ctx, args2...)
 			if err != nil {
 				if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-					stmt.Close()
-					conn.Close()
+					closePlanCacheStmt(stmt)
+					closePlanCacheConn(conn)
 					continue nextIteration
 				}
 				if isMySQLError(err) && !isPanicError(err) {
@@ -591,13 +603,13 @@ nextIteration:
 						},
 					}
 					r.handleResult(ctx, result)
-					stmt.Close()
-					conn.Close()
+					closePlanCacheStmt(stmt)
+					closePlanCacheConn(conn)
 					continue nextIteration
 				}
 				warnings, warnErr := r.warningsOnConn(ctx, conn)
-				stmt.Close()
-				conn.Close()
+				closePlanCacheStmt(stmt)
+				closePlanCacheConn(conn)
 				execErrors++
 				if isPanicError(err) {
 					plan, _ := r.explainForConnection(ctx, connID)
@@ -618,16 +630,16 @@ nextIteration:
 				continue nextIteration
 			}
 			if _, err := signatureFromRows(rows1, r.planCacheRoundScale()); err != nil {
-				rows1.Close()
-				stmt.Close()
-				conn.Close()
+				closePlanCacheRows(rows1)
+				closePlanCacheStmt(stmt)
+				closePlanCacheConn(conn)
 				continue nextIteration
 			}
-			rows1.Close()
+			closePlanCacheRows(rows1)
 			warnings, warnErr := r.warningsOnConn(ctx, conn)
 			if warnErr != nil {
-				stmt.Close()
-				conn.Close()
+				closePlanCacheStmt(stmt)
+				closePlanCacheConn(conn)
 				continue nextIteration
 			}
 			if len(warnings) == 0 {
@@ -636,8 +648,8 @@ nextIteration:
 			}
 		}
 		if !acceptedFirst {
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			continue
 		}
 
@@ -650,8 +662,8 @@ nextIteration:
 		rows2, err := stmt.QueryContext(ctx, pq.Args...)
 		if err != nil {
 			if logWhitelistedSQLError(pq.SQL, err, r.cfg.Logging.Verbose) {
-				stmt.Close()
-				conn.Close()
+				closePlanCacheStmt(stmt)
+				closePlanCacheConn(conn)
 				continue
 			}
 			if isMySQLError(err) && !isPanicError(err) {
@@ -665,13 +677,13 @@ nextIteration:
 					},
 				}
 				r.handleResult(ctx, result)
-				stmt.Close()
-				conn.Close()
+				closePlanCacheStmt(stmt)
+				closePlanCacheConn(conn)
 				continue
 			}
 			warnings, warnErr := r.warningsOnConn(ctx, conn)
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			execErrors++
 			if isPanicError(err) {
 				plan, _ := r.explainForConnection(ctx, connID)
@@ -692,10 +704,10 @@ nextIteration:
 			continue
 		}
 		preparedSig, originCols, originRows, sigErr := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
-		rows2.Close()
+		closePlanCacheRows(rows2)
 		if sigErr != nil {
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			continue
 		}
 		originResult := map[string]any{
@@ -707,14 +719,14 @@ nextIteration:
 
 		hit2, err := r.lastPlanFromCache(ctx, conn)
 		if err != nil {
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			continue
 		}
 		rowsWarn, err := stmt.QueryContext(ctx, pq.Args...)
 		if err == nil {
 			_ = drainRows(rowsWarn)
-			rowsWarn.Close()
+			closePlanCacheRows(rowsWarn)
 		} else if isPanicError(err) {
 			result := oracle.Result{
 				OK:     false,
@@ -726,8 +738,8 @@ nextIteration:
 				},
 			}
 			r.handleResult(ctx, result)
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			continue
 		}
 
@@ -752,11 +764,11 @@ nextIteration:
 		rowsExplain, err := stmt.QueryContext(ctx, pq.Args...)
 		if err == nil && (hit2 == 1 || (warnErr == nil && len(warnings) > 0)) {
 			_ = drainRows(rowsExplain)
-			rowsExplain.Close()
+			closePlanCacheRows(rowsExplain)
 			r.observePlanForConnection(ctx, connID)
 		} else if err == nil {
 			_ = drainRows(rowsExplain)
-			rowsExplain.Close()
+			closePlanCacheRows(rowsExplain)
 		} else if isPanicError(err) {
 			result := oracle.Result{
 				OK:     false,
@@ -768,11 +780,11 @@ nextIteration:
 				},
 			}
 			r.handleResult(ctx, result)
-			stmt.Close()
-			conn.Close()
+			closePlanCacheStmt(stmt)
+			closePlanCacheConn(conn)
 			continue
 		}
-		stmt.Close()
+		closePlanCacheStmt(stmt)
 
 		if hit1Unexpected {
 			plan, _ := r.explainForConnection(ctx, connID)
@@ -827,7 +839,7 @@ nextIteration:
 		} else {
 			hitSecond++
 		}
-		conn.Close()
+		closePlanCacheConn(conn)
 	}
 	util.Infof("plan_cache_only stats total=%d invalid=%d exec_errors=%d hit_first_unexpected=%d hit_second=%d miss_second=%d", total, invalid, execErrors, hitFirstUnexpected, hitSecond, missSecond)
 	return nil
@@ -857,7 +869,7 @@ func (r *Runner) explainForConnection(ctx context.Context, connID int64) (string
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer closePlanCacheRows(rows)
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -893,7 +905,7 @@ func (r *Runner) warningsOnConn(ctx context.Context, conn *sql.Conn) ([]string, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer closePlanCacheRows(rows)
 	var warnings []string
 	for rows.Next() {
 		var level string
