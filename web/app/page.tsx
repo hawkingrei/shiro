@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { format } from "sql-formatter";
 
 type FileContent = {
   name?: string;
@@ -20,6 +21,10 @@ type CaseEntry = {
   expected: string;
   actual: string;
   error: string;
+  norec_optimized_sql: string;
+  norec_unoptimized_sql: string;
+  norec_predicate: string;
+  case_dir: string;
   sql: string[];
   plan_replayer: string;
   upload_location: string;
@@ -31,6 +36,56 @@ type ReportPayload = {
   generated_at: string;
   source: string;
   cases: CaseEntry[];
+};
+
+const detailString = (details: Record<string, unknown> | null, key: string): string => {
+  if (!details) return "";
+  const value = details[key];
+  return typeof value === "string" ? value : "";
+};
+
+const copyText = async (label: string, text: string) => {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    console.log(`copied ${label}`);
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = text;
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    document.body.appendChild(fallback);
+    fallback.focus();
+    fallback.select();
+    try {
+      document.execCommand("copy");
+      console.log(`copied ${label}`);
+    } finally {
+      document.body.removeChild(fallback);
+    }
+  }
+};
+
+const LabelRow = ({ label, onCopy }: { label: string; onCopy?: () => void }) => {
+  return (
+    <div className="label-row">
+      <div className="label">{label}</div>
+      {onCopy && (
+        <button className="copy-btn" type="button" onClick={onCopy}>
+          Copy
+        </button>
+      )}
+    </div>
+  );
+};
+
+const formatSQL = (sql: string) => {
+  if (!sql.trim()) return sql;
+  try {
+    return format(sql, { language: "mysql" });
+  } catch {
+    return sql;
+  }
 };
 
 const reasonForCase = (c: CaseEntry): string => {
@@ -114,6 +169,9 @@ export default function Page() {
         c.error,
         c.expected,
         c.actual,
+        c.norec_optimized_sql,
+        c.norec_unoptimized_sql,
+        c.norec_predicate,
         c.tidb_version,
         c.tidb_commit,
         c.plan_signature,
@@ -206,12 +264,19 @@ export default function Page() {
       <main className="cases">
         {filtered.map((c, idx) => {
           const reasonLabel = reasonForCase(c);
+          const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
+          const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
+          const norecPredicate = c.norec_predicate || "";
+          const unoptimizedExplain = detailString(c.details, "unoptimized_explain");
+          const optimizedExplain = detailString(c.details, "optimized_explain");
           return (
             <details className="case" key={c.id || idx}>
               <summary>
                 <span className="case__title">
                   {c.timestamp} {c.oracle}
                 </span>
+                <span className="case__toggle" aria-hidden="true" />
+                {c.case_dir && <span className="pill">{c.case_dir}</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
                 {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
                 {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
@@ -220,25 +285,93 @@ export default function Page() {
               </summary>
               <div className="case__grid">
                 <div>
-                  <div className="label">Expected</div>
+                  <LabelRow label="Expected" onCopy={() => copyText("expected", c.expected || "")} />
                   <pre>{c.expected || ""}</pre>
-                  <div className="label">Actual</div>
+                  {expectedSQL && (
+                    <>
+                      <LabelRow label="Expected SQL" onCopy={() => copyText("expected sql", expectedSQL)} />
+                      <pre>{formatSQL(expectedSQL)}</pre>
+                    </>
+                  )}
+                  {optimizedExplain && (
+                    <>
+                      <LabelRow label="Optimized EXPLAIN" onCopy={() => copyText("optimized explain", optimizedExplain)} />
+                      <pre>{optimizedExplain}</pre>
+                    </>
+                  )}
+                </div>
+                <div>
+                  <LabelRow label="Actual" onCopy={() => copyText("actual", c.actual || "")} />
                   <pre>{c.actual || ""}</pre>
-                  <div className="label">Error</div>
-                  <pre>{c.error || ""}</pre>
+                  {actualSQL && (
+                    <>
+                      <LabelRow label="Actual SQL" onCopy={() => copyText("actual sql", actualSQL)} />
+                      <pre>{formatSQL(actualSQL)}</pre>
+                    </>
+                  )}
+                  {unoptimizedExplain && (
+                    <>
+                      <LabelRow label="Unoptimized EXPLAIN" onCopy={() => copyText("unoptimized explain", unoptimizedExplain)} />
+                      <pre>{unoptimizedExplain}</pre>
+                    </>
+                  )}
+                  {c.error && (
+                    <>
+                      <LabelRow label="Error" onCopy={() => copyText("error", c.error || "")} />
+                      <pre>{c.error}</pre>
+                    </>
+                  )}
                 </div>
                 <div>
-                  <div className="label">SQL</div>
-                  <pre>{(c.sql || []).join("\n\n")}</pre>
-                </div>
-                <div>
+                  {norecPredicate && (
+                    <>
+                      <LabelRow label="NoREC Predicate" onCopy={() => copyText("norec predicate", norecPredicate)} />
+                      <pre>{norecPredicate}</pre>
+                    </>
+                  )}
+                  {!expectedSQL && !actualSQL && c.files?.["case.sql"]?.content && (
+                    <>
+                      <LabelRow label="case.sql" onCopy={() => copyText("case.sql", c.files["case.sql"].content || "")} />
+                      <pre>{formatSQL(c.files["case.sql"].content)}</pre>
+                    </>
+                  )}
                   {Object.keys(c.files || {}).map((key) => {
+                    if (key === "case.sql") return null;
+                    if (key === "inserts.sql") return null;
+                    if (key === "plan_replayer.zip") return null;
                     const f = c.files[key];
                     if (!f?.content) return null;
                     const label = f.truncated ? `${f.name} (truncated)` : f.name;
+                    if (key === "data.tsv") {
+                      const insertSQL = c.files?.["inserts.sql"]?.content || "";
+                      return (
+                        <details className="fold" key={key} open={false}>
+                          <summary>
+                            <div className="fold__summary">
+                              <span className="fold__icon" aria-hidden="true" />
+                              <LabelRow label="data" onCopy={() => copyText(label, f.content || "")} />
+                              {insertSQL && (
+                                <button
+                                  className="copy-btn"
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    copyText("inserts.sql", insertSQL);
+                                  }}
+                                >
+                                  Copy inserts
+                                </button>
+                              )}
+                            </div>
+                          </summary>
+                          <pre>{f.content}</pre>
+                        </details>
+                      );
+                    }
                     return (
                       <div key={key}>
-                        <div className="label">{label}</div>
+                        <LabelRow label={label} onCopy={() => copyText(label, f.content || "")} />
                         <pre>{f.content}</pre>
                       </div>
                     );

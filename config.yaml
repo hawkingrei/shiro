@@ -4,14 +4,17 @@
 # Example: user:password@tcp(127.0.0.1:4000)/
 dsn: root@tcp(127.0.0.1:4000)/
 database: shiro_fuzz
-seed: 1
-iterations: 10000
+seed: 0
+iterations: 1000000
 workers: 1
 plan_cache_only: false
-max_tables: 5
-max_join_tables: 4
+plan_cache_prob: 50
+non_prepared_plan_cache_prob: 50
+plan_cache_meaningful_predicates: true
+max_tables: 6
+max_join_tables: 15
 max_columns: 8
-max_rows_per_table: 50
+max_rows_per_table: 100
 max_data_dump_rows: 50
 max_insert_statements: 200
 statement_timeout_ms: 15000
@@ -24,13 +27,6 @@ plan_replayer:
   output_dir: reports
   timeout_seconds: 30
   max_download_bytes: 52428800
-
-dqp:
-  # Additional hint names; leave empty to use defaults.
-  hint_sets: []
-  # Session variables in form "var=value" to try with DQP.
-  # Defaults apply if left empty (see config.go).
-  variables: []
 
 storage:
   s3:
@@ -56,7 +52,7 @@ features:
   distinct: true
   plan_cache: true
   window_funcs: false
-  correlated_subqueries: false
+  correlated_subqueries: true
   views: true
   indexes: true
   foreign_keys: true
@@ -69,31 +65,31 @@ features:
 weights:
   actions:
     ddl: 1
-    dml: 3
+    dml: 2
     query: 6
   dml:
     insert: 3
-    update: 2
+    update: 1
     delete: 1
   oracles:
-    norec: 4
-    tlp: 3
-    dqp: 3
-    cert: 2
+    norec: 5
+    tlp: 5
+    dqp: 5
+    cert: 1
     coddtest: 2
-    dqe: 2
+    dqe: 5
   features:
-    join_count: 3
-    cte_count: 2
+    join_count: 5
+    cte_count: 20
     subquery_count: 3
-    aggregate_prob: 40
+    aggregate_prob: 50
     decimal_agg_prob: 70
     group_by_prob: 30
     having_prob: 20
     order_by_prob: 40
     limit_prob: 40
     distinct_prob: 20
-    window_prob: 10
+    window_prob: 20
     partition_prob: 30
     not_exists_prob: 40
     not_in_prob: 40
@@ -110,9 +106,9 @@ qpg:
   enabled: true
   explain_format: "brief"
   mutation_prob: 30
-  seen_sql_ttl_seconds: 60
-  seen_sql_max: 4096
-  seen_sql_sweep_seconds: 300
+  seen_sql_ttl_seconds: 120
+  seen_sql_max: 8192
+  seen_sql_sweep_seconds: 600
 
 signature:
   round_scale: 6

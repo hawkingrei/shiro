@@ -28,18 +28,23 @@ type Case struct {
 
 // Summary captures the persisted metadata for a case.
 type Summary struct {
-	Oracle         string         `json:"oracle"`
-	SQL            []string       `json:"sql"`
-	Expected       string         `json:"expected"`
-	Actual         string         `json:"actual"`
-	Error          string         `json:"error"`
-	PlanReplay     string         `json:"plan_replayer"`
-	UploadLocation string         `json:"upload_location"`
-	Details        map[string]any `json:"details"`
-	Timestamp      string         `json:"timestamp"`
-	TiDBVersion    string         `json:"tidb_version"`
-	PlanSignature  string         `json:"plan_signature"`
-	PlanSigFormat  string         `json:"plan_signature_format"`
+	Oracle              string         `json:"oracle"`
+	SQL                 []string       `json:"sql"`
+	Expected            string         `json:"expected"`
+	Actual              string         `json:"actual"`
+	Error               string         `json:"error"`
+	Seed                int64          `json:"seed"`
+	PlanReplay          string         `json:"plan_replayer"`
+	UploadLocation      string         `json:"upload_location"`
+	CaseDir             string         `json:"case_dir"`
+	NoRECOptimizedSQL   string         `json:"norec_optimized_sql"`
+	NoRECUnoptimizedSQL string         `json:"norec_unoptimized_sql"`
+	NoRECPredicate      string         `json:"norec_predicate"`
+	Details             map[string]any `json:"details"`
+	Timestamp           string         `json:"timestamp"`
+	TiDBVersion         string         `json:"tidb_version"`
+	PlanSignature       string         `json:"plan_signature"`
+	PlanSigFormat       string         `json:"plan_signature_format"`
 }
 
 // New creates a reporter that writes to outputDir.
@@ -84,7 +89,9 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 // DumpSchema writes schema.sql for the current state.
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
+	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
 	for _, tbl := range state.Tables {
+		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tbl.Name))
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
 		var name, createSQL string
 		if err := row.Scan(&name, &createSQL); err != nil {
@@ -93,6 +100,7 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 		b.WriteString(createSQL)
 		b.WriteString(";\n\n")
 	}
+	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
 	return os.WriteFile(filepath.Join(c.Dir, "schema.sql"), []byte(b.String()), 0o644)
 }
 

@@ -50,6 +50,13 @@ rg -n "ERROR|WARN|panic|nil pointer|stack|file" reports/<case>
 - If multiple findings exist, order by severity (crash > incorrect result > perf > style).
 - If a report path is outside the current repo, ask before making changes.
 
+## Shiro report specifics
+
+- NoREC: compare `norec_optimized_sql` vs `norec_unoptimized_sql` and the `norec_predicate`. The optimized form is a COUNT of the original query; the unoptimized form is a SUM/CASE evaluation of the predicate.
+- DQP: look for `details.replay_expected_sql` and `details.replay_actual_sql` to see the base vs hinted (or SET_VAR) query.
+- Plan cache: check `expected/actual` and `details.warnings`, plus any `miss_without_warnings` flags. `@@last_plan_from_cache` mismatches without warnings are suspicious only for prepared plan cache.
+- `details.origin_result` anchors the second prepared EXECUTE (signature + sample rows).
+
 ## Fix rules
 
 - Keep fixes minimal and focused on the reported issue.

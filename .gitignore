@@ -3,8 +3,10 @@ reports/
 .DS_Store
 *.log
 *.tmp
+dynamic_state.json
 /shiro
 bin/
 web/node_modules
 web/.next
 web/out
+web/public

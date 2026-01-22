@@ -3,10 +3,12 @@ package util
 import (
 	"math"
 	"math/rand"
+	"sync"
 )
 
 // Bandit implements a simple UCB bandit.
 type Bandit struct {
+	mu          sync.Mutex
 	counts      []int
 	rewards     []float64
 	total       int
@@ -27,6 +29,8 @@ func NewBandit(arms int, exploration float64) *Bandit {
 
 // Pick selects an arm using UCB, respecting the enabled mask when provided.
 func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	bestIdx := -1
 	bestScore := -1.0
 	for i := range b.counts {
@@ -54,10 +58,32 @@ func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 
 // Update records the reward for the chosen arm.
 func (b *Bandit) Update(arm int, reward float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if arm < 0 || arm >= len(b.counts) {
 		return
 	}
 	b.counts[arm]++
 	b.rewards[arm] += reward
 	b.total++
+}
+
+// Snapshot returns a copy of the bandit state.
+func (b *Bandit) Snapshot() BanditSnapshot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return BanditSnapshot{
+		Counts:      append([]int{}, b.counts...),
+		Rewards:     append([]float64{}, b.rewards...),
+		Total:       b.total,
+		Exploration: b.exploration,
+	}
+}
+
+// BanditSnapshot captures the exported bandit state.
+type BanditSnapshot struct {
+	Counts      []int     `json:"counts"`
+	Rewards     []float64 `json:"rewards"`
+	Total       int       `json:"total"`
+	Exploration float64   `json:"exploration"`
 }

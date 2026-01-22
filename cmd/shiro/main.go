@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"shiro/internal/config"
 	"shiro/internal/db"
@@ -39,6 +40,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
 			os.Exit(1)
 		}
+		if err := setGlobalTimeZone(exec); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
+			os.Exit(1)
+		}
 		defer exec.Close()
 
 		r := runner.New(cfg, exec)
@@ -52,6 +57,10 @@ func main() {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, cfg.Workers)
+	if err := setGlobalTimeZoneForWorkers(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
+		os.Exit(1)
+	}
 	for i := 0; i < cfg.Workers; i++ {
 		wg.Add(1)
 		go func(worker int) {
@@ -79,4 +88,20 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
+
+func setGlobalTimeZone(exec *db.DB) error {
+	tz := time.Now().Format("-07:00")
+	util.Infof("timezone: local=%s offset=%s", time.Local.String(), tz)
+	_, err := exec.ExecContext(context.Background(), fmt.Sprintf("SET GLOBAL time_zone='%s'", tz))
+	return err
+}
+
+func setGlobalTimeZoneForWorkers(cfg config.Config) error {
+	exec, err := db.Open(cfg.DSN)
+	if err != nil {
+		return err
+	}
+	defer exec.Close()
+	return setGlobalTimeZone(exec)
 }

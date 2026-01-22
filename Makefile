@@ -1,4 +1,4 @@
-.PHONY: help build test fmt lint tidy report web
+.PHONY: help build test fmt lint tidy report web report-web
 
 help:
 	@echo "Targets:"
@@ -9,6 +9,7 @@ help:
 	@echo "  tidy    - Run go mod tidy"
 	@echo "  report  - Generate report.json for web UI"
 	@echo "  web     - Build static web UI (Next.js)"
+	@echo "  report-web - Generate report.json and build web UI"
 
 build:
 	mkdir -p bin
@@ -31,3 +32,5 @@ report:
 
 web:
 	cd web && npm install && npm run build
+
+report-web: report web

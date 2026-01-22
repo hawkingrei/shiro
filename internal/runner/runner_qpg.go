@@ -354,8 +354,14 @@ func (s *qpgState) observe(info planInfo) qpgObservation {
 	return obs
 }
 
-func (s *qpgState) stats() (int, int, int, int) {
-	return len(s.seenPlans), len(s.seenShapes), len(s.seenOps), len(s.seenJoins)
+func (s *qpgState) stats() (int, int, int, int, int, int, int) {
+	return len(s.seenPlans),
+		len(s.seenShapes),
+		len(s.seenOps),
+		len(s.seenJoins),
+		len(s.seenJoinOrder),
+		len(s.seenOpSig),
+		len(s.seenSQL)
 }
 
 func (r *Runner) applyQPGWeights() bool {

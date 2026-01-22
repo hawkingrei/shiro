@@ -52,7 +52,11 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if len(tables) == 0 {
 		tables = state.Tables
 	}
-	restricted.Where = generator.BinaryExpr{Left: query.Where, Op: "AND", Right: gen.GeneratePredicate(tables, 1, false, 0)}
+	restrictPred := gen.GeneratePredicate(tables, 1, false, 0)
+	if !isSimplePredicate(restrictPred) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
+	restricted.Where = generator.BinaryExpr{Left: query.Where, Op: "AND", Right: restrictPred}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), restricted.SQLString()}}
 	}

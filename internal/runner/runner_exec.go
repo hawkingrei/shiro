@@ -15,6 +15,13 @@ func (r *Runner) execOnConn(ctx context.Context, conn *sql.Conn, sql string) err
 	return err
 }
 
+func (r *Runner) prepareConn(ctx context.Context, conn *sql.Conn, dbName string) error {
+	if dbName == "" {
+		return nil
+	}
+	return r.execOnConn(ctx, conn, fmt.Sprintf("USE %s", dbName))
+}
+
 func (r *Runner) execSQL(ctx context.Context, sql string) error {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -23,7 +30,7 @@ func (r *Runner) execSQL(ctx context.Context, sql string) error {
 		return err
 	}
 	defer conn.Close()
-	if err := r.execOnConn(qctx, conn, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
+	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return err
 	}
 	_, err = conn.ExecContext(qctx, sql)

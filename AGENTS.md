@@ -27,7 +27,7 @@
 - Added concurrency via workers with per-database isolation; SQL validity ratio logging per interval.
 - Added plan-cache-only mode with PREPARE/EXECUTE and `@@last_plan_from_cache` verification.
 - Plan cache paths now capture `CONNECTION_ID()` and use `EXPLAIN FOR CONNECTION` to feed QPG plan-shape tracking (prepared statements only).
-- Plan cache miss handling checks `SHOW WARNINGS`; a miss with no warnings is treated as an error and reported.
+- Prepared plan cache miss handling checks `SHOW WARNINGS`; a miss with no warnings is treated as an error and reported (non-prepared misses may be normal).
 - On bug, rotate to a fresh database (`<database>_rN`) and reinitialize schema/data to avoid cross-case contamination.
 - Default config now lives in code (`defaultConfig`) and is printed at startup; `oracles.strict_predicates` is true by default with a config toggle to loosen it.
 - CODDTest only runs when the referenced columns have no NULLs; NULL creates unknown truth values and breaks the CASE mapping.
@@ -38,7 +38,7 @@
 - Expand plan-hint coverage and add TiDB optimizer variables to DQP if needed.
 - Extend CODDTest to multi-table dependent expressions with join-aware mappings.
 
-## Progress
+## Experience notes
 - Implemented core fuzzing pipeline, oracles, plan replayer capture, and reporting.
 - Added window functions, correlated subqueries, subquery depth guard, and DQP hints/variables.
 - Added local case artifacts and optional S3 upload interface; inserts are recorded for reproduction.
@@ -61,8 +61,6 @@
 - TODO: Frontend aggregation views (commit/bug type) and export.
 - TODO: S3/report incremental merging and multi-source aggregation.
 - TODO: Generator coverage: more join/subquery variants and stability tuning.
-
-## Experience notes
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
 - Using `EXPLAIN` in replayer avoids executing the buggy SQL again during dump.
 - Tracking inserts in-memory provides a lightweight reproduction script without exporting full data dumps.
@@ -78,10 +76,12 @@
 - Feature-level bandit adaptation needs to set generator weights per-query and clear them after the query finishes.
 - Further reducing CODDTest/TLP false positives required limiting to simple predicates (AND of comparisons) and deterministic, non-subquery expressions.
 - Plan cache in TiDB master does not appear to cache CTE-based PREPARE statements; plan-cache-only mode skips CTEs.
-- Plan-cache sequence must run EXECUTE immediately before SHOW WARNINGS; otherwise warnings belong to the last `SELECT @@last_plan_from_cache`.
-- For plan cache checks: run the target statement, then `SELECT @@last_plan_from_cache`, then re-run the target statement and `SHOW WARNINGS` so warnings are bound to the target SQL (not the `SELECT`).
-- Prepared plan cache oracle should compare a cache-disabled baseline execution (same prepared stmt/args) against a cache-enabled execution; treat mismatches as bugs when cache hit or when miss has no warnings.
+- Plan-cache sequence must run EXECUTE immediately before `SHOW WARNINGS`; otherwise warnings belong to the last `SELECT @@last_plan_from_cache`.
+- For plan cache checks: run the target statement, then `SELECT @@last_plan_from_cache`, then re-run the target statement and `SHOW WARNINGS` so warnings are bound to the target SQL (not the `SELECT`). Avoid consecutive `SHOW WARNINGS` and `SELECT @@last_plan_from_cache` without an intervening EXECUTE.
+- Prepared plan cache oracle compares a literal-SQL baseline signature against a prepared execution; treat mismatches as bugs when cache hit or when miss has no warnings.
 - Non-prepared plan cache: a miss without warnings can be normal; only treat result-signature mismatches as bugs.
+- DQP hint generation should stay minimal: pick a small number of hints per query (0-2), avoid stacking ON/OFF pairs, and keep ordering predictable.
+- Code style: keep changes simple and readable; follow the Uber Go Style Guide for formatting and naming.
 - `EXPLAIN FOR CONNECTION` and `@@last_plan_from_cache` must be queried right after the target EXECUTE to avoid interleaving effects.
 - Go mysql driver can emit `busy buffer` if result sets are not fully drained; ensure rows are consumed before closing statement/connection.
 - Reports now emit `origin_result` from the second EXECUTE (signature + sample rows) to anchor prepared vs. original comparisons.
@@ -91,6 +91,9 @@
 ## TODO
 - QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
 - QPG: switch to TiDB-native plan hash when it becomes available.
+- Highest priority: focus on join reorder, multi-table joins, and plan cache testing; optimize all oracles to target these scenarios.
+- High priority: expand coverage for CTEs, correlated subqueries, and TiDB optimizer capabilities to broaden search space.
+- CERT: temporarily restrict to simple single-table queries (no JOIN/subquery/aggregate); revisit to relax later.
 - Case minimization: expand AST reducer coverage (IN list trimming, expression simplification, order-by reduction) and validate impact on DQP cases.
 - Case minimization: trim GROUP BY items, simplify HAVING, and drop LIMIT offsets where possible.
 - Case minimization: reduce replay SQL for signature/count oracles by AST transformations before emitting case_min.
@@ -99,5 +102,7 @@
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
 - Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
 - Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.
+- Generator: when generating plan-cache string args, use fixed prefixes if an index exists; otherwise allow uuidv7 strings.
 - Low priority: CODDTest tightening to only run on integer/boolean predicates to reduce noise.
 - Low priority: CERT gating by base_est_rows threshold to avoid small-sample estimator noise.
+- TODO: add TiFlash hint coverage (read_from_storage) when TiFlash is enabled.
