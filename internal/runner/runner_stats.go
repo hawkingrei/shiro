@@ -127,9 +127,9 @@ func (r *Runner) startStatsLogger() func() {
 							util.Infof("qpg override=%s", r.qpgState.lastOverride)
 							r.qpgState.lastOverrideLogged = r.qpgState.lastOverride
 						}
-						if r.qpgState.lastTemplate != "" && r.qpgState.lastTemplate != r.qpgState.lastTemplateLog {
+						if r.qpgState.lastTemplate != "" && r.qpgState.lastTemplate != r.qpgState.lastTemplateLogged {
 							util.Infof("qpg template_override=%s", r.qpgState.lastTemplate)
-							r.qpgState.lastTemplateLog = r.qpgState.lastTemplate
+							r.qpgState.lastTemplateLogged = r.qpgState.lastTemplate
 						}
 						r.qpgMu.Unlock()
 					}

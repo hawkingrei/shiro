@@ -139,11 +139,31 @@ type qpgState struct {
 	templateOverride  *generator.TemplateWeights
 	templateTTL       int
 	lastTemplate      string
-	lastTemplateLog   string
+	lastTemplateLogged string
 	seenSQLTTL         int64
 	seenSQLMax         int
 	seenSQLSweep       int64
 }
+
+const (
+	qpgNoJoinThreshold         = 3
+	qpgNoAggThreshold          = 3
+	qpgNoNewPlanThreshold      = 5
+	qpgNoNewOpSigThreshold     = 4
+	qpgNoNewShapeThreshold     = 4
+	qpgNoNewJoinTypeThreshold  = 3
+	qpgNoNewJoinOrderThreshold = 3
+	qpgOverrideTTL             = 5
+	qpgTemplateNoNewJoinOrder  = 3
+	qpgTemplateNoNewShape      = 4
+	qpgTemplateNoAgg           = 3
+	qpgTemplateNoNewPlan       = 5
+	qpgTemplateJoinWeightBoost = 6
+	qpgTemplateAggWeightBoost  = 6
+	qpgTemplateSemiWeightBoost = 5
+	qpgTemplateEnabledProb     = 55
+	qpgTemplateOverrideTTL     = 5
+)
 
 type qpgObservation struct {
 	newPlan     bool
@@ -391,13 +411,13 @@ func (r *Runner) applyQPGWeights() bool {
 	r.qpgMu.Lock()
 	if r.qpgState.overrideTTL <= 0 {
 		setOverride := false
-		if r.qpgState.noJoin >= 3 {
+		if r.qpgState.noJoin >= qpgNoJoinThreshold {
 			joinCount := max(r.cfg.Weights.Features.JoinCount, 3)
 			r.qpgState.override = &generator.AdaptiveWeights{JoinCount: min(joinCount, r.cfg.MaxJoinTables)}
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noAgg >= 3 {
+		if r.qpgState.noAgg >= qpgNoAggThreshold {
 			agg := max(r.cfg.Weights.Features.AggProb, 60)
 			override := r.qpgState.override
 			if override == nil {
@@ -405,10 +425,10 @@ func (r *Runner) applyQPGWeights() bool {
 			}
 			override.AggProb = agg
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewPlan >= 5 {
+		if r.qpgState.noNewPlan >= qpgNoNewPlanThreshold {
 			subq := max(r.cfg.Weights.Features.SubqCount, 3)
 			override := r.qpgState.override
 			if override == nil {
@@ -416,10 +436,10 @@ func (r *Runner) applyQPGWeights() bool {
 			}
 			override.SubqCount = subq
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewOpSig >= 4 {
+		if r.qpgState.noNewOpSig >= qpgNoNewOpSigThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -427,10 +447,10 @@ func (r *Runner) applyQPGWeights() bool {
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			override.AggProb = max(r.cfg.Weights.Features.AggProb, 60)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewShape >= 4 {
+		if r.qpgState.noNewShape >= qpgNoNewShapeThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -438,20 +458,20 @@ func (r *Runner) applyQPGWeights() bool {
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewJoinType >= 3 {
+		if r.qpgState.noNewJoinType >= qpgNoNewJoinTypeThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
 			}
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewJoinOrder >= 3 {
+		if r.qpgState.noNewJoinOrder >= qpgNoNewJoinOrderThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -459,7 +479,7 @@ func (r *Runner) applyQPGWeights() bool {
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 4)
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = 5
+			r.qpgState.overrideTTL = qpgOverrideTTL
 			setOverride = true
 		}
 		if setOverride && r.cfg.Logging.Verbose && r.qpgState.override != nil {
@@ -488,6 +508,8 @@ func (r *Runner) applyQPGWeights() bool {
 	return true
 }
 
+// applyQPGTemplateWeights computes and applies adaptive template weight overrides
+// based on the current QPG state. It returns true when an override is active.
 func (r *Runner) applyQPGTemplateWeights() bool {
 	if !r.cfg.QPG.Enabled || r.qpgState == nil {
 		r.clearTemplateWeights()
@@ -498,24 +520,24 @@ func (r *Runner) applyQPGTemplateWeights() bool {
 	if r.qpgState.templateTTL <= 0 {
 		setOverride := false
 		override := base
-		if r.qpgState.noNewJoinOrder >= 3 || r.qpgState.noNewShape >= 4 {
-			override.JoinReorder = max(base.JoinReorder, 6)
-			override.EnabledProb = max(base.EnabledProb, 55)
+		if r.qpgState.noNewJoinOrder >= qpgTemplateNoNewJoinOrder || r.qpgState.noNewShape >= qpgTemplateNoNewShape {
+			override.JoinReorder = max(base.JoinReorder, qpgTemplateJoinWeightBoost)
+			override.EnabledProb = max(base.EnabledProb, qpgTemplateEnabledProb)
 			setOverride = true
 		}
-		if r.qpgState.noAgg >= 3 {
-			override.AggPushdown = max(base.AggPushdown, 6)
-			override.EnabledProb = max(override.EnabledProb, 55)
+		if r.qpgState.noAgg >= qpgTemplateNoAgg {
+			override.AggPushdown = max(base.AggPushdown, qpgTemplateAggWeightBoost)
+			override.EnabledProb = max(override.EnabledProb, qpgTemplateEnabledProb)
 			setOverride = true
 		}
-		if r.qpgState.noNewPlan >= 5 {
-			override.SemiAnti = max(base.SemiAnti, 5)
-			override.EnabledProb = max(override.EnabledProb, 55)
+		if r.qpgState.noNewPlan >= qpgTemplateNoNewPlan {
+			override.SemiAnti = max(base.SemiAnti, qpgTemplateSemiWeightBoost)
+			override.EnabledProb = max(override.EnabledProb, qpgTemplateEnabledProb)
 			setOverride = true
 		}
 		if setOverride {
 			r.qpgState.templateOverride = &override
-			r.qpgState.templateTTL = 5
+			r.qpgState.templateTTL = qpgTemplateOverrideTTL
 			if r.cfg.Logging.Verbose {
 				sig := fmt.Sprintf("%d/%d/%d/%d", override.JoinReorder, override.AggPushdown, override.SemiAnti, override.EnabledProb)
 				if sig != r.qpgState.lastTemplate {
@@ -544,13 +566,11 @@ func (r *Runner) tickQPG() {
 		return
 	}
 	r.qpgMu.Lock()
-	if r.qpgState.overrideTTL <= 0 {
-		r.qpgMu.Unlock()
-		return
-	}
-	r.qpgState.overrideTTL--
-	if r.qpgState.overrideTTL == 0 {
-		r.qpgState.override = nil
+	if r.qpgState.overrideTTL > 0 {
+		r.qpgState.overrideTTL--
+		if r.qpgState.overrideTTL == 0 {
+			r.qpgState.override = nil
+		}
 	}
 	if r.qpgState.templateTTL > 0 {
 		r.qpgState.templateTTL--

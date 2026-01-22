@@ -9,20 +9,34 @@ const templateEnabledProb = 55
 const templateJoinReorderWeight = 4
 const templateAggPushdownWeight = 3
 const templateSemiAntiWeight = 3
+const templateTablePickRetries = 4
+const templateSemiAntiExtraFilterProb = 60
+const templateJoinOnlyPredicateProb = 40
 
 type templateSpec struct {
 	weight int
 	build  func() *SelectQuery
 }
 
-// TemplateWeights tunes template selection.
+// TemplateWeights configures how often and which templates are used when generating queries.
+// All values are non-negative integers. Higher values increase the relative likelihood that
+// a template (or template family) is selected compared to others.
 type TemplateWeights struct {
+	// EnabledProb is the percentage (0-100) chance that the generator will attempt to use
+	// any template for a query. A value of 0 disables templates entirely.
 	EnabledProb int
+	// JoinReorder is the relative weight for selecting join-reorder templates.
 	JoinReorder int
+	// AggPushdown is the relative weight for selecting aggregation-pushdown templates.
 	AggPushdown int
+	// SemiAnti is the relative weight for selecting semi/anti-join templates.
 	SemiAnti    int
 }
 
+// generateTemplateQuery attempts to construct a SELECT query using one of the
+// available query templates for the provided baseTables. It returns the first
+// successfully built template query, or nil if template generation is disabled,
+// no templates are applicable, or all template builders fail to produce a query.
 func (g *Generator) generateTemplateQuery(baseTables []schema.Table) *SelectQuery {
 	weights := g.templateWeights()
 	if !g.shouldTryTemplates(weights) {
@@ -38,23 +52,20 @@ func (g *Generator) generateTemplateQuery(baseTables []schema.Table) *SelectQuer
 	}
 	for i := 0; i < len(templates); i++ {
 		pick := g.pickTemplate(weightList)
-		if templates[pick].weight == 0 {
+		if weightList[pick] == 0 {
 			continue
 		}
 		if query := templates[pick].build(); query != nil {
 			return query
 		}
 		templates[pick].weight = 0
+		weightList[pick] = 0
 	}
 	return nil
 }
 
 // DefaultTemplateWeights returns the baseline template sampling weights.
 func DefaultTemplateWeights() TemplateWeights {
-	return defaultTemplateWeights()
-}
-
-func defaultTemplateWeights() TemplateWeights {
 	return TemplateWeights{
 		EnabledProb: templateEnabledProb,
 		JoinReorder: templateJoinReorderWeight,
@@ -67,7 +78,7 @@ func (g *Generator) templateWeights() TemplateWeights {
 	if g.Template != nil {
 		return *g.Template
 	}
-	return defaultTemplateWeights()
+	return DefaultTemplateWeights()
 }
 
 func (g *Generator) shouldTryTemplates(weights TemplateWeights) bool {
@@ -153,7 +164,7 @@ func (g *Generator) pickTemplateTables(baseTables []schema.Table, minCount int) 
 	if len(g.State.Tables) < minCount {
 		return nil
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < templateTablePickRetries; i++ {
 		candidate := g.pickTables()
 		if len(candidate) >= minCount {
 			return candidate
@@ -184,7 +195,7 @@ func (g *Generator) templateSemiAntiPredicate(tables []schema.Table, sub *Select
 	if g.Config.Features.NotExists && util.Chance(g.Rand, g.Config.Weights.Features.NotExistsProb) {
 		pred = UnaryExpr{Op: "NOT", Expr: pred}
 	}
-	if util.Chance(g.Rand, 60) {
+	if util.Chance(g.Rand, templateSemiAntiExtraFilterProb) {
 		extra := g.templatePredicateNoSubquery(tables)
 		pred = BinaryExpr{Left: pred, Op: "AND", Right: extra}
 	}
@@ -239,5 +250,5 @@ func (g *Generator) templateJoinPredicate(tables []schema.Table) Expr {
 
 // TODO: Split join-only vs join+filter into distinct strategies with richer controls.
 func (g *Generator) shouldUseJoinOnlyPredicate() bool {
-	return util.Chance(g.Rand, 40)
+	return util.Chance(g.Rand, templateJoinOnlyPredicateProb)
 }
