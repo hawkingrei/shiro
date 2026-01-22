@@ -6,6 +6,16 @@ run:
 linters:
   default: none
   enable:
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - typecheck
+    - unused
     - revive
 
   settings:
