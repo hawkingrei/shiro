@@ -266,8 +266,12 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	}
 	r.prepareFeatureWeights()
 	appliedQPG := r.applyQPGWeights()
+	appliedTemplate := r.applyQPGTemplateWeights()
 	if appliedQPG && r.featureBandit == nil {
 		defer r.clearAdaptiveWeights()
+	}
+	if appliedTemplate {
+		defer r.clearTemplateWeights()
 	}
 	oracleIdx := r.pickOracle()
 	var reward float64

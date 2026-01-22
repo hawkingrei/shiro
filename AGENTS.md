@@ -61,6 +61,7 @@
 - TODO: Frontend aggregation views (commit/bug type) and export.
 - TODO: S3/report incremental merging and multi-source aggregation.
 - TODO: Generator coverage: more join/subquery variants and stability tuning.
+- TODO: Centralize tuning knobs for template sampling/weights and QPG template overrides (enable prob, weights, TTLs, thresholds).
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
 - Using `EXPLAIN` in replayer avoids executing the buggy SQL again during dump.
 - Tracking inserts in-memory provides a lightweight reproduction script without exporting full data dumps.
@@ -87,6 +88,7 @@
 - Reports now emit `origin_result` from the second EXECUTE (signature + sample rows) to anchor prepared vs. original comparisons.
 - Prepared SQL in reports must use `SET @pN=...` + `EXECUTE ... USING @pN` form; limit PREPARE parameters to <= 8.
 - SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
+- When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
 
 ## TODO
 - QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
