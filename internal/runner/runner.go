@@ -194,9 +194,6 @@ func (r *Runner) runDDL(ctx context.Context) {
 		tbl := r.gen.GenerateTable()
 		sql := r.gen.CreateTableSQL(tbl)
 		if err := r.execSQL(ctx, sql); err != nil {
-			if _, ok := isWhitelistedSQLError(err); ok {
-				return
-			}
 			return
 		}
 		r.state.Tables = append(r.state.Tables, tbl)

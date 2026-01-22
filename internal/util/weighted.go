@@ -1,3 +1,5 @@
+// Package util provides shared helper utilities.
+//revive:disable:var-naming // Package name follows project convention.
 package util
 
 import "math/rand"

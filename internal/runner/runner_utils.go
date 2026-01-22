@@ -5,20 +5,6 @@ import (
 	"strings"
 )
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func formatPrepareSQL(sqlText string) string {
 	return fmt.Sprintf("PREPARE stmt FROM '%s'", strings.ReplaceAll(sqlText, "'", "''"))
 }
@@ -72,4 +58,18 @@ func materializeSQL(sqlText string, args []any) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

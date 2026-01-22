@@ -17,6 +17,6 @@ func (n NoopUploader) Enabled() bool {
 }
 
 // UploadDir is a no-op upload that returns an empty location.
-func (n NoopUploader) UploadDir(ctx context.Context, dir string) (string, error) {
+func (n NoopUploader) UploadDir(_ context.Context, dir string) (string, error) {
 	return "", nil
 }

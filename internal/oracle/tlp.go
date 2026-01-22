@@ -36,7 +36,7 @@ func (o TLP) Name() string { return "TLP" }
 //	       SELECT * FROM t WHERE (a > 10) IS NULL -- P IS NULL
 //
 // The signatures of Q and Q_tlp (the UNION ALL of all three partitions) must match.
-func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
+func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}

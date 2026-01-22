@@ -2,7 +2,7 @@ package validator
 
 import (
 	"github.com/pingcap/tidb/pkg/parser"
-	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver" // Register TiDB parser driver.
 )
 
 // Validator wraps the TiDB parser for SQL validation.

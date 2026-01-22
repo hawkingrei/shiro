@@ -38,6 +38,7 @@ func TestInjectHintWithCTE(t *testing.T) {
 }
 
 func TestJoinReorderThresholdHintsRange(t *testing.T) {
+	//nolint:staticcheck // Deterministic randomness is required for stable tests.
 	rand.Seed(1)
 	hints := joinReorderThresholdHints(5)
 	if len(hints) != 1 {
@@ -55,6 +56,7 @@ func TestJoinReorderThresholdHintsRange(t *testing.T) {
 }
 
 func TestDQPSetVarHintsCount(t *testing.T) {
+	//nolint:staticcheck // Deterministic randomness is required for stable tests.
 	rand.Seed(2)
 	for i := 0; i < 20; i++ {
 		hints := dqpSetVarHints(3, true, true, true, true, true, true)
@@ -65,6 +67,7 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 }
 
 func TestDQPHintsForQueryCount(t *testing.T) {
+	//nolint:staticcheck // Deterministic randomness is required for stable tests.
 	rand.Seed(3)
 	noArgHints := map[string]struct{}{
 		HintStraightJoin:    {},

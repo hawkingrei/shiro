@@ -68,10 +68,15 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if !ok {
 		return bug
 	}
-	preparedSig, originResult, hit2, warnings, warnErr, ok, bug := r.preparedCacheExecute(qctx, conn, stmt, pq.SQL, concreteSQL, connID, pq.Args, args2)
-	if !ok {
-		return bug
+	cacheRes := r.preparedCacheExecute(qctx, conn, stmt, pq.SQL, concreteSQL, connID, pq.Args, args2)
+	if !cacheRes.ok {
+		return cacheRes.bug
 	}
+	preparedSig := cacheRes.sig
+	originResult := cacheRes.origin
+	hit2 := cacheRes.hit
+	warnings := cacheRes.warnings
+	warnErr := cacheRes.warnErr
 	signatureMismatch := preparedSig != concreteSig2
 
 	hasWarnings := warnErr == nil && len(warnings) > 0
@@ -263,11 +268,21 @@ func (r *Runner) preparedFirstExecute(ctx context.Context, conn *sql.Conn, stmt 
 	return db.Signature{}, 0, false, false, false
 }
 
-func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) (db.Signature, map[string]any, int, []string, error, bool, bool) {
+type preparedCacheResult struct {
+	sig      db.Signature
+	origin   map[string]any
+	hit      int
+	warnings []string
+	warnErr  error
+	ok       bool
+	bug      bool
+}
+
+func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt *sql.Stmt, preparedSQL, concreteSQL string, connID int64, argsFirst []any, argsSecond []any) preparedCacheResult {
 	rows2, err := stmt.QueryContext(ctx, argsSecond...)
 	if err != nil {
 		if logWhitelistedSQLError(preparedSQL, err, r.cfg.Logging.Verbose) {
-			return db.Signature{}, nil, 0, nil, nil, false, false
+			return preparedCacheResult{}
 		}
 		if isMySQLError(err) && !isPanicError(err) {
 			result := oracle.Result{
@@ -280,7 +295,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 				},
 			}
 			r.handleResult(ctx, result)
-			return db.Signature{}, nil, 0, nil, nil, false, true
+			return preparedCacheResult{bug: true}
 		}
 		if isPanicError(err) {
 			result := oracle.Result{
@@ -293,14 +308,14 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 				},
 			}
 			r.handleResult(ctx, result)
-			return db.Signature{}, nil, 0, nil, nil, false, true
+			return preparedCacheResult{bug: true}
 		}
-		return db.Signature{}, nil, 0, nil, nil, false, false
+		return preparedCacheResult{}
 	}
 	preparedSig, originCols, originRows, err := signatureAndSampleFromRows(rows2, originSampleLimit, r.planCacheRoundScale())
 	closePlanCacheRows(rows2)
 	if err != nil {
-		return db.Signature{}, nil, 0, nil, nil, false, false
+		return preparedCacheResult{}
 	}
 	originResult := map[string]any{
 		"signature": fmt.Sprintf("cnt=%d checksum=%d", preparedSig.Count, preparedSig.Checksum),
@@ -309,7 +324,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 	}
 	hit2, err := r.lastPlanFromCache(ctx, conn)
 	if err != nil {
-		return db.Signature{}, nil, 0, nil, nil, false, false
+		return preparedCacheResult{}
 	}
 	rowsWarn, err := stmt.QueryContext(ctx, argsSecond...)
 	if err == nil {
@@ -326,7 +341,7 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 			},
 		}
 		r.handleResult(ctx, result)
-		return db.Signature{}, nil, 0, nil, nil, false, true
+		return preparedCacheResult{bug: true}
 	}
 	warnings, warnErr := r.warningsOnConn(ctx, conn)
 	rowsExplain, err := stmt.QueryContext(ctx, argsSecond...)
@@ -345,9 +360,16 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 			},
 		}
 		r.handleResult(ctx, result)
-		return db.Signature{}, nil, 0, nil, nil, false, true
+		return preparedCacheResult{bug: true}
 	}
-	return preparedSig, originResult, hit2, warnings, warnErr, true, false
+	return preparedCacheResult{
+		sig:      preparedSig,
+		origin:   originResult,
+		hit:      hit2,
+		warnings: warnings,
+		warnErr:  warnErr,
+		ok:       true,
+	}
 }
 
 func (r *Runner) runNonPreparedPlanCache(ctx context.Context) (bool, bool) {
