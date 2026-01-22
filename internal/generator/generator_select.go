@@ -300,10 +300,10 @@ func (g *Generator) pickTables() []schema.Table {
 	if len(g.State.Tables) == 0 {
 		return nil
 	}
-	max := len(g.State.Tables)
+	maxTables := len(g.State.Tables)
 	count := 1
-	if g.Config.Features.Joins && max > 1 {
-		limit := min(max, g.Config.MaxJoinTables)
+	if g.Config.Features.Joins && maxTables > 1 {
+		limit := min(maxTables, g.Config.MaxJoinTables)
 		count = g.Rand.Intn(min(limit, g.joinCount()+1)) + 1
 		if count == 1 && util.Chance(g.Rand, 85) {
 			count = min(2, limit)
@@ -318,7 +318,7 @@ func (g *Generator) pickTables() []schema.Table {
 			count = 5
 		}
 	}
-	idxs := g.Rand.Perm(max)[:count]
+	idxs := g.Rand.Perm(maxTables)[:count]
 	picked := make([]schema.Table, 0, count)
 	for _, idx := range idxs {
 		picked = append(picked, g.State.Tables[idx])

@@ -6,9 +6,25 @@ run:
 linters:
   default: none
   enable:
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+    - unused
     - revive
 
   settings:
     revive:
       rules:
         - name: exported
+        - name: empty-block
+        - name: confusing-results
+        - name: unused-parameter
+        - name: unnecessary-stmt
+        - name: call-to-gc
+        - name: unexported-naming
+        - name: "useless-break"
+

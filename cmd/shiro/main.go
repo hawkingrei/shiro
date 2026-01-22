@@ -44,7 +44,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
 			os.Exit(1)
 		}
-		defer exec.Close()
+		defer util.CloseWithErr(exec, "db exec")
 
 		r := runner.New(cfg, exec)
 		ctx := context.Background()
@@ -72,7 +72,7 @@ func main() {
 				errCh <- err
 				return
 			}
-			defer exec.Close()
+			defer util.CloseWithErr(exec, "db exec")
 			util.Infof("worker %d using database %s", worker, workerCfg.Database)
 			r := runner.New(workerCfg, exec)
 			if err := r.Run(context.Background()); err != nil {
@@ -102,6 +102,6 @@ func setGlobalTimeZoneForWorkers(cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	defer exec.Close()
+	defer util.CloseWithErr(exec, "db exec")
 	return setGlobalTimeZone(exec)
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"shiro/internal/db"
+	"shiro/internal/util"
 )
 
 // originSampleLimit bounds sample rows embedded in reports.
@@ -167,17 +168,6 @@ func looksNumeric(s string) bool {
 	return hasDigit
 }
 
-func (r *Runner) signatureForSQL(ctx context.Context, sqlText string) (db.Signature, error) {
-	qctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	rows, err := r.exec.QueryContext(qctx, sqlText)
-	if err != nil {
-		return db.Signature{}, err
-	}
-	defer rows.Close()
-	return signatureFromRows(rows, r.signatureRoundScale())
-}
-
 func (r *Runner) signatureForSQLOnConn(ctx context.Context, conn *sql.Conn, sqlText string, roundScale int) (db.Signature, error) {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -185,7 +175,7 @@ func (r *Runner) signatureForSQLOnConn(ctx context.Context, conn *sql.Conn, sqlT
 	if err != nil {
 		return db.Signature{}, err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "signature rows")
 	return signatureFromRows(rows, roundScale)
 }
 

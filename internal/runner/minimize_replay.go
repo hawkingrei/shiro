@@ -8,6 +8,7 @@ import (
 
 	"shiro/internal/db"
 	"shiro/internal/oracle"
+	"shiro/internal/util"
 	"shiro/internal/validator"
 )
 
@@ -19,7 +20,7 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer util.CloseWithErr(conn, "minimize conn")
 	minDB := r.baseDB + "_min"
 	if err := r.resetDatabaseOnConn(ctx, conn, minDB); err != nil {
 		return false
@@ -47,7 +48,7 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 		}
 		other, err := querySignatureConn(ctx, conn, spec.actualSQL, r.validator)
 		if spec.setVar != "" {
-			resetVarOnConn(conn, ctx, spec.setVar)
+			resetVarOnConn(ctx, conn, spec.setVar)
 		}
 		if err != nil {
 			return false
@@ -254,7 +255,7 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "plan rows")
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -289,7 +290,7 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 	return 0, fmt.Errorf("no estRows field")
 }
 
-func resetVarOnConn(conn *sql.Conn, ctx context.Context, assignment string) {
+func resetVarOnConn(ctx context.Context, conn *sql.Conn, assignment string) {
 	name := strings.SplitN(assignment, "=", 2)[0]
 	name = strings.TrimSpace(name)
 	if name == "" {

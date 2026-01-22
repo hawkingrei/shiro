@@ -44,40 +44,6 @@ func (g *Generator) GenerateStringExpr(tables []schema.Table) Expr {
 	return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
 }
 
-// GenerateGroupBy builds a GROUP BY list.
-func (g *Generator) literalForExprType(expr Expr) Expr {
-	switch v := expr.(type) {
-	case ColumnExpr:
-		return g.literalForColumn(schema.Column{Type: v.Ref.Type})
-	case LiteralExpr:
-		return g.literalForValue(v.Value)
-	case FuncExpr:
-		if g.isNumericFunc(v.Name) {
-			return g.literalForColumn(schema.Column{Type: schema.TypeInt})
-		}
-		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
-	default:
-		return g.randomLiteralExpr()
-	}
-}
-
-func (g *Generator) literalForValue(val any) Expr {
-	switch val.(type) {
-	case int:
-		return g.literalForColumn(schema.Column{Type: schema.TypeInt})
-	case int64:
-		return g.literalForColumn(schema.Column{Type: schema.TypeBigInt})
-	case float64:
-		return g.literalForColumn(schema.Column{Type: schema.TypeDouble})
-	case bool:
-		return g.literalForColumn(schema.Column{Type: schema.TypeBool})
-	case string:
-		return g.literalForColumn(schema.Column{Type: schema.TypeVarchar})
-	default:
-		return g.randomLiteralExpr()
-	}
-}
-
 func (g *Generator) isNumericExpr(expr Expr) bool {
 	switch v := expr.(type) {
 	case ColumnExpr:
@@ -202,14 +168,15 @@ func isDateTimeLiteral(value string) bool {
 	return true
 }
 
-func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (Expr, Expr) {
+func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (left Expr, right Expr) {
 	if util.Chance(g.Rand, 60) {
-		left, colType := g.pickComparableExpr(tables)
-		right := g.literalForColumn(schema.Column{Type: colType})
+		var colType schema.ColumnType
+		left, colType = g.pickComparableExpr(tables)
+		right = g.literalForColumn(schema.Column{Type: colType})
 		return left, right
 	}
-	left := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
-	right := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	left = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	right = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(left); ok {
 		return left, g.literalForColumn(schema.Column{Type: t})
 	}
@@ -279,7 +246,7 @@ func (g *Generator) pickColumnByType(tbl schema.Table, t schema.ColumnType) sche
 	return tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
 }
 
-func (g *Generator) pickForeignKeyColumns(child, parent schema.Table) (schema.Column, schema.Column) {
+func (g *Generator) pickForeignKeyColumns(child, parent schema.Table) (childCol schema.Column, parentCol schema.Column) {
 	for _, ccol := range child.Columns {
 		for _, pcol := range parent.Columns {
 			if ccol.Type == pcol.Type {
@@ -374,7 +341,7 @@ func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 
 // orderedArgs expects comparable values of the same type and returns them ordered.
 // If types differ, it returns inputs unchanged.
-func orderedArgs(a, b any) (any, any) {
+func orderedArgs(a, b any) (left any, right any) {
 	switch v := a.(type) {
 	case int:
 		vb, ok := b.(int)
@@ -404,11 +371,4 @@ func (g *Generator) exprSQL(expr Expr) string {
 	b := SQLBuilder{}
 	expr.Build(&b)
 	return b.String()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

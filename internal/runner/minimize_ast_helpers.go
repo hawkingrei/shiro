@@ -269,14 +269,14 @@ func dropJoinConditions(from *ast.TableRefsClause) {
 	join.Tp = ast.CrossJoin
 }
 
-func splitInsertPrefixValues(stmt string) (string, string, bool) {
+func splitInsertPrefixValues(stmt string) (prefix string, values string, ok bool) {
 	upper := strings.ToUpper(stmt)
 	idx := strings.Index(upper, "VALUES")
 	if idx == -1 {
 		return "", "", false
 	}
-	prefix := strings.TrimSpace(stmt[:idx+len("VALUES")])
-	values := strings.TrimSpace(stmt[idx+len("VALUES"):])
+	prefix = strings.TrimSpace(stmt[:idx+len("VALUES")])
+	values = strings.TrimSpace(stmt[idx+len("VALUES"):])
 	if values == "" {
 		return "", "", false
 	}

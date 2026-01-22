@@ -1,3 +1,4 @@
+// Package schema defines schema state and helpers for SQL generation.
 package schema
 
 import (

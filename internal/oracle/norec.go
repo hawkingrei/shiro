@@ -7,6 +7,7 @@ import (
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
+	"shiro/internal/util"
 	"shiro/internal/schema"
 )
 
@@ -32,7 +33,7 @@ func (o NoREC) Name() string { return "NoREC" }
 //	NoREC: SELECT IFNULL(SUM(CASE WHEN a > 10 THEN 1 ELSE 0 END),0) FROM t
 //
 // If the counts differ, the optimizer likely changed semantics.
-func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
+func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}
@@ -84,7 +85,7 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "norec explain rows")
 
 	cols, err := rows.Columns()
 	if err != nil {

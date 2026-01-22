@@ -14,6 +14,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/db"
+	"shiro/internal/util"
 )
 
 // Replayer handles plan replayer dumps and downloads.
@@ -36,7 +37,7 @@ func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string,
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
+	defer util.CloseWithErr(conn, "replayer conn")
 	if database != "" {
 		if _, err := conn.ExecContext(ctx, fmt.Sprintf("USE %s", database)); err != nil {
 			return "", err
@@ -47,7 +48,7 @@ func (r *Replayer) DumpAndDownload(ctx context.Context, exec *db.DB, sql string,
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "replayer rows")
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -119,7 +120,11 @@ func (r *Replayer) download(ctx context.Context, url string, caseDir string) (st
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			util.Infof("close replayer response: %v", cerr)
+		}
+	}()
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("download failed with status %s", resp.Status)
 	}
@@ -132,7 +137,7 @@ func (r *Replayer) download(ctx context.Context, url string, caseDir string) (st
 	if err != nil {
 		return "", err
 	}
-	defer out.Close()
+	defer util.CloseWithErr(out, "replayer output")
 
 	limited := io.LimitReader(resp.Body, r.cfg.MaxDownloadBytes)
 	if _, err := io.Copy(out, limited); err != nil {

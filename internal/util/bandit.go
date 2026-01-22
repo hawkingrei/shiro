@@ -1,3 +1,4 @@
+// Package util provides shared helper utilities.
 package util
 
 import (

@@ -18,6 +18,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/report"
+	"shiro/internal/util"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -199,7 +200,7 @@ func readFileLimited(path string, maxBytes int) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report input")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
@@ -220,21 +221,21 @@ func writeJSON(output string, site SiteData) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report output")
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(site)
 }
 
-func parseS3URI(input string) (string, string, error) {
+func parseS3URI(input string) (bucket string, prefix string, err error) {
 	trimmed := strings.TrimPrefix(input, "s3://")
 	if trimmed == "" {
 		return "", "", fmt.Errorf("missing s3 bucket")
 	}
 	parts := strings.SplitN(trimmed, "/", 2)
-	bucket := parts[0]
-	prefix := ""
+	bucket = parts[0]
+	prefix = ""
 	if len(parts) == 2 {
 		prefix = strings.TrimPrefix(parts[1], "/")
 		if prefix != "" && !strings.HasSuffix(prefix, "/") {
@@ -345,7 +346,7 @@ func readObjectBytesLimited(ctx context.Context, client *s3.Client, bucket, key 
 	if err != nil {
 		return nil, false, err
 	}
-	defer resp.Body.Close()
+	defer util.CloseWithErr(resp.Body, "s3 response body")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
@@ -370,7 +371,7 @@ func readObjectLimited(ctx context.Context, client *s3.Client, bucket, key strin
 		}
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer util.CloseWithErr(resp.Body, "s3 response body")
 	limit := int64(maxBytes) + 1
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
@@ -389,12 +390,16 @@ func s3ClientFromConfig(ctx context.Context, cfg config.S3Config) (*s3.Client, e
 		opts = append(opts, awsconfig.WithRegion(cfg.Region))
 	}
 	if cfg.Endpoint != "" {
-		resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
+		//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
+		resolver := aws.EndpointResolverWithOptionsFunc(func(service, _ string, _ ...any) (aws.Endpoint, error) {
 			if service == s3.ServiceID {
+				//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 				return aws.Endpoint{URL: cfg.Endpoint, HostnameImmutable: true}, nil
 			}
+			//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 		})
+		//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 		opts = append(opts, awsconfig.WithEndpointResolverWithOptions(resolver))
 	}
 	if cfg.AccessKeyID != "" || cfg.SecretAccessKey != "" || cfg.SessionToken != "" {
@@ -432,7 +437,7 @@ func extractCommitFromPlanReplayer(zipPath string, maxBytes int) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer util.CloseWithErr(f, "report output")
 	info, err := f.Stat()
 	if err != nil {
 		return ""
@@ -470,7 +475,7 @@ func extractCommitFromPlanReplayerData(data []byte) string {
 			continue
 		}
 		content, err := io.ReadAll(rc)
-		rc.Close()
+		util.CloseWithErr(rc, "zip entry")
 		if err != nil {
 			continue
 		}

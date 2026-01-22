@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	cfg "shiro/internal/config"
+	"shiro/internal/util"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -31,12 +32,16 @@ func NewS3(cfg cfg.S3Config) (*S3Uploader, error) {
 		opts = append(opts, awsconfig.WithRegion(cfg.Region))
 	}
 	if cfg.Endpoint != "" {
-		resolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...any) (aws.Endpoint, error) {
+		//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
+		resolver := aws.EndpointResolverWithOptionsFunc(func(service, _ string, _ ...any) (aws.Endpoint, error) {
 			if service == s3.ServiceID {
+				//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 				return aws.Endpoint{URL: cfg.Endpoint, HostnameImmutable: true}, nil
 			}
+			//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 			return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 		})
+		//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 		opts = append(opts, awsconfig.WithEndpointResolverWithOptions(resolver))
 	}
 	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
@@ -92,7 +97,7 @@ func (u *S3Uploader) uploadFile(ctx context.Context, path, key string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer util.CloseWithErr(file, "s3 upload file")
 
 	info, err := file.Stat()
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 
+	"shiro/internal/util"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -97,7 +99,7 @@ func (d *DB) QueryPlanRows(ctx context.Context, query string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer util.CloseWithErr(rows, "plan rows")
 
 	cols, err := rows.Columns()
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"shiro/internal/util"
 )
 
 func (r *Runner) execOnConn(ctx context.Context, conn *sql.Conn, sql string) error {
@@ -29,7 +31,7 @@ func (r *Runner) execSQL(ctx context.Context, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer util.CloseWithErr(conn, "exec conn")
 	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return err
 	}

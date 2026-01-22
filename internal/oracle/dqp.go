@@ -100,7 +100,6 @@ type dqpVariant struct {
 	hint         string
 }
 
-const maxLeadingHintVariants = 10
 const maxCombinedHintVariants = 12
 
 func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool) []dqpVariant {
@@ -316,67 +315,6 @@ func buildHintSQL(hint string, tables []string, noArgHints map[string]struct{}) 
 		return upper + "()"
 	}
 	return fmt.Sprintf("%s(%s)", upper, strings.Join(tables, ", "))
-}
-
-func buildLeadingHints(tables []string) []string {
-	if len(tables) == 0 {
-		return nil
-	}
-	hints := make([]string, 0, maxLeadingHintVariants)
-	seen := make(map[string]struct{}, maxLeadingHintVariants)
-	add := func(seq []string) {
-		if len(hints) >= maxLeadingHintVariants {
-			return
-		}
-		key := strings.Join(seq, ", ")
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		hints = append(hints, fmt.Sprintf(HintLeadingFmt, key))
-	}
-	add(tables)
-	if len(tables) > 1 {
-		reversed := append([]string{}, tables...)
-		for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
-			reversed[i], reversed[j] = reversed[j], reversed[i]
-		}
-		add(reversed)
-	}
-	if len(tables) > 2 {
-		rotLeft := append([]string{}, tables[1:]...)
-		rotLeft = append(rotLeft, tables[0])
-		add(rotLeft)
-		rotRight := append([]string{tables[len(tables)-1]}, tables[:len(tables)-1]...)
-		add(rotRight)
-	}
-	if len(tables) > 3 {
-		swapped := append([]string{}, tables...)
-		swapped[1], swapped[2] = swapped[2], swapped[1]
-		add(swapped)
-		swapped2 := append([]string{}, tables...)
-		swapped2[0], swapped2[1] = swapped2[1], swapped2[0]
-		add(swapped2)
-		swapped3 := append([]string{}, tables...)
-		swapped3[0], swapped3[len(swapped3)-1] = swapped3[len(swapped3)-1], swapped3[0]
-		add(swapped3)
-		if len(tables) > 4 {
-			swapped4 := append([]string{}, tables...)
-			swapped4[2], swapped4[3] = swapped4[3], swapped4[2]
-			add(swapped4)
-		}
-	}
-	for i := 0; i < 3; i++ {
-		if len(hints) >= maxLeadingHintVariants {
-			break
-		}
-		shuffled := append([]string{}, tables...)
-		seed := int64(len(tables)*7 + i*13)
-		r := rand.New(rand.NewSource(seed))
-		r.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
-		add(shuffled)
-	}
-	return hints
 }
 
 func buildCombinedHints(setVarHints []string, baseHints []string, limit int) []string {
