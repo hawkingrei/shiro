@@ -160,7 +160,7 @@ func (r *Runner) prepareFeatureWeights() {
 	r.lastFeatureArms.joinArm = r.featureBandit.joinBandit.Pick(r.gen.Rand, nil)
 	r.lastFeatureArms.subqArm = r.featureBandit.subqBandit.Pick(r.gen.Rand, nil)
 	r.lastFeatureArms.aggArm = r.featureBandit.aggBandit.Pick(r.gen.Rand, nil)
-	r.gen.SetAdaptiveWeights(generator.AdaptiveWeights{
+	r.setAdaptiveWeights(generator.AdaptiveWeights{
 		JoinCount: r.featureBandit.joinArms[r.lastFeatureArms.joinArm],
 		SubqCount: r.featureBandit.subqArms[r.lastFeatureArms.subqArm],
 		AggProb:   r.featureBandit.aggArms[r.lastFeatureArms.aggArm],
@@ -172,7 +172,7 @@ func (r *Runner) updateFeatureBandits(reward float64) {
 		return
 	}
 	lastFeatures := r.gen.LastFeatures
-	r.gen.ClearAdaptiveWeights()
+	r.clearAdaptiveWeights()
 	r.gen.LastFeatures = nil
 	if lastFeatures == nil {
 		return

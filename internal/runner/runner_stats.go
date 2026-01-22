@@ -90,6 +90,7 @@ func (r *Runner) startStatsLogger() func() {
 						deltaNotIn,
 					)
 					if r.cfg.QPG.Enabled && r.cfg.Logging.Verbose && r.qpgState != nil {
+						r.qpgMu.Lock()
 						plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
 						deltaPlans := plans - lastPlans
 						deltaShapes := shapes - lastShapes
@@ -126,6 +127,7 @@ func (r *Runner) startStatsLogger() func() {
 							util.Infof("qpg override=%s", r.qpgState.lastOverride)
 							r.qpgState.lastOverrideLogged = r.qpgState.lastOverride
 						}
+						r.qpgMu.Unlock()
 					}
 					r.dumpDynamicState()
 				}

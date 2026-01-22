@@ -37,6 +37,9 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name()}
 	}
+	if shouldSkipNoREC(query) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
 	optimized := query.SQLString()
 	optimizedCount := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", optimized)
 
@@ -77,6 +80,22 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, s
 
 func buildNoRECQuery(query *generator.SelectQuery) string {
 	return fmt.Sprintf("SELECT (CASE WHEN %s THEN 1 ELSE 0 END) AS b FROM %s", buildExpr(query.Where), buildFrom(query))
+}
+
+func shouldSkipNoREC(query *generator.SelectQuery) bool {
+	if query == nil {
+		return true
+	}
+	if len(query.With) > 0 {
+		return true
+	}
+	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil {
+		return true
+	}
+	if queryHasAggregate(query) || queryHasSubquery(query) {
+		return true
+	}
+	return false
 }
 
 func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) {

@@ -31,6 +31,8 @@ type Runner struct {
 	oracles   []oracle.Oracle
 	insertLog []string
 	statsMu   sync.Mutex
+	genMu     sync.Mutex
+	qpgMu     sync.Mutex
 	sqlTotal  int64
 	sqlValid  int64
 	sqlExists int64
@@ -268,7 +270,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	r.prepareFeatureWeights()
 	appliedQPG := r.applyQPGWeights()
 	if appliedQPG && r.featureBandit == nil {
-		defer r.gen.ClearAdaptiveWeights()
+		defer r.clearAdaptiveWeights()
 	}
 	oracleIdx := r.pickOracle()
 	var reward float64

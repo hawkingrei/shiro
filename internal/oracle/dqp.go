@@ -51,6 +51,9 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			return Result{OK: true, Oracle: o.Name()}
 		}
 	}
+	if cteHasUnstableLimit(query) {
+		return Result{OK: true, Oracle: o.Name()}
+	}
 	hasSubquery := queryHasSubquery(query)
 	hasSemi := queryHasSemiJoinSubquery(query)
 	hasCorr := queryHasCorrelatedSubquery(query)
@@ -223,6 +226,24 @@ func dqpSetVarHints(tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, ha
 		return nil
 	}
 	return pickHints(candidates, rand.Intn(3))
+}
+
+func cteHasUnstableLimit(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, cte := range query.With {
+		if cte.Query == nil {
+			continue
+		}
+		if cte.Query.Limit != nil && len(cte.Query.OrderBy) == 0 {
+			return true
+		}
+		if cteHasUnstableLimit(cte.Query) {
+			return true
+		}
+	}
+	return false
 }
 
 func chooseToggleHint(on, off string) string {
