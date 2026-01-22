@@ -61,6 +61,7 @@
 - TODO: Frontend aggregation views (commit/bug type) and export.
 - TODO: S3/report incremental merging and multi-source aggregation.
 - TODO: Generator coverage: more join/subquery variants and stability tuning.
+- TODO: 统一模板采样/权重/QPG 模板覆盖的参数调优入口（启用概率、权重、TTL、阈值等）。
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
 - Using `EXPLAIN` in replayer avoids executing the buggy SQL again during dump.
 - Tracking inserts in-memory provides a lightweight reproduction script without exporting full data dumps.

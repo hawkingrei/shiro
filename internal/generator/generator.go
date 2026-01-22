@@ -15,6 +15,7 @@ type Generator struct {
 	Config        config.Config
 	State         *schema.State
 	Adaptive      *AdaptiveWeights
+	Template      *TemplateWeights
 	LastFeatures  *QueryFeatures
 	Seed          int64
 	tableSeq      int
@@ -64,6 +65,16 @@ func (g *Generator) SetAdaptiveWeights(weights AdaptiveWeights) {
 // ClearAdaptiveWeights disables adaptive sampling overrides.
 func (g *Generator) ClearAdaptiveWeights() {
 	g.Adaptive = nil
+}
+
+// SetTemplateWeights overrides template sampling weights.
+func (g *Generator) SetTemplateWeights(weights TemplateWeights) {
+	g.Template = &weights
+}
+
+// ClearTemplateWeights disables template sampling overrides.
+func (g *Generator) ClearTemplateWeights() {
+	g.Template = nil
 }
 
 // NextTableName returns a unique table name.

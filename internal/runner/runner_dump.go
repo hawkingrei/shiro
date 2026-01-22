@@ -17,6 +17,7 @@ type dynamicDump struct {
 	Seed           int64                      `json:"seed"`
 	FeatureWeights config.FeatureWeights      `json:"feature_weights"`
 	Adaptive       *generator.AdaptiveWeights `json:"adaptive_weights,omitempty"`
+	Template       *generator.TemplateWeights `json:"template_weights,omitempty"`
 	Bandits        *banditDump                `json:"bandits,omitempty"`
 	QPG            *qpgDump                   `json:"qpg,omitempty"`
 }
@@ -66,6 +67,7 @@ func (r *Runner) dumpDynamicState() {
 		Seed:           r.seedSnapshot(),
 		FeatureWeights: r.cfg.Weights.Features,
 		Adaptive:       r.adaptiveSnapshot(),
+		Template:       r.templateSnapshot(),
 		Bandits:        r.snapshotBandits(),
 		QPG:            r.snapshotQPG(),
 	}

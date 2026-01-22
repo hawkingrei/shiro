@@ -136,6 +136,10 @@ type qpgState struct {
 	overrideTTL        int
 	lastOverride       string
 	lastOverrideLogged string
+	templateOverride  *generator.TemplateWeights
+	templateTTL       int
+	lastTemplate      string
+	lastTemplateLog   string
 	seenSQLTTL         int64
 	seenSQLMax         int
 	seenSQLSweep       int64
@@ -484,6 +488,57 @@ func (r *Runner) applyQPGWeights() bool {
 	return true
 }
 
+func (r *Runner) applyQPGTemplateWeights() bool {
+	if !r.cfg.QPG.Enabled || r.qpgState == nil {
+		r.clearTemplateWeights()
+		return false
+	}
+	base := generator.DefaultTemplateWeights()
+	r.qpgMu.Lock()
+	if r.qpgState.templateTTL <= 0 {
+		setOverride := false
+		override := base
+		if r.qpgState.noNewJoinOrder >= 3 || r.qpgState.noNewShape >= 4 {
+			override.JoinReorder = max(base.JoinReorder, 6)
+			override.EnabledProb = max(base.EnabledProb, 55)
+			setOverride = true
+		}
+		if r.qpgState.noAgg >= 3 {
+			override.AggPushdown = max(base.AggPushdown, 6)
+			override.EnabledProb = max(override.EnabledProb, 55)
+			setOverride = true
+		}
+		if r.qpgState.noNewPlan >= 5 {
+			override.SemiAnti = max(base.SemiAnti, 5)
+			override.EnabledProb = max(override.EnabledProb, 55)
+			setOverride = true
+		}
+		if setOverride {
+			r.qpgState.templateOverride = &override
+			r.qpgState.templateTTL = 5
+			if r.cfg.Logging.Verbose {
+				sig := fmt.Sprintf("%d/%d/%d/%d", override.JoinReorder, override.AggPushdown, override.SemiAnti, override.EnabledProb)
+				if sig != r.qpgState.lastTemplate {
+					r.qpgState.lastTemplate = sig
+				}
+			}
+		}
+	}
+	if r.qpgState.templateOverride == nil || r.qpgState.templateTTL <= 0 {
+		r.qpgMu.Unlock()
+		r.clearTemplateWeights()
+		return false
+	}
+	override := *r.qpgState.templateOverride
+	r.qpgMu.Unlock()
+	if override.EnabledProb <= 0 {
+		r.clearTemplateWeights()
+		return false
+	}
+	r.setTemplateWeights(override)
+	return true
+}
+
 func (r *Runner) tickQPG() {
 	if r.qpgState == nil {
 		return
@@ -496,6 +551,12 @@ func (r *Runner) tickQPG() {
 	r.qpgState.overrideTTL--
 	if r.qpgState.overrideTTL == 0 {
 		r.qpgState.override = nil
+	}
+	if r.qpgState.templateTTL > 0 {
+		r.qpgState.templateTTL--
+		if r.qpgState.templateTTL == 0 {
+			r.qpgState.templateOverride = nil
+		}
 	}
 	r.qpgMu.Unlock()
 }

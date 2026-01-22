@@ -14,6 +14,12 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		return nil
 	}
 
+	if query := g.generateTemplateQuery(baseTables); query != nil {
+		queryFeatures := AnalyzeQueryFeatures(query)
+		g.LastFeatures = &queryFeatures
+		return query
+	}
+
 	query := &SelectQuery{}
 	queryTables := append([]schema.Table{}, baseTables...)
 
@@ -74,6 +80,7 @@ func (g *Generator) GenerateCTEQuery(tbl schema.Table) *SelectQuery {
 	query.Where = g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth-1, false, g.maxSubqDepth)
 	limit := g.Rand.Intn(10) + 1
 	query.Limit = &limit
+	query.OrderBy = g.GenerateCTEOrderBy(tbl)
 	return query
 }
 
@@ -90,6 +97,21 @@ func (g *Generator) GenerateCTESelectList(tbl schema.Table) []SelectItem {
 		items = append(items, SelectItem{Expr: ColumnExpr{Ref: ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}}, Alias: fmt.Sprintf("c%d", i)})
 	}
 	return items
+}
+
+// GenerateCTEOrderBy enforces a stable ORDER BY for CTEs with LIMIT.
+func (g *Generator) GenerateCTEOrderBy(tbl schema.Table) []OrderBy {
+	if len(tbl.Columns) == 0 {
+		return nil
+	}
+	orderCol := tbl.Columns[0]
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			orderCol = col
+			break
+		}
+	}
+	return []OrderBy{{Expr: ColumnExpr{Ref: ColumnRef{Table: tbl.Name, Name: orderCol.Name, Type: orderCol.Type}}, Desc: false}}
 }
 
 // GenerateSelectList builds a SELECT list for the given tables.
