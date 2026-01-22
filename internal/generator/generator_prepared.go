@@ -383,14 +383,14 @@ func (g *Generator) nextArgForType(t schema.ColumnType, prev any) any {
 	}
 }
 
-func (g *Generator) orderPlanCacheArgs(a, b any) (any, any) {
+func (g *Generator) orderPlanCacheArgs(a, b any) (left any, right any) {
 	if !g.Config.PlanCacheMeaningful {
 		return a, b
 	}
 	return orderedArgs(a, b)
 }
 
-func (g *Generator) orderedArgsForType(t schema.ColumnType) (any, any) {
+func (g *Generator) orderedArgsForType(t schema.ColumnType) (left any, right any) {
 	col := schema.Column{Type: t}
 	a := g.literalForColumn(col).Value
 	b := g.literalForColumn(col).Value
