@@ -11,6 +11,6 @@ linters:
     - errcheck
     - govet
     - ineffassign
+    - revive
     - staticcheck
     - unused
-    - revive
