@@ -170,12 +170,13 @@ func isDateTimeLiteral(value string) bool {
 
 func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (left Expr, right Expr) {
 	if util.Chance(g.Rand, 60) {
-		left, colType := g.pickComparableExpr(tables)
-		right := g.literalForColumn(schema.Column{Type: colType})
+		var colType schema.ColumnType
+		left, colType = g.pickComparableExpr(tables)
+		right = g.literalForColumn(schema.Column{Type: colType})
 		return left, right
 	}
-	left := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
-	right := g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	left = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
+	right = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(left); ok {
 		return left, g.literalForColumn(schema.Column{Type: t})
 	}
