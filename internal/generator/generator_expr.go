@@ -168,7 +168,7 @@ func isDateTimeLiteral(value string) bool {
 	return true
 }
 
-func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (Expr, Expr) {
+func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (left Expr, right Expr) {
 	if util.Chance(g.Rand, 60) {
 		left, colType := g.pickComparableExpr(tables)
 		right := g.literalForColumn(schema.Column{Type: colType})
@@ -370,11 +370,4 @@ func (g *Generator) exprSQL(expr Expr) string {
 	b := SQLBuilder{}
 	expr.Build(&b)
 	return b.String()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

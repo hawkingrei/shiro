@@ -32,7 +32,7 @@ func (g *Generator) InsertSQL(tbl *schema.Table) string {
 }
 
 // UpdateSQL emits an UPDATE statement and returns predicate metadata.
-func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) {
+func (g *Generator) UpdateSQL(tbl schema.Table) (sql string, predicate Expr, setExpr Expr, colRef ColumnRef) {
 	if len(tbl.Columns) < 2 {
 		return "", nil, nil, ColumnRef{}
 	}
@@ -41,9 +41,8 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) 
 		return "", nil, nil, ColumnRef{}
 	}
 	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
-	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
-	colRef := ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
-	var setExpr Expr
+	predicate = g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
+	colRef = ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
 	if g.isNumericType(col.Type) {
 		setExpr = BinaryExpr{Left: ColumnExpr{Ref: colRef}, Op: "+", Right: LiteralExpr{Value: 1}}
 	} else {
@@ -51,7 +50,8 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (string, Expr, Expr, ColumnRef) 
 	}
 	builder := SQLBuilder{}
 	predicate.Build(&builder)
-	return fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s", tbl.Name, col.Name, g.exprSQL(setExpr), builder.String()), predicate, setExpr, colRef
+	sql = fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s", tbl.Name, col.Name, g.exprSQL(setExpr), builder.String())
+	return sql, predicate, setExpr, colRef
 }
 
 // DeleteSQL emits a DELETE statement and returns its predicate.

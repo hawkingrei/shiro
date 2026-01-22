@@ -120,7 +120,11 @@ func (r *Replayer) download(ctx context.Context, url string, caseDir string) (st
 	if err != nil {
 		return "", err
 	}
-	defer util.CloseWithErr(resp.Body, "replayer response")
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			util.Infof("close replayer response: %v", cerr)
+		}
+	}()
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("download failed with status %s", resp.Status)
 	}

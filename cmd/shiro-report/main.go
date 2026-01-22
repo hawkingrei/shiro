@@ -228,14 +228,14 @@ func writeJSON(output string, site SiteData) error {
 	return enc.Encode(site)
 }
 
-func parseS3URI(input string) (string, string, error) {
+func parseS3URI(input string) (bucket string, prefix string, err error) {
 	trimmed := strings.TrimPrefix(input, "s3://")
 	if trimmed == "" {
 		return "", "", fmt.Errorf("missing s3 bucket")
 	}
 	parts := strings.SplitN(trimmed, "/", 2)
-	bucket := parts[0]
-	prefix := ""
+	bucket = parts[0]
+	prefix = ""
 	if len(parts) == 2 {
 		prefix = strings.TrimPrefix(parts[1], "/")
 		if prefix != "" && !strings.HasSuffix(prefix, "/") {
@@ -390,7 +390,7 @@ func s3ClientFromConfig(ctx context.Context, cfg config.S3Config) (*s3.Client, e
 		opts = append(opts, awsconfig.WithRegion(cfg.Region))
 	}
 	if cfg.Endpoint != "" {
-		resolver := aws.EndpointResolverWithOptionsFunc(func(service, _ string, options ...any) (aws.Endpoint, error) {
+		resolver := aws.EndpointResolverWithOptionsFunc(func(service, _ string, _ ...any) (aws.Endpoint, error) {
 			if service == s3.ServiceID {
 				//nolint:staticcheck // AWS SDK v2 global endpoint resolver is deprecated, but required for custom S3 endpoints.
 				return aws.Endpoint{URL: cfg.Endpoint, HostnameImmutable: true}, nil
