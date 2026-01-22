@@ -49,6 +49,7 @@ func (g *Generator) generateTemplateQuery(baseTables []schema.Table) *SelectQuer
 	return nil
 }
 
+// DefaultTemplateWeights returns the baseline template sampling weights.
 func DefaultTemplateWeights() TemplateWeights {
 	return defaultTemplateWeights()
 }
@@ -196,10 +197,6 @@ func (g *Generator) applyTemplateFrom(query *SelectQuery, tables []schema.Table)
 
 func (g *Generator) applyTemplateSelect(query *SelectQuery, tables []schema.Table) {
 	query.Items = g.GenerateSelectList(tables)
-}
-
-func (g *Generator) applyTemplatePredicate(query *SelectQuery, tables []schema.Table) {
-	query.Where = g.templatePredicate(tables)
 }
 
 func (g *Generator) applyTemplatePredicateNoSubquery(query *SelectQuery, tables []schema.Table) {
