@@ -63,9 +63,9 @@ func (r *Runner) dumpDynamicState() {
 	dump := dynamicDump{
 		Version:        1,
 		Timestamp:      time.Now().Format(time.RFC3339),
-		Seed:           r.gen.Seed,
+		Seed:           r.seedSnapshot(),
 		FeatureWeights: r.cfg.Weights.Features,
-		Adaptive:       r.gen.Adaptive,
+		Adaptive:       r.adaptiveSnapshot(),
 		Bandits:        r.snapshotBandits(),
 		QPG:            r.snapshotQPG(),
 	}
@@ -116,7 +116,14 @@ func (r *Runner) snapshotQPG() *qpgDump {
 	if !r.cfg.QPG.Enabled || r.qpgState == nil {
 		return nil
 	}
+	r.qpgMu.Lock()
+	defer r.qpgMu.Unlock()
 	plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
+	var override *generator.AdaptiveWeights
+	if r.qpgState.override != nil {
+		copy := *r.qpgState.override
+		override = &copy
+	}
 	return &qpgDump{
 		SeenPlans:      plans,
 		SeenShapes:     shapes,
@@ -133,7 +140,7 @@ func (r *Runner) snapshotQPG() *qpgDump {
 		NoNewJoinOrder: r.qpgState.noNewJoinOrder,
 		NoJoin:         r.qpgState.noJoin,
 		NoAgg:          r.qpgState.noAgg,
-		Override:       r.qpgState.override,
+		Override:       override,
 		OverrideTTL:    r.qpgState.overrideTTL,
 		LastOverride:   r.qpgState.lastOverride,
 	}

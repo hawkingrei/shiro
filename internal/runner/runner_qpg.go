@@ -18,8 +18,13 @@ import (
 func (r *Runner) observePlan(ctx context.Context, sqlText string) {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	if r.qpgState != nil && r.qpgState.shouldSkipExplain(sqlText) {
-		return
+	if r.qpgState != nil {
+		r.qpgMu.Lock()
+		skip := r.qpgState.shouldSkipExplain(sqlText)
+		r.qpgMu.Unlock()
+		if skip {
+			return
+		}
 	}
 	explainSQL := "EXPLAIN " + sqlText
 	if format := strings.TrimSpace(r.cfg.QPG.ExplainFormat); format != "" {
@@ -91,7 +96,9 @@ func (r *Runner) observePlanInfo(ctx context.Context, info planInfo) {
 	if r.qpgState == nil {
 		return
 	}
+	r.qpgMu.Lock()
 	obs := r.qpgState.observe(info)
+	r.qpgMu.Unlock()
 	if !obs.newPlan && r.cfg.QPG.MutationProb > 0 && util.Chance(r.gen.Rand, r.cfg.QPG.MutationProb) {
 		r.qpgMutate(ctx)
 	}
@@ -369,6 +376,15 @@ func (r *Runner) applyQPGWeights() bool {
 	if !r.cfg.QPG.Enabled || r.qpgState == nil {
 		return false
 	}
+	base := generator.AdaptiveWeights{
+		JoinCount: r.cfg.Weights.Features.JoinCount,
+		SubqCount: r.cfg.Weights.Features.SubqCount,
+		AggProb:   r.cfg.Weights.Features.AggProb,
+	}
+	if snapshot := r.adaptiveSnapshot(); snapshot != nil {
+		base = *snapshot
+	}
+	r.qpgMu.Lock()
 	if r.qpgState.overrideTTL <= 0 {
 		setOverride := false
 		if r.qpgState.noJoin >= 3 {
@@ -450,17 +466,11 @@ func (r *Runner) applyQPGWeights() bool {
 		}
 	}
 	if r.qpgState.override == nil || r.qpgState.overrideTTL <= 0 {
+		r.qpgMu.Unlock()
 		return false
 	}
-	base := generator.AdaptiveWeights{
-		JoinCount: r.cfg.Weights.Features.JoinCount,
-		SubqCount: r.cfg.Weights.Features.SubqCount,
-		AggProb:   r.cfg.Weights.Features.AggProb,
-	}
-	if r.gen.Adaptive != nil {
-		base = *r.gen.Adaptive
-	}
-	override := r.qpgState.override
+	override := *r.qpgState.override
+	r.qpgMu.Unlock()
 	if override.JoinCount > 0 {
 		base.JoinCount = override.JoinCount
 	}
@@ -470,18 +480,24 @@ func (r *Runner) applyQPGWeights() bool {
 	if override.AggProb > 0 {
 		base.AggProb = override.AggProb
 	}
-	r.gen.SetAdaptiveWeights(base)
+	r.setAdaptiveWeights(base)
 	return true
 }
 
 func (r *Runner) tickQPG() {
-	if r.qpgState == nil || r.qpgState.overrideTTL <= 0 {
+	if r.qpgState == nil {
+		return
+	}
+	r.qpgMu.Lock()
+	if r.qpgState.overrideTTL <= 0 {
+		r.qpgMu.Unlock()
 		return
 	}
 	r.qpgState.overrideTTL--
 	if r.qpgState.overrideTTL == 0 {
 		r.qpgState.override = nil
 	}
+	r.qpgMu.Unlock()
 }
 
 func (r *Runner) qpgMutate(ctx context.Context) {
