@@ -72,13 +72,13 @@ weights:
     update: 1
     delete: 1
   oracles:
-    norec: 0
-    tlp: 0
-    dqp: 0
-    cert: 0
-    coddtest: 0
-    dqe: 0
-    impo: 1000
+    norec: 5
+    tlp: 5
+    dqp: 5
+    cert: 1
+    coddtest: 2
+    dqe: 5
+    impo: 6
   features:
     join_count: 5
     cte_count: 20

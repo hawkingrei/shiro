@@ -106,16 +106,17 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 	}
 
+	// Only emit LIMIT when paired with ORDER BY to keep top-N semantics.
 	if g.Config.Features.OrderBy && util.Chance(g.Rand, g.Config.Weights.Features.OrderByProb) {
 		if query.Distinct {
 			query.OrderBy = g.GenerateOrderByFromItems(query.Items)
 		} else {
 			query.OrderBy = g.GenerateOrderBy(queryTables)
 		}
-	}
-	if g.Config.Features.Limit && util.Chance(g.Rand, g.Config.Weights.Features.LimitProb) {
-		limit := g.Rand.Intn(LimitMax) + 1
-		query.Limit = &limit
+		if g.Config.Features.Limit && util.Chance(g.Rand, g.Config.Weights.Features.LimitProb) {
+			limit := g.Rand.Intn(LimitMax) + 1
+			query.Limit = &limit
+		}
 	}
 
 	queryFeatures := AnalyzeQueryFeatures(query)

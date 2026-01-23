@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
@@ -22,8 +23,9 @@ type NoREC struct{}
 func (o NoREC) Name() string { return "NoREC" }
 
 // Run generates a simple SELECT with a WHERE predicate and compares the two counts.
-// It skips complex queries (aggregates, GROUP BY, DISTINCT, HAVING, LIMIT, subqueries),
-// because NoREC assumes a flat SELECT with a single predicate.
+// It skips complex queries (aggregates, GROUP BY, DISTINCT, HAVING, subqueries),
+// because NoREC assumes a flat SELECT with a single predicate. LIMIT is allowed
+// only when paired with ORDER BY and is applied to both forms (top-N).
 //
 // Example:
 //
@@ -43,7 +45,13 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 	optimizedCount := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", optimized)
 
 	unoptimized := buildWith(query) + buildNoRECQuery(query)
-	unoptimizedCount := buildWith(query) + fmt.Sprintf("SELECT IFNULL(SUM(CASE WHEN %s THEN 1 ELSE 0 END),0) FROM %s", buildExpr(query.Where), buildFrom(query))
+	orderLimit := buildOrderLimit(query)
+	unoptimizedCount := buildWith(query) + fmt.Sprintf(
+		"SELECT IFNULL(SUM(b),0) FROM (SELECT CASE WHEN %s THEN 1 ELSE 0 END AS b FROM %s%s) q",
+		buildExpr(query.Where),
+		buildFrom(query),
+		orderLimit,
+	)
 
 	optCount, err := exec.QueryCount(ctx, optimizedCount)
 	if err != nil {
@@ -78,21 +86,72 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 }
 
 func buildNoRECQuery(query *generator.SelectQuery) string {
-	return fmt.Sprintf("SELECT (CASE WHEN %s THEN 1 ELSE 0 END) AS b FROM %s", buildExpr(query.Where), buildFrom(query))
+	return fmt.Sprintf("SELECT (CASE WHEN %s THEN 1 ELSE 0 END) AS b FROM %s%s", buildExpr(query.Where), buildFrom(query), buildOrderLimit(query))
 }
 
 func shouldSkipNoREC(query *generator.SelectQuery) bool {
 	if query == nil {
 		return true
 	}
-	if len(query.With) > 0 {
+	// NoREC requires a flat predicate. The following constructs break equivalence:
+	// - DISTINCT: COUNT(*) counts distinct rows, SUM(CASE...) counts base rows.
+	//   Example:
+	//     Optimized:   SELECT COUNT(*) FROM (SELECT DISTINCT a FROM t WHERE a > 0) q;
+	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
+	// - GROUP BY / HAVING: optimized counts groups, unoptimized counts rows.
+	//   Example:
+	//     Optimized:   SELECT COUNT(*) FROM (SELECT a, COUNT(*) FROM t WHERE a > 0 GROUP BY a) q;
+	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
+	// - HAVING example:
+	//     Optimized:   SELECT COUNT(*) FROM (SELECT a FROM t GROUP BY a HAVING SUM(b) > 0) q;
+	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN /* predicate */ THEN 1 ELSE 0 END),0) FROM t;
+	// - LIMIT without ORDER BY: non-deterministic top-N selection.
+	//   Example:
+	//     Optimized:   SELECT COUNT(*) FROM (SELECT * FROM t WHERE a > 0 LIMIT 5) q;
+	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
+	// - Subquery in WHERE: predicate is no longer flat.
+	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil {
 		return true
 	}
-	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil || query.Limit != nil {
+	if query.Limit != nil && len(query.OrderBy) == 0 {
 		return true
 	}
-	if queryHasAggregate(query) || queryHasSubquery(query) {
+	if queryHasAggregate(query) || hasSubqueryInPredicate(query) {
 		return true
 	}
 	return false
+}
+
+func hasSubqueryInPredicate(query *generator.SelectQuery) bool {
+	if query == nil || query.Where == nil {
+		return false
+	}
+	return exprHasSubquery(query.Where)
+}
+
+func buildOrderLimit(query *generator.SelectQuery) string {
+	if query == nil {
+		return ""
+	}
+	var out string
+	if len(query.OrderBy) > 0 {
+		parts := make([]string, 0, len(query.OrderBy))
+		for _, ob := range query.OrderBy {
+			if ob.Expr == nil {
+				continue
+			}
+			item := buildExpr(ob.Expr)
+			if ob.Desc {
+				item += " DESC"
+			}
+			parts = append(parts, item)
+		}
+		if len(parts) > 0 {
+			out += " ORDER BY " + strings.Join(parts, ", ")
+		}
+	}
+	if query.Limit != nil {
+		out += fmt.Sprintf(" LIMIT %d", *query.Limit)
+	}
+	return out
 }
