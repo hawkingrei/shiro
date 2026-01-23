@@ -8,6 +8,17 @@ import (
 	"shiro/internal/util"
 )
 
+const (
+	// ColumnNullableProb is the chance to mark a column nullable.
+	ColumnNullableProb = 20
+	// ColumnIndexProb is the chance to add an index on a column.
+	ColumnIndexProb = 30
+	// PartitionCountExtraMax controls how many partitions above the minimum.
+	PartitionCountExtraMax = 3
+	// PartitionCountMin is the minimum number of partitions.
+	PartitionCountMin = 2
+)
+
 // GenerateTable creates a randomized table definition.
 func (g *Generator) GenerateTable() schema.Table {
 	colCount := g.Rand.Intn(g.Config.MaxColumns-2) + 2
@@ -18,8 +29,8 @@ func (g *Generator) GenerateTable() schema.Table {
 		col := schema.Column{
 			Name:     fmt.Sprintf("c%d", i),
 			Type:     g.randomColumnType(),
-			Nullable: util.Chance(g.Rand, 20),
-			HasIndex: util.Chance(g.Rand, 30),
+			Nullable: util.Chance(g.Rand, ColumnNullableProb),
+			HasIndex: util.Chance(g.Rand, ColumnIndexProb),
 		}
 		cols = append(cols, col)
 	}
@@ -28,7 +39,7 @@ func (g *Generator) GenerateTable() schema.Table {
 	partitionCount := 0
 	if g.Config.Features.PartitionTables && util.Chance(g.Rand, g.Config.Weights.Features.PartitionProb) {
 		partitioned = true
-		partitionCount = g.Rand.Intn(3) + 2
+		partitionCount = g.Rand.Intn(PartitionCountExtraMax) + PartitionCountMin
 	}
 
 	return schema.Table{

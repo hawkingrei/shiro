@@ -103,6 +103,7 @@
 - Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
 - Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
 - Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
+- Pinolo: tune LIKE/REGEXP approximate mutations after optimizer-focused coverage stabilizes.
 - Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.
 - Generator: when generating plan-cache string args, use fixed prefixes if an index exists; otherwise allow uuidv7 strings.
 - Low priority: CODDTest tightening to only run on integer/boolean predicates to reduce noise.

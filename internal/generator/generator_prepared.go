@@ -8,6 +8,17 @@ import (
 	"shiro/internal/util"
 )
 
+const (
+	// NonPreparedExtraSelectProb is the chance to add an extra SELECT column.
+	NonPreparedExtraSelectProb = 50
+	// PartitionedTablePickProb is the chance to pick a partitioned table when available.
+	PartitionedTablePickProb = 60
+	// NextArgIntDeltaMax is the maximum delta for integer args.
+	NextArgIntDeltaMax = 3
+	// NextArgFloatDeltaMax is the maximum delta for float args.
+	NextArgFloatDeltaMax = 5
+)
+
 // GeneratePreparedQuery builds a prepared query candidate for plan cache testing.
 func (g *Generator) GeneratePreparedQuery() PreparedQuery {
 	if len(g.State.Tables) == 0 {
@@ -172,7 +183,7 @@ func (g *Generator) preparedAggregateQuery() PreparedQuery {
 	arg2 := g.literalForColumn(col).Value
 	arg1, arg2 = g.orderPlanCacheArgs(arg1, arg2)
 	selectSQL := "COUNT(*) AS cnt"
-	if g.isNumericType(col.Type) && util.Chance(g.Rand, preparedAggExtraProb) {
+	if g.isNumericType(col.Type) && col.Type != schema.TypeDouble && util.Chance(g.Rand, preparedAggExtraProb) {
 		selectSQL = "COUNT(*) AS cnt, SUM(" + col.Name + ") AS sum1"
 	}
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s > ? AND %s < ?", selectSQL, tbl.Name, col.Name, col.Name)
@@ -201,7 +212,7 @@ func (g *Generator) nonPreparedSingleTable() PreparedQuery {
 	arg2 := g.literalForColumn(col).Value
 	arg1, arg2 = g.orderPlanCacheArgs(arg1, arg2)
 	selectCols := []string{col.Name}
-	if len(tbl.Columns) > 1 && util.Chance(g.Rand, 50) {
+	if len(tbl.Columns) > 1 && util.Chance(g.Rand, NonPreparedExtraSelectProb) {
 		col2 := tbl.Columns[g.Rand.Intn(len(tbl.Columns))]
 		if col2.Name != col.Name {
 			selectCols = append(selectCols, col2.Name)
@@ -221,7 +232,7 @@ func (g *Generator) pickPreparedTable() schema.Table {
 			partitioned = append(partitioned, tbl)
 		}
 	}
-	if len(partitioned) > 0 && util.Chance(g.Rand, 60) {
+	if len(partitioned) > 0 && util.Chance(g.Rand, PartitionedTablePickProb) {
 		return partitioned[g.Rand.Intn(len(partitioned))]
 	}
 	return g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
@@ -249,6 +260,9 @@ func (g *Generator) pickNumericColumnPreferDecimal(tables []schema.Table) (Colum
 			if !g.isNumericType(col.Type) {
 				continue
 			}
+			if col.Type == schema.TypeDouble {
+				continue
+			}
 			ref := ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
 			numericCols = append(numericCols, ref)
 			if col.Type == schema.TypeDecimal {
@@ -273,6 +287,9 @@ func (g *Generator) pickNumericColumnPreferDecimalForTable(tbl schema.Table) (sc
 			continue
 		}
 		if !g.isNumericType(col.Type) {
+			continue
+		}
+		if col.Type == schema.TypeDouble {
 			continue
 		}
 		numericCols = append(numericCols, col)
@@ -357,15 +374,15 @@ func (g *Generator) nextArgForType(t schema.ColumnType, prev any) any {
 	switch t {
 	case schema.TypeInt, schema.TypeBigInt:
 		if v, ok := prev.(int); ok {
-			return v + g.Rand.Intn(3) + 1
+			return v + g.Rand.Intn(NextArgIntDeltaMax) + 1
 		}
 		if v, ok := prev.(int64); ok {
-			return v + int64(g.Rand.Intn(3)+1)
+			return v + int64(g.Rand.Intn(NextArgIntDeltaMax)+1)
 		}
 		return g.literalForColumn(schema.Column{Type: t}).Value
 	case schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
 		if v, ok := prev.(float64); ok {
-			return v + float64(g.Rand.Intn(5)+1)
+			return v + float64(g.Rand.Intn(NextArgFloatDeltaMax)+1)
 		}
 		return g.literalForColumn(schema.Column{Type: t}).Value
 	case schema.TypeVarchar, schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
