@@ -16,6 +16,7 @@ type Result struct {
 	Expected string
 	Actual   string
 	Details  map[string]any
+	Metrics  map[string]int64
 	Err      error
 }
 

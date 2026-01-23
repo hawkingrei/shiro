@@ -447,6 +447,13 @@ func (g *Generator) aggProb() int {
 	return g.Config.Weights.Features.AggProb
 }
 
+func (g *Generator) indexPrefixProb() int {
+	if g.Adaptive != nil && g.Adaptive.IndexPrefixProb >= 0 {
+		return g.Adaptive.IndexPrefixProb
+	}
+	return g.Config.Weights.Features.IndexPrefixProb
+}
+
 func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
@@ -495,56 +502,16 @@ func (g *Generator) randomColumn(tables []schema.Table) ColumnRef {
 	return ColumnRef{Table: bl.Name, Name: col.Name, Type: col.Type}
 }
 
-// areTypesCompatibleForJoin checks if two column types are compatible for use in a join.
-// Compatible types include:
-// - Exact matches (always compatible)
-// - Integer types: INT and BIGINT
-// - Numeric types: all integer types (INT, BIGINT) with floating point types (FLOAT, DOUBLE, DECIMAL)
-// - Date/time types: DATE, DATETIME, TIMESTAMP
-func areTypesCompatibleForJoin(left, right schema.ColumnType) bool {
-	// Exact match is always compatible
-	if left == right {
-		return true
-	}
-
-	// Integer types are compatible with each other
-	if (left == schema.TypeInt || left == schema.TypeBigInt) &&
-		(right == schema.TypeInt || right == schema.TypeBigInt) {
-		return true
-	}
-
-	// Integer types are compatible with floating point types
-	isInteger := left == schema.TypeInt || left == schema.TypeBigInt
-	isFloat := right == schema.TypeFloat || right == schema.TypeDouble || right == schema.TypeDecimal
-	if isInteger && isFloat {
-		return true
-	}
-	isInteger = right == schema.TypeInt || right == schema.TypeBigInt
-	isFloat = left == schema.TypeFloat || left == schema.TypeDouble || left == schema.TypeDecimal
-	if isInteger && isFloat {
-		return true
-	}
-
-	// Floating point types are compatible with each other
-	if (left == schema.TypeFloat || left == schema.TypeDouble || left == schema.TypeDecimal) &&
-		(right == schema.TypeFloat || right == schema.TypeDouble || right == schema.TypeDecimal) {
-		return true
-	}
-
-	// Date/time types are compatible with each other
-	if (left == schema.TypeDate || left == schema.TypeDatetime || left == schema.TypeTimestamp) &&
-		(right == schema.TypeDate || right == schema.TypeDatetime || right == schema.TypeTimestamp) {
-		return true
-	}
-
-	return false
-}
-
 func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []string {
+	useIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+	// USING requires same column names; we only relax type matching by category (number/string/time/bool).
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
 	for _, ltbl := range left {
 		for _, lcol := range ltbl.Columns {
+			if useIndexPrefix && !lcol.HasIndex && !tableHasIndexPrefixColumn(ltbl, lcol.Name) {
+				continue
+			}
 			leftCounts[lcol.Name]++
 			if _, ok := leftTypes[lcol.Name]; !ok {
 				leftTypes[lcol.Name] = lcol.Type
@@ -555,7 +522,10 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 	for _, ltbl := range left {
 		for _, lcol := range ltbl.Columns {
 			for _, rcol := range right.Columns {
-				if lcol.Name == rcol.Name && areTypesCompatibleForJoin(lcol.Type, rcol.Type) && leftCounts[lcol.Name] == 1 && areTypesCompatibleForJoin(leftTypes[lcol.Name], lcol.Type) {
+				if useIndexPrefix && !rcol.HasIndex && !tableHasIndexPrefixColumn(right, rcol.Name) {
+					continue
+				}
+				if lcol.Name == rcol.Name && compatibleColumnType(lcol.Type, rcol.Type) && leftCounts[lcol.Name] == 1 && compatibleColumnType(leftTypes[lcol.Name], lcol.Type) {
 					names = append(names, lcol.Name)
 				}
 			}
@@ -589,15 +559,87 @@ func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {
 	return cols
 }
 
+func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef {
+	cols := make([]ColumnRef, 0, 8)
+	seen := map[string]struct{}{}
+	for _, tbl := range tables {
+		for _, col := range tbl.Columns {
+			if !col.HasIndex {
+				continue
+			}
+			key := tbl.Name + "." + col.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+		}
+		for _, idx := range tbl.Indexes {
+			if len(idx.Columns) == 0 {
+				continue
+			}
+			name := idx.Columns[0]
+			col, ok := tbl.ColumnByName(name)
+			if !ok {
+				continue
+			}
+			key := tbl.Name + "." + col.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+		}
+	}
+	return cols
+}
+
 func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) (ColumnRef, ColumnRef, bool) {
 	leftCols := g.collectColumns(left)
 	if len(leftCols) == 0 || len(right.Columns) == 0 {
 		return ColumnRef{}, ColumnRef{}, false
 	}
+	if util.Chance(g.Rand, g.indexPrefixProb()) {
+		leftIdx := g.collectIndexPrefixColumns(left)
+		rightIdx := g.collectIndexPrefixColumns([]schema.Table{right})
+		if len(leftIdx) > 0 && len(rightIdx) > 0 {
+			sameName := make([][2]ColumnRef, 0, 4)
+			for _, l := range leftIdx {
+				for _, r := range rightIdx {
+					if l.Name == r.Name && compatibleColumnType(l.Type, r.Type) {
+						sameName = append(sameName, [2]ColumnRef{l, r})
+					}
+				}
+			}
+			if len(sameName) > 0 {
+				pair := sameName[g.Rand.Intn(len(sameName))]
+				return pair[0], pair[1], true
+			}
+			rightByType := map[schema.ColumnType][]ColumnRef{}
+			for _, r := range rightIdx {
+				rightByType[r.Type] = append(rightByType[r.Type], r)
+			}
+			sameType := make([][2]ColumnRef, 0, len(leftIdx))
+			for _, l := range leftIdx {
+				for t, rs := range rightByType {
+					if !compatibleColumnType(l.Type, t) || len(rs) == 0 {
+						continue
+					}
+					r := rs[g.Rand.Intn(len(rs))]
+					sameType = append(sameType, [2]ColumnRef{l, r})
+					break
+				}
+			}
+			if len(sameType) > 0 {
+				pair := sameType[g.Rand.Intn(len(sameType))]
+				return pair[0], pair[1], true
+			}
+		}
+	}
 	sameName := make([][2]ColumnRef, 0, 4)
 	for _, l := range leftCols {
 		for _, rcol := range right.Columns {
-			if l.Name == rcol.Name && l.Type == rcol.Type {
+			if l.Name == rcol.Name && compatibleColumnType(l.Type, rcol.Type) {
 				r := ColumnRef{Table: right.Name, Name: rcol.Name, Type: rcol.Type}
 				sameName = append(sameName, [2]ColumnRef{l, r})
 			}
@@ -613,9 +655,13 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 	}
 	sameType := make([][2]ColumnRef, 0, len(leftCols))
 	for _, l := range leftCols {
-		if rs, ok := rightByType[l.Type]; ok && len(rs) > 0 {
+		for t, rs := range rightByType {
+			if !compatibleColumnType(l.Type, t) || len(rs) == 0 {
+				continue
+			}
 			r := rs[g.Rand.Intn(len(rs))]
 			sameType = append(sameType, [2]ColumnRef{l, r})
+			break
 		}
 	}
 	if len(sameType) == 0 {
@@ -627,4 +673,35 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 
 func (g *Generator) trueExpr() Expr {
 	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}}
+}
+
+func tableHasIndexPrefixColumn(tbl schema.Table, name string) bool {
+	for _, idx := range tbl.Indexes {
+		if len(idx.Columns) == 0 {
+			continue
+		}
+		if idx.Columns[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func compatibleColumnType(left, right schema.ColumnType) bool {
+	return typeCategory(left) == typeCategory(right)
+}
+
+func typeCategory(t schema.ColumnType) int {
+	switch t {
+	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
+		return 0
+	case schema.TypeVarchar:
+		return 1
+	case schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+		return 2
+	case schema.TypeBool:
+		return 3
+	default:
+		return 4
+	}
 }

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"shiro/internal/schema"
@@ -13,6 +14,14 @@ const (
 	ColumnNullableProb = 20
 	// ColumnIndexProb is the chance to add an index on a column.
 	ColumnIndexProb = 30
+	// CompositeIndexProb is the chance to add a composite index per table.
+	CompositeIndexProb = 10
+	// CompositeIndexColsMin is the minimum number of columns in a composite index.
+	CompositeIndexColsMin = 2
+	// CompositeIndexColsMax is the maximum number of columns in a composite index.
+	CompositeIndexColsMax = 3
+	// CompositeIndexMaxPerTable caps composite indexes per table.
+	CompositeIndexMaxPerTable = 2
 	// PartitionCountExtraMax controls how many partitions above the minimum.
 	PartitionCountExtraMax = 3
 	// PartitionCountMin is the minimum number of partitions.
@@ -35,6 +44,8 @@ func (g *Generator) GenerateTable() schema.Table {
 		cols = append(cols, col)
 	}
 
+	indexes := g.generateCompositeIndexes(cols)
+
 	partitioned := false
 	partitionCount := 0
 	if g.Config.Features.PartitionTables && util.Chance(g.Rand, g.Config.Weights.Features.PartitionProb) {
@@ -45,6 +56,7 @@ func (g *Generator) GenerateTable() schema.Table {
 	return schema.Table{
 		Name:           g.NextTableName(),
 		Columns:        cols,
+		Indexes:        indexes,
 		HasPK:          true,
 		NextID:         1,
 		Partitioned:    partitioned,
@@ -65,10 +77,31 @@ func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 	if tbl.HasPK {
 		parts = append(parts, "PRIMARY KEY (id)")
 	}
+	indexKeys := map[string]struct{}{}
 	for _, col := range tbl.Columns {
 		if col.HasIndex {
+			key := col.Name
+			if _, ok := indexKeys[key]; ok {
+				continue
+			}
+			indexKeys[key] = struct{}{}
 			parts = append(parts, fmt.Sprintf("INDEX idx_%s (%s)", col.Name, col.Name))
 		}
+	}
+	for _, idx := range tbl.Indexes {
+		if len(idx.Columns) < CompositeIndexColsMin {
+			continue
+		}
+		key := strings.Join(idx.Columns, ",")
+		if _, ok := indexKeys[key]; ok {
+			continue
+		}
+		indexKeys[key] = struct{}{}
+		name := idx.Name
+		if name == "" {
+			name = fmt.Sprintf("idx_%s", strings.Join(idx.Columns, "_"))
+		}
+		parts = append(parts, fmt.Sprintf("INDEX %s (%s)", name, strings.Join(idx.Columns, ", ")))
 	}
 	stmt := fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, strings.Join(parts, ", "))
 	if tbl.Partitioned && tbl.PartitionCount > 1 {
@@ -79,6 +112,15 @@ func (g *Generator) CreateTableSQL(tbl schema.Table) string {
 
 // CreateIndexSQL emits a CREATE INDEX statement and updates table metadata.
 func (g *Generator) CreateIndexSQL(tbl *schema.Table) (string, bool) {
+	if tbl == nil {
+		return "", false
+	}
+	if util.Chance(g.Rand, CompositeIndexProb) {
+		if idx, ok := g.buildCompositeIndex(tbl); ok {
+			tbl.Indexes = append(tbl.Indexes, idx)
+			return fmt.Sprintf("CREATE INDEX %s ON %s (%s)", idx.Name, tbl.Name, strings.Join(idx.Columns, ", ")), true
+		}
+	}
 	candidates := make([]*schema.Column, 0, len(tbl.Columns))
 	for i := range tbl.Columns {
 		col := &tbl.Columns[i]
@@ -95,6 +137,106 @@ func (g *Generator) CreateIndexSQL(tbl *schema.Table) (string, bool) {
 	indexName := fmt.Sprintf("idx_%s_%d", col.Name, g.indexSeq)
 	g.indexSeq++
 	return fmt.Sprintf("CREATE INDEX %s ON %s (%s)", indexName, tbl.Name, col.Name), true
+}
+
+func (g *Generator) generateCompositeIndexes(cols []schema.Column) []schema.Index {
+	if !util.Chance(g.Rand, CompositeIndexProb) {
+		return nil
+	}
+	candidates := make([]string, 0, len(cols))
+	for _, col := range cols {
+		if col.Name == "id" {
+			continue
+		}
+		candidates = append(candidates, col.Name)
+	}
+	if len(candidates) < CompositeIndexColsMin {
+		return nil
+	}
+	maxCount := CompositeIndexMaxPerTable
+	if maxCount > len(candidates)/CompositeIndexColsMin {
+		maxCount = len(candidates) / CompositeIndexColsMin
+	}
+	if maxCount <= 0 {
+		return nil
+	}
+	count := g.Rand.Intn(maxCount) + 1
+	indexes := make([]schema.Index, 0, count)
+	seen := map[string]struct{}{}
+	for i := 0; i < count; i++ {
+		colsCount := CompositeIndexColsMin
+		if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, 50) {
+			colsCount = CompositeIndexColsMax
+			if colsCount > len(candidates) {
+				colsCount = len(candidates)
+			}
+		}
+		colsPicked := pickDistinctColumnNames(g.Rand, candidates, colsCount)
+		key := strings.Join(colsPicked, ",")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		indexes = append(indexes, schema.Index{
+			Name:    fmt.Sprintf("idx_%s_%d", strings.Join(colsPicked, "_"), g.indexSeq),
+			Columns: colsPicked,
+		})
+		g.indexSeq++
+	}
+	return indexes
+}
+
+func (g *Generator) buildCompositeIndex(tbl *schema.Table) (schema.Index, bool) {
+	candidates := make([]string, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "id" {
+			continue
+		}
+		candidates = append(candidates, col.Name)
+	}
+	if len(candidates) < CompositeIndexColsMin {
+		return schema.Index{}, false
+	}
+	colsCount := CompositeIndexColsMin
+	if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, 50) {
+		colsCount = CompositeIndexColsMax
+		if colsCount > len(candidates) {
+			colsCount = len(candidates)
+		}
+	}
+	colsPicked := pickDistinctColumnNames(g.Rand, candidates, colsCount)
+	key := strings.Join(colsPicked, ",")
+	if tableHasCompositeIndex(tbl, key) {
+		return schema.Index{}, false
+	}
+	return schema.Index{
+		Name:    fmt.Sprintf("idx_%s_%d", strings.Join(colsPicked, "_"), g.indexSeq),
+		Columns: colsPicked,
+	}, true
+}
+
+func pickDistinctColumnNames(r *rand.Rand, candidates []string, n int) []string {
+	if n <= 0 || len(candidates) == 0 {
+		return nil
+	}
+	if n > len(candidates) {
+		n = len(candidates)
+	}
+	perm := r.Perm(len(candidates))
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, candidates[perm[i]])
+	}
+	return out
+}
+
+func tableHasCompositeIndex(tbl *schema.Table, key string) bool {
+	for _, idx := range tbl.Indexes {
+		if strings.Join(idx.Columns, ",") == key {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateViewSQL emits a CREATE VIEW statement from a generated query.

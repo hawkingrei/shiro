@@ -240,6 +240,11 @@ func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery 
 }
 
 func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool) {
+	if util.Chance(g.Rand, g.indexPrefixProb()) {
+		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) > 0 {
+			return idxCols[g.Rand.Intn(len(idxCols))], true
+		}
+	}
 	cols := g.collectColumns(tables)
 	if len(cols) == 0 {
 		return ColumnRef{}, false
@@ -248,6 +253,30 @@ func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool
 }
 
 func (g *Generator) pickComparableColumnPair(tables []schema.Table) (ColumnRef, ColumnRef, bool) {
+	if util.Chance(g.Rand, g.indexPrefixProb()) {
+		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) >= 2 {
+			byType := map[schema.ColumnType][]ColumnRef{}
+			for _, col := range idxCols {
+				byType[col.Type] = append(byType[col.Type], col)
+			}
+			typeCandidates := make([]schema.ColumnType, 0, len(byType))
+			for t, list := range byType {
+				if len(list) >= 2 {
+					typeCandidates = append(typeCandidates, t)
+				}
+			}
+			if len(typeCandidates) > 0 {
+				t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
+				list := byType[t]
+				i := g.Rand.Intn(len(list))
+				j := g.Rand.Intn(len(list))
+				for i == j && len(list) > 1 {
+					j = g.Rand.Intn(len(list))
+				}
+				return list[i], list[j], true
+			}
+		}
+	}
 	cols := g.collectColumns(tables)
 	if len(cols) < 2 {
 		return ColumnRef{}, ColumnRef{}, false

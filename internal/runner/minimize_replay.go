@@ -84,6 +84,17 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 			return false
 		}
 		return affected != base
+	case "impo_contains":
+		baseRows, baseTrunc, err := queryRowSetConn(ctx, conn, spec.expectedSQL, r.validator, spec.maxRows)
+		if err != nil || baseTrunc {
+			return false
+		}
+		mutRows, mutTrunc, err := queryRowSetConn(ctx, conn, spec.actualSQL, r.validator, spec.maxRows)
+		if err != nil || mutTrunc {
+			return false
+		}
+		cmp := compareRowSets(baseRows, mutRows)
+		return !implicationOK(spec.impoIsUpper, cmp)
 	case "case_error":
 		err := execStatements(ctx, conn, caseSQL, r.validator)
 		return errorMatches(err, result.Err)
@@ -115,6 +126,8 @@ func buildReplaySpec(result oracle.Result) replaySpec {
 	actual, _ := result.Details["replay_actual_sql"].(string)
 	setVar, _ := result.Details["replay_set_var"].(string)
 	tol, _ := result.Details["replay_tolerance"].(float64)
+	maxRows, _ := result.Details["replay_max_rows"].(int)
+	impoIsUpper, _ := result.Details["replay_impo_is_upper"].(bool)
 	if tol == 0 {
 		tol = 0.1
 	}
@@ -124,6 +137,8 @@ func buildReplaySpec(result oracle.Result) replaySpec {
 		actualSQL:   actual,
 		setVar:      setVar,
 		tolerance:   tol,
+		maxRows:     maxRows,
+		impoIsUpper: impoIsUpper,
 	}
 }
 
@@ -201,6 +216,115 @@ func execStatements(ctx context.Context, conn *sql.Conn, stmts []string, v *vali
 		}
 	}
 	return nil
+}
+
+type impoRowSet struct {
+	columns int
+	rows    []string
+}
+
+func queryRowSetConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, maxRows int) (impoRowSet, bool, error) {
+	if v != nil {
+		if err := v.Validate(query); err != nil {
+			return impoRowSet{}, false, err
+		}
+	}
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return impoRowSet{}, false, err
+	}
+	defer util.CloseWithErr(rows, "impo replay rows")
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return impoRowSet{}, false, err
+	}
+	if maxRows <= 0 {
+		maxRows = 50
+	}
+	values := make([]sql.RawBytes, len(cols))
+	scanArgs := make([]any, len(cols))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+
+	out := impoRowSet{columns: len(cols), rows: make([]string, 0)}
+	truncated := false
+	for rows.Next() {
+		if err := rows.Scan(scanArgs...); err != nil {
+			return impoRowSet{}, false, err
+		}
+		if len(out.rows) < maxRows {
+			parts := make([]string, 0, len(values))
+			for _, v := range values {
+				if v == nil {
+					parts = append(parts, "NULL")
+					continue
+				}
+				parts = append(parts, string(v))
+			}
+			out.rows = append(out.rows, strings.Join(parts, "\x1f"))
+		} else {
+			truncated = true
+		}
+	}
+	return out, truncated, rows.Err()
+}
+
+func compareRowSets(base impoRowSet, other impoRowSet) int {
+	empty1 := base.columns == 0
+	empty2 := other.columns == 0
+	if empty1 || empty2 {
+		switch {
+		case empty1 && empty2:
+			return 0
+		case empty1:
+			return -1
+		default:
+			return 1
+		}
+	}
+	if base.columns != other.columns {
+		return 2
+	}
+
+	mp := make(map[string]int, len(other.rows))
+	for _, row := range other.rows {
+		mp[row]++
+	}
+	allInOther := true
+	for _, row := range base.rows {
+		if num, ok := mp[row]; ok {
+			if num <= 1 {
+				delete(mp, row)
+			} else {
+				mp[row] = num - 1
+			}
+		} else {
+			allInOther = false
+		}
+	}
+
+	if allInOther {
+		if len(mp) == 0 {
+			return 0
+		}
+		return -1
+	}
+	if len(mp) == 0 {
+		return 1
+	}
+	return 2
+}
+
+func implicationOK(isUpper bool, cmp int) bool {
+	if cmp == 0 {
+		return true
+	}
+	if isUpper {
+		return cmp == -1
+	}
+	return cmp == 1
 }
 
 func querySignatureConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator) (db.Signature, error) {

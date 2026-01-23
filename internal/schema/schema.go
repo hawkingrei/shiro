@@ -30,10 +30,17 @@ type Column struct {
 	HasIndex bool
 }
 
+// Index describes a (potentially multi-column) index.
+type Index struct {
+	Name    string
+	Columns []string
+}
+
 // Table describes a database table.
 type Table struct {
 	Name           string
 	Columns        []Column
+	Indexes        []Index
 	HasPK          bool
 	NextID         int64
 	Partitioned    bool

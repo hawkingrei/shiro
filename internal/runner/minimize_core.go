@@ -19,6 +19,8 @@ type replaySpec struct {
 	actualSQL   string
 	setVar      string
 	tolerance   float64
+	maxRows     int
+	impoIsUpper bool
 }
 
 type minimizeOutput struct {

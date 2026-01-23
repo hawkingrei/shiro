@@ -73,7 +73,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	hasPartition := queryHasPartitionedTable(query, state)
 	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition)
 	for _, variant := range variants {
-	variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
+		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
 		if err != nil {
 			continue
 		}
@@ -81,12 +81,12 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
 			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
 			details := map[string]any{
-				"hint":                variant.hint,
-				"replay_kind":         "signature",
-				"replay_expected_sql": query.SignatureSQL(),
-				"replay_actual_sql":   variant.signatureSQL,
-				"expected_explain":    expectedExplain,
-				"actual_explain":      actualExplain,
+				"hint":                 variant.hint,
+				"replay_kind":          "signature",
+				"replay_expected_sql":  query.SignatureSQL(),
+				"replay_actual_sql":    variant.signatureSQL,
+				"expected_explain":     expectedExplain,
+				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
 				"actual_explain_err":   errString(actualExplainErr),
 			}
@@ -328,6 +328,9 @@ func tableHasIndex(table schema.Table) bool {
 		if col.HasIndex {
 			return true
 		}
+	}
+	if len(table.Indexes) > 0 {
+		return true
 	}
 	return false
 }

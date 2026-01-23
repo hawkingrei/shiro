@@ -99,24 +99,26 @@ type OracleWeights struct {
 	CERT     int `yaml:"cert"`
 	CODDTest int `yaml:"coddtest"`
 	DQE      int `yaml:"dqe"`
+	Impo     int `yaml:"impo"`
 }
 
 // FeatureWeights sets feature generation weights.
 type FeatureWeights struct {
-	JoinCount      int `yaml:"join_count"`
-	CTECount       int `yaml:"cte_count"`
-	SubqCount      int `yaml:"subquery_count"`
-	AggProb        int `yaml:"aggregate_prob"`
-	DecimalAggProb int `yaml:"decimal_agg_prob"`
-	GroupByProb    int `yaml:"group_by_prob"`
-	HavingProb     int `yaml:"having_prob"`
-	OrderByProb    int `yaml:"order_by_prob"`
-	LimitProb      int `yaml:"limit_prob"`
-	DistinctProb   int `yaml:"distinct_prob"`
-	WindowProb     int `yaml:"window_prob"`
-	PartitionProb  int `yaml:"partition_prob"`
-	NotExistsProb  int `yaml:"not_exists_prob"`
-	NotInProb      int `yaml:"not_in_prob"`
+	JoinCount       int `yaml:"join_count"`
+	CTECount        int `yaml:"cte_count"`
+	SubqCount       int `yaml:"subquery_count"`
+	AggProb         int `yaml:"aggregate_prob"`
+	DecimalAggProb  int `yaml:"decimal_agg_prob"`
+	GroupByProb     int `yaml:"group_by_prob"`
+	HavingProb      int `yaml:"having_prob"`
+	OrderByProb     int `yaml:"order_by_prob"`
+	LimitProb       int `yaml:"limit_prob"`
+	DistinctProb    int `yaml:"distinct_prob"`
+	WindowProb      int `yaml:"window_prob"`
+	PartitionProb   int `yaml:"partition_prob"`
+	NotExistsProb   int `yaml:"not_exists_prob"`
+	NotInProb       int `yaml:"not_in_prob"`
+	IndexPrefixProb int `yaml:"index_prefix_prob"`
 }
 
 // Logging controls stdout logging behavior.
@@ -130,6 +132,9 @@ type OracleConfig struct {
 	StrictPredicates bool    `yaml:"strict_predicates"`
 	PredicateLevel   string  `yaml:"predicate_level"`
 	CertMinBaseRows  float64 `yaml:"cert_min_base_rows"`
+	ImpoMaxRows      int     `yaml:"impo_max_rows"`
+	ImpoMaxMutations int     `yaml:"impo_max_mutations"`
+	ImpoTimeoutMs    int     `yaml:"impo_timeout_ms"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -245,11 +250,11 @@ func defaultConfig() Config {
 		Weights: Weights{
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
-			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2},
-			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40},
+			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2},
+			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
 		},
 		Logging:  Logging{ReportIntervalSeconds: 30},
-		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50},
+		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
 			Enabled:             false,

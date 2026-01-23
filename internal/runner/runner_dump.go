@@ -20,6 +20,7 @@ type dynamicDump struct {
 	Template       *generator.TemplateWeights `json:"template_weights,omitempty"`
 	Bandits        *banditDump                `json:"bandits,omitempty"`
 	QPG            *qpgDump                   `json:"qpg,omitempty"`
+	Impo           *impoDump                  `json:"impo,omitempty"`
 }
 
 type banditDump struct {
@@ -60,6 +61,12 @@ type qpgDump struct {
 	LastOverride   string                     `json:"last_override"`
 }
 
+type impoDump struct {
+	Total     int64 `json:"total"`
+	Skipped   int64 `json:"skipped"`
+	Truncated int64 `json:"truncated"`
+}
+
 func (r *Runner) dumpDynamicState() {
 	dump := dynamicDump{
 		Version:        1,
@@ -70,6 +77,7 @@ func (r *Runner) dumpDynamicState() {
 		Template:       r.templateSnapshot(),
 		Bandits:        r.snapshotBandits(),
 		QPG:            r.snapshotQPG(),
+		Impo:           r.snapshotImpo(),
 	}
 	data, err := json.MarshalIndent(dump, "", "  ")
 	if err != nil {
@@ -145,5 +153,18 @@ func (r *Runner) snapshotQPG() *qpgDump {
 		Override:       override,
 		OverrideTTL:    r.qpgState.overrideTTL,
 		LastOverride:   r.qpgState.lastOverride,
+	}
+}
+
+func (r *Runner) snapshotImpo() *impoDump {
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	if r.impoTotal == 0 && r.impoSkips == 0 && r.impoTrunc == 0 {
+		return nil
+	}
+	return &impoDump{
+		Total:     r.impoTotal,
+		Skipped:   r.impoSkips,
+		Truncated: r.impoTrunc,
 	}
 }

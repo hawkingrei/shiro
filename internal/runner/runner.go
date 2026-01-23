@@ -39,6 +39,12 @@ type Runner struct {
 	sqlNotEx  int64
 	sqlIn     int64
 	sqlNotIn  int64
+	impoTotal int64
+	impoSkips int64
+	impoTrunc int64
+	impoSkipReasons map[string]int64
+	impoSkipErrCodes map[string]int64
+	impoLastFailSQL  string
 	qpgState  *qpgState
 
 	actionBandit  *util.Bandit
@@ -74,6 +80,8 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		reporter:  report.New(cfg.PlanReplayer.OutputDir, cfg.MaxDataDumpRows),
 		replayer:  replayer.New(cfg.PlanReplayer),
 		uploader:  up,
+		impoSkipReasons: make(map[string]int64),
+		impoSkipErrCodes: make(map[string]int64),
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
@@ -81,6 +89,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.CERT{MinBaseRows: cfg.Oracles.CertMinBaseRows},
 			oracle.CODDTest{},
 			oracle.DQE{},
+			oracle.Impo{},
 		},
 	}
 	if cfg.QPG.Enabled {
@@ -278,6 +287,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	r.applyResultMetrics(result)
 	if result.OK {
 		r.maybeObservePlan(ctx, result)
 		if isPanicError(result.Err) {
