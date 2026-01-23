@@ -546,10 +546,10 @@ func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef
 	return cols
 }
 
-func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) (ColumnRef, ColumnRef, bool) {
+func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) (leftCol ColumnRef, rightCol ColumnRef, ok bool) {
 	leftCols := g.collectColumns(left)
 	if len(leftCols) == 0 || len(right.Columns) == 0 {
-		return ColumnRef{}, ColumnRef{}, false
+		return
 	}
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
 		leftIdx := g.collectIndexPrefixColumns(left)
@@ -565,7 +565,8 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 			}
 			if len(sameName) > 0 {
 				pair := sameName[g.Rand.Intn(len(sameName))]
-				return pair[0], pair[1], true
+				leftCol, rightCol, ok = pair[0], pair[1], true
+				return
 			}
 			rightByType := map[schema.ColumnType][]ColumnRef{}
 			for _, r := range rightIdx {
@@ -584,7 +585,8 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 			}
 			if len(sameType) > 0 {
 				pair := sameType[g.Rand.Intn(len(sameType))]
-				return pair[0], pair[1], true
+				leftCol, rightCol, ok = pair[0], pair[1], true
+				return
 			}
 		}
 	}
@@ -599,7 +601,8 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 	}
 	if len(sameName) > 0 {
 		pair := sameName[g.Rand.Intn(len(sameName))]
-		return pair[0], pair[1], true
+		leftCol, rightCol, ok = pair[0], pair[1], true
+		return
 	}
 	rightByType := map[schema.ColumnType][]ColumnRef{}
 	for _, rcol := range right.Columns {
@@ -617,10 +620,11 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 		}
 	}
 	if len(sameType) == 0 {
-		return ColumnRef{}, ColumnRef{}, false
+		return
 	}
 	pair := sameType[g.Rand.Intn(len(sameType))]
-	return pair[0], pair[1], true
+	leftCol, rightCol, ok = pair[0], pair[1], true
+	return
 }
 
 func (g *Generator) trueExpr() Expr {

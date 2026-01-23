@@ -131,10 +131,8 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		return false, "with_clause"
 	}
 	tableMap := map[string]schema.Table{}
-	if outerTables != nil {
-		for name, tbl := range outerTables {
-			tableMap[name] = tbl
-		}
+	for name, tbl := range outerTables {
+		tableMap[name] = tbl
 	}
 	names := []string{query.From.BaseTable}
 	for _, join := range query.From.Joins {
@@ -315,10 +313,8 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 	}
 	changed := false
 	tableMap := map[string]schema.Table{}
-	if outerTables != nil {
-		for name, tbl := range outerTables {
-			tableMap[name] = tbl
-		}
+	for name, tbl := range outerTables {
+		tableMap[name] = tbl
 	}
 	if query.From.BaseTable == "" || !state.HasTables() {
 		return false

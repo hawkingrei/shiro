@@ -227,7 +227,7 @@ func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool
 	return cols[g.Rand.Intn(len(cols))], true
 }
 
-func (g *Generator) pickComparableColumnPair(tables []schema.Table) (ColumnRef, ColumnRef, bool) {
+func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left ColumnRef, right ColumnRef, ok bool) {
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
 		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) >= 2 {
 			byType := map[schema.ColumnType][]ColumnRef{}
@@ -248,13 +248,14 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (ColumnRef, 
 				for i == j && len(list) > 1 {
 					j = g.Rand.Intn(len(list))
 				}
-				return list[i], list[j], true
+				left, right, ok = list[i], list[j], true
+				return
 			}
 		}
 	}
 	cols := g.collectColumns(tables)
 	if len(cols) < 2 {
-		return ColumnRef{}, ColumnRef{}, false
+		return
 	}
 	byType := map[schema.ColumnType][]ColumnRef{}
 	for _, col := range cols {
@@ -267,19 +268,20 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (ColumnRef, 
 		}
 	}
 	if len(typeCandidates) == 0 {
-		return ColumnRef{}, ColumnRef{}, false
+		return
 	}
 	t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
 	list := byType[t]
 	if len(list) < 2 {
-		return ColumnRef{}, ColumnRef{}, false
+		return
 	}
 	i := g.Rand.Intn(len(list))
 	j := g.Rand.Intn(len(list))
 	for i == j && len(list) > 1 {
 		j = g.Rand.Intn(len(list))
 	}
-	return list[i], list[j], true
+	left, right, ok = list[i], list[j], true
+	return
 }
 
 func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {

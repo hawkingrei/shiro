@@ -576,7 +576,7 @@ func (v *MutateVisitor) addCandidate(mutationName string, u int, in ast.Node, fl
 	if strings.HasSuffix(mutationName, "L") && u != 0 {
 		log.Fatal("strings.HasSuffix(mutationName, \"L\") && u != 0")
 	}
-	var ls []*Candidate = nil
+	var ls []*Candidate
 	ok := false
 	if ls, ok = v.Candidates[mutationName]; !ok {
 		ls = make([]*Candidate, 0)
