@@ -11,13 +11,11 @@ import (
 // addFixMCmpOpL: FixMCmpOpL, *ast.BinaryOperationExpr, *ast.CompareSubqueryExpr: a {>=|<=} b -> a {>|<} b
 func (v *MutateVisitor) addFixMCmpOpL(in ast.Node, flag int) {
 	var myOp *opcode.Op
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.BinaryOperationExpr:
-		bin := in.(*ast.BinaryOperationExpr)
-		myOp = &bin.Op
+		myOp = &in.Op
 	case *ast.CompareSubqueryExpr:
-		cmp := in.(*ast.CompareSubqueryExpr)
-		myOp = &cmp.Op
+		myOp = &in.Op
 	default:
 		return
 	}
@@ -34,13 +32,11 @@ func (v *MutateVisitor) addFixMCmpOpL(in ast.Node, flag int) {
 func doFixMCmpOpL(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	// check
 	var myOp *opcode.Op
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.BinaryOperationExpr:
-		bin := in.(*ast.BinaryOperationExpr)
-		myOp = &bin.Op
+		myOp = &in.Op
 	case *ast.CompareSubqueryExpr:
-		cmp := in.(*ast.CompareSubqueryExpr)
-		myOp = &cmp.Op
+		myOp = &in.Op
 	case nil:
 		return nil, errors.New("[doFixMCmpOpL]type nil")
 	default:

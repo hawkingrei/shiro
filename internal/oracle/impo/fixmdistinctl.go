@@ -13,7 +13,7 @@ func (v *MutateVisitor) addFixMDistinctL(in *ast.SelectStmt, flag int) {
 	// references column xxx which is not in SELECT list; this is incompatible with DISTINCT
 	// order by + distinct may error
 	// with + distinct is hard to simplify, ban it.
-	if in.Distinct == false && in.OrderBy == nil && in.With == nil {
+	if !in.Distinct && in.OrderBy == nil && in.With == nil {
 		v.addCandidate(FixMDistinctL, 0, in, flag)
 	}
 }
@@ -24,8 +24,8 @@ func doFixMDistinctL(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	case *ast.SelectStmt:
 		sel := in.(*ast.SelectStmt)
 		// check
-		if sel.Distinct != false {
-			return nil, errors.New("[doFixMDistinctL]in.Distinct != false")
+		if sel.Distinct {
+			return nil, errors.New("[doFixMDistinctL]in.Distinct is true")
 		}
 		// mutate
 		sel.Distinct = true

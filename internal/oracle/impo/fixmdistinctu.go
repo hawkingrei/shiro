@@ -9,7 +9,7 @@ import (
 
 // addFixMDistinctU: FixMDistinctU, *ast.SelectStmt: Distinct true -> false
 func (v *MutateVisitor) addFixMDistinctU(in *ast.SelectStmt, flag int) {
-	if in.Distinct == true {
+	if in.Distinct {
 		v.addCandidate(FixMDistinctU, 1, in, flag)
 	}
 }
@@ -20,8 +20,8 @@ func doFixMDistinctU(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	case *ast.SelectStmt:
 		sel := in.(*ast.SelectStmt)
 		// check
-		if sel.Distinct != true {
-			return nil, errors.New("[doFixMDistinctU]in.Distinct != true")
+		if !sel.Distinct {
+			return nil, errors.New("[doFixMDistinctU]in.Distinct is false")
 		}
 		// mutate
 		sel.Distinct = false

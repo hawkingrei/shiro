@@ -3,7 +3,6 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
 	"reflect"
 )
@@ -26,10 +25,8 @@ func doFixMInNullU(rootNode ast.Node, in ast.Node) ([]byte, error) {
 		}
 		// mutate
 		oldList := pin.List
-		newList := make([]ast.ExprNode, 0)
-		for _, expr := range oldList {
-			newList = append(newList, expr)
-		}
+		newList := make([]ast.ExprNode, 0, len(oldList)+1)
+		newList = append(newList, oldList...)
 		// add null expr
 		newList = append(newList, &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(nil),

@@ -3,7 +3,6 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
 	"reflect"
 )
