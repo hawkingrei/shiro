@@ -136,9 +136,9 @@ type qpgState struct {
 	overrideTTL        int
 	lastOverride       string
 	lastOverrideLogged string
-	templateOverride  *generator.TemplateWeights
-	templateTTL       int
-	lastTemplate      string
+	templateOverride   *generator.TemplateWeights
+	templateTTL        int
+	lastTemplate       string
 	lastTemplateLogged string
 	seenSQLTTL         int64
 	seenSQLMax         int

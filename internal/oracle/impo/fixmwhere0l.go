@@ -3,7 +3,6 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
 	"reflect"
 )
@@ -17,18 +16,17 @@ func (v *MutateVisitor) addFixMWhere0L(in *ast.SelectStmt, flag int) {
 
 // doFixMWhere0L: FixMWhere0L: *ast.SelectStmt: WHERE xxx -> WHERE 0
 func doFixMWhere0L(rootNode ast.Node, in ast.Node) ([]byte, error) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.SelectStmt:
-		sel := in.(*ast.SelectStmt)
 		// check
-		if sel.Where == nil {
+		if in.Where == nil {
 			return nil, errors.New("[FixMWhere0L]sel.Where == nil")
 		}
 		// mutate
-		old := sel.Where
+		old := in.Where
 
 		// WHERE xxx -> WHERE 0
-		sel.Where = &test_driver.ValueExpr{
+		in.Where = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(0),
 		}
 
@@ -37,7 +35,7 @@ func doFixMWhere0L(rootNode ast.Node, in ast.Node) ([]byte, error) {
 			return nil, errors.Wrap(err, "[FixMWhere0L]restore error")
 		}
 		// recover
-		sel.Where = old
+		in.Where = old
 		return sql, nil
 	case nil:
 		return nil, errors.New("[FixMWhere0L]type nil")

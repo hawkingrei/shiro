@@ -16,28 +16,27 @@ func (v *MutateVisitor) addFixMInNullU(in *ast.PatternInExpr, flag int) {
 
 // doFixMInNullU: FixMInNullU, *ast.PatternInExpr: in(x,x,x) -> in(x,x,x,null)
 func doFixMInNullU(rootNode ast.Node, in ast.Node) ([]byte, error) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.PatternInExpr:
-		pin := in.(*ast.PatternInExpr)
 		// check
-		if pin.Sel != nil || pin.List == nil {
+		if in.Sel != nil || in.List == nil {
 			return nil, errors.New("[doFixMInNullU]pin.Sel != nil || pin.List == nil")
 		}
 		// mutate
-		oldList := pin.List
+		oldList := in.List
 		newList := make([]ast.ExprNode, 0, len(oldList)+1)
 		newList = append(newList, oldList...)
 		// add null expr
 		newList = append(newList, &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(nil),
 		})
-		pin.List = newList
+		in.List = newList
 		sql, err := restore(rootNode)
 		if err != nil {
 			return nil, errors.Wrap(err, "[doFixMInNullU]restore error")
 		}
 		// recover
-		pin.List = oldList
+		in.List = oldList
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doFixMInNullU]type nil")

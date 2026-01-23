@@ -24,7 +24,7 @@ type TemplateWeights struct {
 	// AggPushdown is the relative weight for selecting aggregation-pushdown templates.
 	AggPushdown int
 	// SemiAnti is the relative weight for selecting semi/anti-join templates.
-	SemiAnti    int
+	SemiAnti int
 }
 
 // generateTemplateQuery attempts to construct a SELECT query using one of the

@@ -3,7 +3,6 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
 	"reflect"
 )
@@ -17,18 +16,17 @@ func (v *MutateVisitor) addFixMOn0L(in *ast.Join, flag int) {
 
 // doFixMOn0L: FixMOn0L, *ast.Join: ON xxx -> ON 0
 func doFixMOn0L(rootNode ast.Node, in ast.Node) ([]byte, error) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.Join:
-		join := in.(*ast.Join)
 		// check
-		if join.On == nil {
+		if in.On == nil {
 			return nil, errors.New("[FixMOn0L]join.On == nil")
 		}
 		// mutate
-		old := join.On.Expr
+		old := in.On.Expr
 
 		// ON xxx -> ON 0
-		join.On.Expr = &test_driver.ValueExpr{
+		in.On.Expr = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(0),
 		}
 
@@ -37,7 +35,7 @@ func doFixMOn0L(rootNode ast.Node, in ast.Node) ([]byte, error) {
 			return nil, errors.Wrap(err, "[FixMOn0L]restore error")
 		}
 		// recover
-		join.On.Expr = old
+		in.On.Expr = old
 		return sql, nil
 	case nil:
 		return nil, errors.New("[FixMOn0L]type nil")

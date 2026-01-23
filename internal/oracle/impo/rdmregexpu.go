@@ -3,7 +3,6 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
 	"math/rand"
 	"reflect"
@@ -39,17 +38,16 @@ func (v *MutateVisitor) addRdMRegExpU(in *ast.PatternRegexpExpr, flag int) {
 // doRdMRegExpU: RdMRegExpU, *ast.PatternRegexpExpr: '^'|'$' -> ”, normal char -> '.', '+'|'?' -> '*'
 func doRdMRegExpU(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 	rander := rand.New(rand.NewSource(seed))
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.PatternRegexpExpr:
-		re := in.(*ast.PatternRegexpExpr)
 		// check
-		ck := checkRdMRegExpU(re)
+		ck := checkRdMRegExpU(in)
 		if ck != "" {
 			return nil, errors.New("[doRdMRegExpU]check error " + ck)
 		}
 		// mutate
 		// '^'|'$' -> '', normal char -> '.', '+'|'?' -> '*'
-		oldPattern := re.Pattern
+		oldPattern := in.Pattern
 		newPattern := []byte(((oldPattern.(*test_driver.ValueExpr)).GetValue()).(string))
 		if strings.HasPrefix(string(newPattern), "^") && rander.Intn(2) == 0 {
 			newPattern = newPattern[1:]
@@ -63,7 +61,7 @@ func doRdMRegExpU(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 			}
 			// normal char -> '.' is dangerous
 		}
-		re.Pattern = &test_driver.ValueExpr{
+		in.Pattern = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(string(newPattern)),
 		}
 		sql, err := restore(rootNode)
@@ -71,7 +69,7 @@ func doRdMRegExpU(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 			return nil, errors.Wrap(err, "[doRdMRegExpU]restore error")
 		}
 		// recover
-		re.Pattern = oldPattern
+		in.Pattern = oldPattern
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doRdMRegExpU]type nil")

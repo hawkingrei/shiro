@@ -5,7 +5,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
 	"github.com/pingcap/tidb/pkg/parser/opcode"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
 	"github.com/pkg/errors"
 	"log"
 	"strings"
@@ -84,11 +84,11 @@ type MutateVisitor struct {
 }
 
 func (v *MutateVisitor) visit(in ast.Node, flag int) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.SetOprStmt:
-		v.visitSetOprStmt(in.(*ast.SetOprStmt), flag)
+		v.visitSetOprStmt(in, flag)
 	case *ast.SelectStmt:
-		v.visitSelect(in.(*ast.SelectStmt), flag)
+		v.visitSelect(in, flag)
 	}
 }
 
@@ -145,19 +145,19 @@ func (v *MutateVisitor) visitResultSetNode(in ast.ResultSetNode, flag int) {
 	if in == nil {
 		return
 	}
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.SelectStmt:
-		v.visitSelect(in.(*ast.SelectStmt), flag)
+		v.visitSelect(in, flag)
 	case *ast.SubqueryExpr:
-		v.visitSubqueryExpr(in.(*ast.SubqueryExpr), flag)
+		v.visitSubqueryExpr(in, flag)
 	case *ast.TableSource:
-		v.visitTableSource(in.(*ast.TableSource), flag)
+		v.visitTableSource(in, flag)
 	case *ast.TableName:
 		// skip
 	case *ast.Join:
-		v.visitJoin(in.(*ast.Join), flag)
+		v.visitJoin(in, flag)
 	case *ast.SetOprStmt:
-		v.visitSetOprStmt(in.(*ast.SetOprStmt), flag)
+		v.visitSetOprStmt(in, flag)
 	}
 }
 
@@ -228,19 +228,19 @@ func (v *MutateVisitor) visitExprNode(in ast.ExprNode, flag int) {
 	if in == nil {
 		return
 	}
-	switch in.(type) {
+	switch in := in.(type) {
 	//case ast.FuncNode:
 	//case ast.ValueExpr:
 	case *ast.BetweenExpr:
 		// type conversion, discard!
 	case *ast.BinaryOperationExpr:
-		v.visitBinaryOperationExpr(in.(*ast.BinaryOperationExpr), flag)
+		v.visitBinaryOperationExpr(in, flag)
 	case *ast.CaseExpr:
 		// skip
 	case *ast.SubqueryExpr:
-		v.visitSubqueryExpr(in.(*ast.SubqueryExpr), flag)
+		v.visitSubqueryExpr(in, flag)
 	case *ast.CompareSubqueryExpr:
-		v.visitCompareSubqueryExpr(in.(*ast.CompareSubqueryExpr), flag)
+		v.visitCompareSubqueryExpr(in, flag)
 	case *ast.TableNameExpr:
 		// skip
 	case *ast.ColumnNameExpr:
@@ -248,26 +248,26 @@ func (v *MutateVisitor) visitExprNode(in ast.ExprNode, flag int) {
 	case *ast.DefaultExpr:
 		// skip
 	case *ast.ExistsSubqueryExpr:
-		v.visitExistsSubqueryExpr(in.(*ast.ExistsSubqueryExpr), flag)
+		v.visitExistsSubqueryExpr(in, flag)
 	case *ast.PatternInExpr:
-		v.visitPatternInExpr(in.(*ast.PatternInExpr), flag)
+		v.visitPatternInExpr(in, flag)
 	case *ast.IsNullExpr:
-		v.visitIsNullExpr(in.(*ast.IsNullExpr), flag)
+		v.visitIsNullExpr(in, flag)
 	case *ast.IsTruthExpr:
-		v.visitIsTruthExpr(in.(*ast.IsTruthExpr), flag)
+		v.visitIsTruthExpr(in, flag)
 	case *ast.PatternLikeOrIlikeExpr:
-		v.visitPatternLikeOrIlikeExpr(in.(*ast.PatternLikeOrIlikeExpr), flag)
+		v.visitPatternLikeOrIlikeExpr(in, flag)
 	//case ast.ParamMarkerExpr:
 	case *ast.ParenthesesExpr:
-		v.visitParenthesesExpr(in.(*ast.ParenthesesExpr), flag)
+		v.visitParenthesesExpr(in, flag)
 	case *ast.PositionExpr:
 		// skip
 	case *ast.PatternRegexpExpr:
-		v.visitPatternRegexpExpr(in.(*ast.PatternRegexpExpr), flag)
+		v.visitPatternRegexpExpr(in, flag)
 	case *ast.RowExpr:
 		// skip
 	case *ast.UnaryOperationExpr:
-		v.visitUnaryOperationExpr(in.(*ast.UnaryOperationExpr), flag)
+		v.visitUnaryOperationExpr(in, flag)
 	case *ast.ValuesExpr:
 		// skip
 	case *ast.VariableExpr:
@@ -280,11 +280,11 @@ func (v *MutateVisitor) visitExprNode(in ast.ExprNode, flag int) {
 	case *ast.SetCollationExpr:
 		// skip
 	case *ast.FuncCallExpr:
-		v.visitFuncCallExpr(in.(*ast.FuncCallExpr), flag)
+		v.visitFuncCallExpr(in, flag)
 	case *ast.FuncCastExpr:
-		v.visitFuncCastExpr(in.(*ast.FuncCastExpr), flag)
+		v.visitFuncCastExpr(in, flag)
 	case *ast.TrimDirectionExpr:
-		v.visitTrimDirectionExpr(in.(*ast.TrimDirectionExpr), flag)
+		v.visitTrimDirectionExpr(in, flag)
 	case *ast.AggregateFuncExpr:
 		// skip
 	case *ast.WindowFuncExpr:

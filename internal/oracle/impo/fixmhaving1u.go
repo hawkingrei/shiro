@@ -16,18 +16,17 @@ func (v *MutateVisitor) addFixMHaving1U(in *ast.SelectStmt, flag int) {
 
 // doFixMHaving1U: FixMHaving1U, *ast.SelectStmt: HAVING xxx -> HAVING 1
 func doFixMHaving1U(rootNode ast.Node, in ast.Node) ([]byte, error) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.SelectStmt:
-		sel := in.(*ast.SelectStmt)
 		// check
-		if sel.Having == nil || sel.Having.Expr == nil {
+		if in.Having == nil || in.Having.Expr == nil {
 			return nil, errors.New("[doFixMHaving1U]sel.Having == nil || sel.Having.Expr == nil")
 		}
 		// mutate
-		old := sel.Having.Expr
+		old := in.Having.Expr
 
 		// HAVING xxx -> HAVING 1
-		sel.Having.Expr = &test_driver.ValueExpr{
+		in.Having.Expr = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(1),
 		}
 
@@ -36,7 +35,7 @@ func doFixMHaving1U(rootNode ast.Node, in ast.Node) ([]byte, error) {
 			return nil, errors.Wrap(err, "[doFixMHaving1U]restore error")
 		}
 		// recover
-		sel.Having.Expr = old
+		in.Having.Expr = old
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doFixMHaving1U]type nil")

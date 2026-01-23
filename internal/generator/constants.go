@@ -131,11 +131,11 @@ const (
 )
 
 const (
-	templateEnabledProb        = 55
-	templateJoinReorderWeight  = 4
-	templateAggPushdownWeight  = 3
-	templateSemiAntiWeight     = 3
-	templateTablePickRetries   = 4
+	templateEnabledProb             = 55
+	templateJoinReorderWeight       = 4
+	templateAggPushdownWeight       = 3
+	templateSemiAntiWeight          = 3
+	templateTablePickRetries        = 4
 	templateSemiAntiExtraFilterProb = 60
 	templateJoinOnlyPredicateProb   = 40
 )

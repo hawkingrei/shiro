@@ -3,7 +3,7 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
 	"github.com/pkg/errors"
 	"math/rand"
 	"reflect"
@@ -49,24 +49,23 @@ func (v *MutateVisitor) addRdMLikeU(in *ast.PatternLikeOrIlikeExpr, flag int) {
 // doRdMLikeU: RdMLikeU, *ast.PatternLikeOrIlikeExpr: normal char -> '_'|'%',  '_' -> '%'
 func doRdMLikeU(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 	rander := rand.New(rand.NewSource(seed))
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.PatternLikeOrIlikeExpr:
-		like := in.(*ast.PatternLikeOrIlikeExpr)
 		// check
-		ck := checkRdMLikeU(like)
+		ck := checkRdMLikeU(in)
 		if ck != "" {
 			return nil, errors.New("[doRdMLikeU]check error " + ck)
 		}
 		// mutate
 		// normal char -> '_'|'%',  '_' -> '%'
-		oldPattern := like.Pattern
+		oldPattern := in.Pattern
 		newPattern := []byte(((oldPattern.(*test_driver.ValueExpr)).GetValue()).(string))
 		for i, c := range newPattern {
 			if c != '%' && rander.Intn(2) == 0 {
 				newPattern[i] = '%'
 			}
 		}
-		like.Pattern = &test_driver.ValueExpr{
+		in.Pattern = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(string(newPattern)),
 		}
 		sql, err := restore(rootNode)
@@ -74,7 +73,7 @@ func doRdMLikeU(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 			return nil, errors.Wrap(err, "[doRdMLikeU]restore error")
 		}
 		// recover
-		like.Pattern = oldPattern
+		in.Pattern = oldPattern
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doRdMLikeU]type nil")

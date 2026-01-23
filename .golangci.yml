@@ -19,6 +19,7 @@ linters:
   settings:
     revive:
       rules:
+        - name: atomic
         - name: exported
         - name: empty-block
         - name: confusing-results
@@ -26,5 +27,6 @@ linters:
         - name: unnecessary-stmt
         - name: call-to-gc
         - name: unexported-naming
-        - name: "useless-break"
+        - name: useless-break
+        - name: optimize-operands-order
 

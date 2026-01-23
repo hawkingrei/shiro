@@ -2,7 +2,7 @@ package impo
 
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
 	"github.com/pkg/errors"
 	"reflect"
 )
@@ -20,24 +20,23 @@ func (v *MutateVisitor) addFixMRmUnionAllL(in *ast.SetOprSelectList, flag int) {
 
 // doFixMRmUnionAllL: FixMRmUnionAllL, *ast.SetOprSelectList: remove Selects[1:] for UNION ALL
 func doFixMRmUnionAllL(rootNode ast.Node, in ast.Node) ([]byte, error) {
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.SetOprSelectList:
-		lst := in.(*ast.SetOprSelectList)
 		// check
-		if len(lst.Selects) <= 1 {
+		if len(in.Selects) <= 1 {
 			return nil, errors.New("[doFixMRmUnionAllL]len(lst.Selects) <= 1")
 		}
 		// mutate
-		oldSels := lst.Selects
+		oldSels := in.Selects
 		newSels := make([]ast.Node, 0)
 		newSels = append(newSels, oldSels[0])
-		lst.Selects = newSels
+		in.Selects = newSels
 		sql, err := restore(rootNode)
 		if err != nil {
 			return nil, errors.Wrap(err, "[doFixMRmUnionAllL]restore error")
 		}
 		// recover
-		lst.Selects = oldSels
+		in.Selects = oldSels
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doFixMRmUnionAllL]type nil")

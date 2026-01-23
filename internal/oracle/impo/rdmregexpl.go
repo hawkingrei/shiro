@@ -3,7 +3,7 @@ package impo
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
-	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
 	"github.com/pkg/errors"
 	"math/rand"
 	"reflect"
@@ -38,17 +38,16 @@ func (v *MutateVisitor) addRdMRegExpL(in *ast.PatternRegexpExpr, flag int) {
 // doRdMRegExpL: RdMRegExpL, *ast.PatternRegexpExpr: '*' -> '+'|'?'
 func doRdMRegExpL(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 	rander := rand.New(rand.NewSource(seed))
-	switch in.(type) {
+	switch in := in.(type) {
 	case *ast.PatternRegexpExpr:
-		re := in.(*ast.PatternRegexpExpr)
 		// check
-		ck := checkRdMRegExpL(re)
+		ck := checkRdMRegExpL(in)
 		if ck != "" {
 			return nil, errors.New("[doRdMRegExpL]check error " + ck)
 		}
 		// mutate
 		// '*' -> '+'|'?'
-		oldPattern := re.Pattern
+		oldPattern := in.Pattern
 		newPattern := []byte(((oldPattern.(*test_driver.ValueExpr)).GetValue()).(string))
 		for i, c := range newPattern {
 			if (c == '*') && rander.Intn(2) == 0 {
@@ -59,7 +58,7 @@ func doRdMRegExpL(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 				}
 			}
 		}
-		re.Pattern = &test_driver.ValueExpr{
+		in.Pattern = &test_driver.ValueExpr{
 			Datum: test_driver.NewDatum(string(newPattern)),
 		}
 		sql, err := restore(rootNode)
@@ -67,7 +66,7 @@ func doRdMRegExpL(rootNode ast.Node, in ast.Node, seed int64) ([]byte, error) {
 			return nil, errors.Wrap(err, "[doRdMRegExpL]restore error")
 		}
 		// recover
-		re.Pattern = oldPattern
+		in.Pattern = oldPattern
 		return sql, nil
 	case nil:
 		return nil, errors.New("[doRdMRegExpL]type nil")
