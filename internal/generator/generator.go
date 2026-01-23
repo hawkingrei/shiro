@@ -33,14 +33,7 @@ type PreparedQuery struct {
 	ArgTypes []schema.ColumnType
 }
 
-// maxPreparedParams caps parameters for prepared statements.
-// This keeps generated queries readable and avoids driver/engine limits.
-const maxPreparedParams = 8
-
-const (
-	preparedExtraPredicateProb = 60
-	preparedAggExtraProb       = 50
-)
+// (constants moved to constants.go)
 
 // New constructs a Generator with a seed.
 func New(cfg config.Config, state *schema.State, seed int64) *Generator {

@@ -82,11 +82,11 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", unionSig.Count, unionSig.Checksum),
 			Details: map[string]any{
-				"replay_kind":         "signature",
-				"replay_expected_sql": base.SignatureSQL(),
-				"replay_actual_sql":   unionSQL,
-				"expected_explain":    expectedExplain,
-				"actual_explain":      actualExplain,
+				"replay_kind":          "signature",
+				"replay_expected_sql":  base.SignatureSQL(),
+				"replay_actual_sql":    unionSQL,
+				"expected_explain":     expectedExplain,
+				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
 				"actual_explain_err":   errString(actualExplainErr),
 			},
@@ -123,9 +123,8 @@ func ensureTLPOrderBy(query *generator.SelectQuery) {
 }
 
 func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
-	const maxOrderByCols = 3
-	cols := make([]generator.ColumnRef, 0, maxOrderByCols)
-	seen := make(map[string]struct{}, maxOrderByCols)
+	cols := make([]generator.ColumnRef, 0, TLPMaxOrderByCols)
+	seen := make(map[string]struct{}, TLPMaxOrderByCols)
 	for _, item := range items {
 		for _, col := range item.Expr.Columns() {
 			key := col.Table + "." + col.Name
@@ -134,7 +133,7 @@ func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
 			}
 			seen[key] = struct{}{}
 			cols = append(cols, col)
-			if len(cols) >= maxOrderByCols {
+			if len(cols) >= TLPMaxOrderByCols {
 				return cols
 			}
 		}

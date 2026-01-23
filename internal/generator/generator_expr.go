@@ -8,9 +8,11 @@ import (
 	"shiro/internal/util"
 )
 
+// (constants moved to constants.go)
+
 // GenerateNumericExpr picks a numeric column or literal.
 func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
-	for i := 0; i < 3; i++ {
+	for i := 0; i < NumericExprPickTries; i++ {
 		col := g.randomColumn(tables)
 		if col.Table == "" {
 			break
@@ -19,7 +21,21 @@ func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {
 			return ColumnExpr{Ref: col}
 		}
 	}
-	return LiteralExpr{Value: g.Rand.Intn(100)}
+	return LiteralExpr{Value: g.Rand.Intn(NumericLiteralMax)}
+}
+
+// GenerateNumericExprNoDouble avoids DOUBLE columns for aggregates.
+func (g *Generator) GenerateNumericExprNoDouble(tables []schema.Table) Expr {
+	for i := 0; i < NumericExprPickTries; i++ {
+		col := g.randomColumn(tables)
+		if col.Table == "" {
+			break
+		}
+		if g.isNumericType(col.Type) && col.Type != schema.TypeDouble {
+			return ColumnExpr{Ref: col}
+		}
+	}
+	return LiteralExpr{Value: g.Rand.Intn(NumericLiteralMax)}
 }
 
 // GenerateNumericExprPreferDecimal prefers DECIMAL columns for aggregates.
@@ -27,12 +43,20 @@ func (g *Generator) GenerateNumericExprPreferDecimal(tables []schema.Table) Expr
 	if col, ok := g.pickNumericColumnPreferDecimal(tables); ok {
 		return ColumnExpr{Ref: col}
 	}
-	return g.GenerateNumericExpr(tables)
+	return g.GenerateNumericExprNoDouble(tables)
+}
+
+// GenerateNumericExprPreferDecimalNoDouble prefers DECIMAL and avoids DOUBLE columns for aggregates.
+func (g *Generator) GenerateNumericExprPreferDecimalNoDouble(tables []schema.Table) Expr {
+	if col, ok := g.pickNumericColumnPreferDecimal(tables); ok {
+		return ColumnExpr{Ref: col}
+	}
+	return g.GenerateNumericExprNoDouble(tables)
 }
 
 // GenerateStringExpr returns a varchar expression or literal.
 func (g *Generator) GenerateStringExpr(tables []schema.Table) Expr {
-	for i := 0; i < 3; i++ {
+	for i := 0; i < NumericExprPickTries; i++ {
 		col := g.randomColumn(tables)
 		if col.Table == "" {
 			break
@@ -104,8 +128,7 @@ func (g *Generator) exprType(expr Expr) (schema.ColumnType, bool) {
 }
 
 func (g *Generator) pickComparableExpr(tables []schema.Table) (Expr, schema.ColumnType) {
-	col := g.randomColumn(tables)
-	if col.Table != "" {
+	if col, ok := g.pickComparableColumn(tables); ok {
 		return ColumnExpr{Ref: col}, col.Type
 	}
 	colType := g.randomColumnType()
@@ -169,26 +192,101 @@ func isDateTimeLiteral(value string) bool {
 }
 
 func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (left Expr, right Expr) {
-	if util.Chance(g.Rand, 60) {
+	if leftCol, rightCol, ok := g.pickComparableColumnPair(tables); ok {
+		return ColumnExpr{Ref: leftCol}, ColumnExpr{Ref: rightCol}
+	}
+	if util.Chance(g.Rand, ComparablePairColumnLiteralProb) {
 		var colType schema.ColumnType
 		left, colType = g.pickComparableExpr(tables)
 		right = g.literalForColumn(schema.Column{Type: colType})
 		return left, right
 	}
 	left = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
-	right = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(left); ok {
 		return left, g.literalForColumn(schema.Column{Type: t})
 	}
+	right = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(right); ok {
 		return g.literalForColumn(schema.Column{Type: t}), right
 	}
-	return left, right
+	colType := g.randomColumnType()
+	lit := g.literalForColumn(schema.Column{Type: colType})
+	return lit, g.literalForColumn(schema.Column{Type: colType})
+}
+
+func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool) {
+	if util.Chance(g.Rand, g.indexPrefixProb()) {
+		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) > 0 {
+			return idxCols[g.Rand.Intn(len(idxCols))], true
+		}
+	}
+	cols := g.collectColumns(tables)
+	if len(cols) == 0 {
+		return ColumnRef{}, false
+	}
+	return cols[g.Rand.Intn(len(cols))], true
+}
+
+func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left ColumnRef, right ColumnRef, ok bool) {
+	if util.Chance(g.Rand, g.indexPrefixProb()) {
+		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) >= 2 {
+			byType := map[schema.ColumnType][]ColumnRef{}
+			for _, col := range idxCols {
+				byType[col.Type] = append(byType[col.Type], col)
+			}
+			typeCandidates := make([]schema.ColumnType, 0, len(byType))
+			for t, list := range byType {
+				if len(list) >= 2 {
+					typeCandidates = append(typeCandidates, t)
+				}
+			}
+			if len(typeCandidates) > 0 {
+				t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
+				list := byType[t]
+				i := g.Rand.Intn(len(list))
+				j := g.Rand.Intn(len(list))
+				for i == j && len(list) > 1 {
+					j = g.Rand.Intn(len(list))
+				}
+				left, right, ok = list[i], list[j], true
+				return
+			}
+		}
+	}
+	cols := g.collectColumns(tables)
+	if len(cols) < 2 {
+		return
+	}
+	byType := map[schema.ColumnType][]ColumnRef{}
+	for _, col := range cols {
+		byType[col.Type] = append(byType[col.Type], col)
+	}
+	typeCandidates := make([]schema.ColumnType, 0, len(byType))
+	for t, list := range byType {
+		if len(list) >= 2 {
+			typeCandidates = append(typeCandidates, t)
+		}
+	}
+	if len(typeCandidates) == 0 {
+		return
+	}
+	t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
+	list := byType[t]
+	if len(list) < 2 {
+		return
+	}
+	i := g.Rand.Intn(len(list))
+	j := g.Rand.Intn(len(list))
+	for i == j && len(list) > 1 {
+		j = g.Rand.Intn(len(list))
+	}
+	left, right, ok = list[i], list[j], true
+	return
 }
 
 func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
 	if depth <= 0 {
-		if util.Chance(g.Rand, 50) {
+		if util.Chance(g.Rand, ScalarExprColumnProb) {
 			col := g.randomColumn(tables)
 			if col.Table != "" {
 				return ColumnExpr{Ref: col}
@@ -197,7 +295,7 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 		return g.randomLiteralExpr()
 	}
 
-	choice := g.Rand.Intn(5)
+	choice := g.Rand.Intn(ScalarExprChoiceCount)
 	switch choice {
 	case 0:
 		return g.randomLiteralExpr()
@@ -318,24 +416,24 @@ func (g *Generator) randomLiteralExpr() Expr {
 func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 	switch col.Type {
 	case schema.TypeInt, schema.TypeBigInt:
-		return LiteralExpr{Value: g.Rand.Intn(100)}
+		return LiteralExpr{Value: g.Rand.Intn(NumericLiteralMax)}
 	case schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
-		return LiteralExpr{Value: float64(int(g.Rand.Float64()*10000)) / 100}
+		return LiteralExpr{Value: float64(int(g.Rand.Float64()*FloatLiteralScale)) / FloatLiteralDiv}
 	case schema.TypeVarchar:
-		return LiteralExpr{Value: fmt.Sprintf("s%d", g.Rand.Intn(100))}
+		return LiteralExpr{Value: fmt.Sprintf("s%d", g.Rand.Intn(StringLiteralMax))}
 	case schema.TypeDate:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d", g.Rand.Intn(28)+1)}
+		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d", g.Rand.Intn(DateDayMax)+1)}
 	case schema.TypeDatetime:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 12:%02d:00", g.Rand.Intn(28)+1, g.Rand.Intn(59))}
+		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 12:%02d:00", g.Rand.Intn(DateDayMax)+1, g.Rand.Intn(TimeMinuteMax))}
 	case schema.TypeTimestamp:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 08:%02d:00", g.Rand.Intn(28)+1, g.Rand.Intn(59))}
+		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 08:%02d:00", g.Rand.Intn(DateDayMax)+1, g.Rand.Intn(TimeMinuteMax))}
 	case schema.TypeBool:
-		if util.Chance(g.Rand, 50) {
+		if util.Chance(g.Rand, BoolLiteralTrueProb) {
 			return LiteralExpr{Value: 1}
 		}
 		return LiteralExpr{Value: 0}
 	default:
-		return LiteralExpr{Value: g.Rand.Intn(10)}
+		return LiteralExpr{Value: g.Rand.Intn(SmallIntLiteralMax)}
 	}
 }
 

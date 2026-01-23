@@ -8,9 +8,11 @@ import (
 	"shiro/internal/util"
 )
 
+// (constants moved to constants.go)
+
 // InsertSQL emits an INSERT statement and advances auto IDs.
 func (g *Generator) InsertSQL(tbl *schema.Table) string {
-	rowCount := g.Rand.Intn(3) + 1
+	rowCount := g.Rand.Intn(InsertRowCountMax) + 1
 	cols := make([]string, 0, len(tbl.Columns))
 	for _, col := range tbl.Columns {
 		cols = append(cols, col.Name)
@@ -40,7 +42,7 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (sql string, predicate Expr, set
 	if !ok {
 		return "", nil, nil, ColumnRef{}
 	}
-	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
+	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, DMLSubqueryProb)
 	predicate = g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	colRef = ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
 	if g.isNumericType(col.Type) {
@@ -56,7 +58,7 @@ func (g *Generator) UpdateSQL(tbl schema.Table) (sql string, predicate Expr, set
 
 // DeleteSQL emits a DELETE statement and returns its predicate.
 func (g *Generator) DeleteSQL(tbl schema.Table) (string, Expr) {
-	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, 20)
+	allowSubquery := g.Config.Features.Subqueries && util.Chance(g.Rand, DMLSubqueryProb)
 	predicate := g.GeneratePredicate([]schema.Table{tbl}, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	builder := SQLBuilder{}
 	predicate.Build(&builder)

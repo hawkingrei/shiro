@@ -1,0 +1,213 @@
+package oracle
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"shiro/internal/db"
+	"shiro/internal/generator"
+	"shiro/internal/oracle/impo"
+	"shiro/internal/schema"
+
+	"github.com/go-sql-driver/mysql"
+)
+
+// Impo implements the Pinolo-style implication oracle.
+type Impo struct{}
+
+// Name returns the oracle identifier.
+func (o Impo) Name() string { return "Impo" }
+
+// Run generates a seed query, applies approximate mutations, and checks
+// implication relations between the base and mutated results.
+func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
+	metrics := map[string]int64{"impo_total": 1}
+	if !state.HasTables() {
+		return impoSkip(o.Name(), metrics, "no_tables")
+	}
+	seedQuery := gen.GenerateSelectQuery()
+	if seedQuery == nil {
+		return impoSkip(o.Name(), metrics, "empty_query")
+	}
+	if !queryDeterministic(seedQuery) {
+		return impoSkip(o.Name(), metrics, "nondeterministic")
+	}
+	if sanitizeQueryColumns(seedQuery, state) {
+		metrics["impo_sanitize"] = 1
+	}
+	if ok, _ := queryColumnsValid(seedQuery, state, nil); !ok {
+		return impoSkip(o.Name(), metrics, "invalid_columns")
+	}
+	seedSQL := seedQuery.SQLString()
+	initSQL, err := impo.Init(seedSQL)
+	if err != nil {
+		if errors.Is(err, impo.ErrWithClause) {
+			return impoSkip(o.Name(), metrics, "with_clause")
+		}
+		return impoSkip(o.Name(), metrics, "init_failed")
+	}
+
+	maxRows := gen.Config.Oracles.ImpoMaxRows
+	if maxRows <= 0 {
+		maxRows = gen.Config.MaxDataDumpRows
+	}
+	if shouldPrecheckRows(initSQL) {
+		countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS impo_base", initSQL)
+		count, err := exec.QueryCount(ctx, countSQL)
+		if err == nil && int(count) > maxRows {
+			metrics["impo_trunc"]++
+			return impoSkip(o.Name(), metrics, "base_row_precheck")
+		}
+	}
+	baseRows, baseTruncated, err := queryRowSet(ctx, exec, initSQL, maxRows)
+	if err != nil {
+		return impoSkipErr(o.Name(), metrics, "base_exec_failed", initSQL, err)
+	}
+	if baseTruncated {
+		metrics["impo_trunc"]++
+		return impoSkip(o.Name(), metrics, "base_truncated")
+	}
+
+	mutations := impo.MutateAll(initSQL, gen.Rand.Int63())
+	if mutations.Err != nil {
+		return impoSkip(o.Name(), metrics, "mutate_failed")
+	}
+	if len(mutations.MutateUnits) == 0 {
+		return impoSkip(o.Name(), metrics, "no_mutations")
+	}
+	units := mutations.MutateUnits
+	maxMutations := gen.Config.Oracles.ImpoMaxMutations
+	if maxMutations > 0 && len(units) > maxMutations {
+		gen.Rand.Shuffle(len(units), func(i, j int) {
+			units[i], units[j] = units[j], units[i]
+		})
+		units = units[:maxMutations]
+	}
+	timeout := time.Duration(gen.Config.Oracles.ImpoTimeoutMs) * time.Millisecond
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for _, unit := range units {
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			return impoSkip(o.Name(), metrics, "mutation_timeout")
+		}
+		if unit.Err != nil || unit.SQL == "" {
+			continue
+		}
+		mutRows, mutTruncated, err := queryRowSet(ctx, exec, unit.SQL, maxRows)
+		if err != nil {
+			continue
+		}
+		if mutTruncated {
+			metrics["impo_trunc"]++
+			continue
+		}
+		cmp, err := compareRowSets(baseRows, mutRows)
+		if err != nil {
+			continue
+		}
+		if implicationOK(unit.IsUpper, cmp) {
+			continue
+		}
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, initSQL)
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, unit.SQL)
+		return Result{
+			OK:       false,
+			Oracle:   o.Name(),
+			SQL:      []string{initSQL, unit.SQL},
+			Expected: fmt.Sprintf("implication=%s", implicationExpected(unit.IsUpper)),
+			Actual:   fmt.Sprintf("cmp=%s", cmpString(cmp)),
+			Details: map[string]any{
+				"impo_seed_sql":        seedSQL,
+				"impo_init_sql":        initSQL,
+				"impo_mutated_sql":     unit.SQL,
+				"impo_mutation":        unit.Name,
+				"impo_is_upper":        unit.IsUpper,
+				"replay_kind":          "impo_contains",
+				"replay_expected_sql":  initSQL,
+				"replay_actual_sql":    unit.SQL,
+				"replay_impo_is_upper": unit.IsUpper,
+				"replay_max_rows":      maxRows,
+				"expected_explain":     expectedExplain,
+				"actual_explain":       actualExplain,
+				"expected_explain_err": errString(expectedExplainErr),
+				"actual_explain_err":   errString(actualExplainErr),
+			},
+			Metrics: metrics,
+		}
+	}
+	return Result{OK: true, Oracle: o.Name(), Metrics: metrics}
+}
+
+func implicationOK(isUpper bool, cmp int) bool {
+	if cmp == 0 {
+		return true
+	}
+	if isUpper {
+		return cmp == -1
+	}
+	return cmp == 1
+}
+
+func implicationExpected(isUpper bool) string {
+	if isUpper {
+		return "base_subset_of_mutated"
+	}
+	return "mutated_subset_of_base"
+}
+
+func cmpString(cmp int) string {
+	switch cmp {
+	case -1:
+		return "mutated_contains_base"
+	case 0:
+		return "equal"
+	case 1:
+		return "base_contains_mutated"
+	default:
+		return "incomparable"
+	}
+}
+
+func impoSkip(name string, metrics map[string]int64, reason string) Result {
+	metrics["impo_skip"]++
+	return Result{
+		OK:     true,
+		Oracle: name,
+		Details: map[string]any{
+			"impo_skip_reason": reason,
+		},
+		Metrics: metrics,
+	}
+}
+
+func impoSkipErr(name string, metrics map[string]int64, reason string, sqlText string, err error) Result {
+	metrics["impo_skip"]++
+	details := map[string]any{
+		"impo_skip_reason": reason,
+	}
+	if strings.TrimSpace(sqlText) != "" {
+		details["impo_init_sql"] = sqlText
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		details["impo_base_exec_err_code"] = int(mysqlErr.Number)
+	} else {
+		details["impo_base_exec_err_code"] = 0
+	}
+	return Result{
+		OK:      true,
+		Oracle:  name,
+		Details: details,
+		Metrics: metrics,
+	}
+}
+
+func shouldPrecheckRows(query string) bool {
+	trimmed := strings.TrimSpace(query)
+	return !strings.HasPrefix(strings.ToUpper(trimmed), "WITH ")
+}

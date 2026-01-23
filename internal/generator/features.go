@@ -4,9 +4,10 @@ import "strings"
 
 // AdaptiveWeights overrides feature weights dynamically.
 type AdaptiveWeights struct {
-	JoinCount int
-	SubqCount int
-	AggProb   int
+	JoinCount       int
+	SubqCount       int
+	AggProb         int
+	IndexPrefixProb int
 }
 
 // QueryFeatures captures structural properties of a query.

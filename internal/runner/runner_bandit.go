@@ -27,6 +27,7 @@ func (r *Runner) initBandits() {
 			r.cfg.Weights.Oracles.CERT > 0,
 			r.cfg.Weights.Oracles.CODDTest > 0,
 			r.cfg.Weights.Oracles.DQE > 0,
+			r.cfg.Weights.Oracles.Impo > 0,
 		}
 	}
 	if r.cfg.Adaptive.AdaptDML {
@@ -66,6 +67,7 @@ func (r *Runner) pickOracle() int {
 		r.cfg.Weights.Oracles.CERT,
 		r.cfg.Weights.Oracles.CODDTest,
 		r.cfg.Weights.Oracles.DQE,
+		r.cfg.Weights.Oracles.Impo,
 	})
 }
 
@@ -89,18 +91,21 @@ func (r *Runner) updateDMLBandit(choice int, reward float64) {
 }
 
 type featureBandits struct {
-	joinBandit *util.Bandit
-	subqBandit *util.Bandit
-	aggBandit  *util.Bandit
-	joinArms   []int
-	subqArms   []int
-	aggArms    []int
+	joinBandit        *util.Bandit
+	subqBandit        *util.Bandit
+	aggBandit         *util.Bandit
+	indexPrefixBandit *util.Bandit
+	joinArms          []int
+	subqArms          []int
+	aggArms           []int
+	indexPrefixArms   []int
 }
 
 type featureArms struct {
-	joinArm int
-	subqArm int
-	aggArm  int
+	joinArm        int
+	subqArm        int
+	aggArm         int
+	indexPrefixArm int
 }
 
 func newFeatureBandits(cfg config.Config) *featureBandits {
@@ -111,13 +116,16 @@ func newFeatureBandits(cfg config.Config) *featureBandits {
 	}
 	subqArms := makeArms(0, subqMax)
 	aggArms := makeProbArms(cfg.Weights.Features.AggProb)
+	indexPrefixArms := makeProbArms(cfg.Weights.Features.IndexPrefixProb)
 	return &featureBandits{
-		joinBandit: util.NewBandit(len(joinArms), cfg.Adaptive.UCBExploration),
-		subqBandit: util.NewBandit(len(subqArms), cfg.Adaptive.UCBExploration),
-		aggBandit:  util.NewBandit(len(aggArms), cfg.Adaptive.UCBExploration),
-		joinArms:   joinArms,
-		subqArms:   subqArms,
-		aggArms:    aggArms,
+		joinBandit:        util.NewBandit(len(joinArms), cfg.Adaptive.UCBExploration),
+		subqBandit:        util.NewBandit(len(subqArms), cfg.Adaptive.UCBExploration),
+		aggBandit:         util.NewBandit(len(aggArms), cfg.Adaptive.UCBExploration),
+		indexPrefixBandit: util.NewBandit(len(indexPrefixArms), cfg.Adaptive.UCBExploration),
+		joinArms:          joinArms,
+		subqArms:          subqArms,
+		aggArms:           aggArms,
+		indexPrefixArms:   indexPrefixArms,
 	}
 }
 
@@ -160,10 +168,12 @@ func (r *Runner) prepareFeatureWeights() {
 	r.lastFeatureArms.joinArm = r.featureBandit.joinBandit.Pick(r.gen.Rand, nil)
 	r.lastFeatureArms.subqArm = r.featureBandit.subqBandit.Pick(r.gen.Rand, nil)
 	r.lastFeatureArms.aggArm = r.featureBandit.aggBandit.Pick(r.gen.Rand, nil)
+	r.lastFeatureArms.indexPrefixArm = r.featureBandit.indexPrefixBandit.Pick(r.gen.Rand, nil)
 	r.setAdaptiveWeights(generator.AdaptiveWeights{
-		JoinCount: r.featureBandit.joinArms[r.lastFeatureArms.joinArm],
-		SubqCount: r.featureBandit.subqArms[r.lastFeatureArms.subqArm],
-		AggProb:   r.featureBandit.aggArms[r.lastFeatureArms.aggArm],
+		JoinCount:       r.featureBandit.joinArms[r.lastFeatureArms.joinArm],
+		SubqCount:       r.featureBandit.subqArms[r.lastFeatureArms.subqArm],
+		AggProb:         r.featureBandit.aggArms[r.lastFeatureArms.aggArm],
+		IndexPrefixProb: r.featureBandit.indexPrefixArms[r.lastFeatureArms.indexPrefixArm],
 	})
 }
 
@@ -180,4 +190,5 @@ func (r *Runner) updateFeatureBandits(reward float64) {
 	r.featureBandit.joinBandit.Update(r.lastFeatureArms.joinArm, reward)
 	r.featureBandit.subqBandit.Update(r.lastFeatureArms.subqArm, reward)
 	r.featureBandit.aggBandit.Update(r.lastFeatureArms.aggArm, reward)
+	r.featureBandit.indexPrefixBandit.Update(r.lastFeatureArms.indexPrefixArm, reward)
 }

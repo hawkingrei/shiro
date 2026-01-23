@@ -73,7 +73,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	hasPartition := queryHasPartitionedTable(query, state)
 	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition)
 	for _, variant := range variants {
-	variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
+		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
 		if err != nil {
 			continue
 		}
@@ -81,12 +81,12 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
 			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
 			details := map[string]any{
-				"hint":                variant.hint,
-				"replay_kind":         "signature",
-				"replay_expected_sql": query.SignatureSQL(),
-				"replay_actual_sql":   variant.signatureSQL,
-				"expected_explain":    expectedExplain,
-				"actual_explain":      actualExplain,
+				"hint":                 variant.hint,
+				"replay_kind":          "signature",
+				"replay_expected_sql":  query.SignatureSQL(),
+				"replay_actual_sql":    variant.signatureSQL,
+				"expected_explain":     expectedExplain,
+				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
 				"actual_explain_err":   errString(actualExplainErr),
 			}
@@ -108,8 +108,6 @@ type dqpVariant struct {
 	signatureSQL string
 	hint         string
 }
-
-const maxCombinedHintVariants = 12
 
 func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool) []dqpVariant {
 	tables := []string{query.From.BaseTable}
@@ -141,7 +139,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
-	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, maxCombinedHintVariants) {
+	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, MaxCombinedHintVariants) {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
@@ -329,7 +327,7 @@ func tableHasIndex(table schema.Table) bool {
 			return true
 		}
 	}
-	return false
+	return len(table.Indexes) > 0
 }
 
 func buildHintSQL(hint string, tables []string, noArgHints map[string]struct{}) string {

@@ -121,6 +121,17 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			summary.NoRECPredicate = predicate
 		}
 	}
+	if result.Oracle == "Impo" && result.Details != nil {
+		if seedSQL, ok := result.Details["impo_seed_sql"].(string); ok && strings.TrimSpace(seedSQL) != "" {
+			_ = r.reporter.WriteSQL(caseData, "impo_seed.sql", []string{seedSQL})
+		}
+		if initSQL, ok := result.Details["impo_init_sql"].(string); ok && strings.TrimSpace(initSQL) != "" {
+			_ = r.reporter.WriteSQL(caseData, "impo_init.sql", []string{initSQL})
+		}
+		if mutatedSQL, ok := result.Details["impo_mutated_sql"].(string); ok && strings.TrimSpace(mutatedSQL) != "" {
+			_ = r.reporter.WriteSQL(caseData, "impo_mutated.sql", []string{mutatedSQL})
+		}
+	}
 	if result.Err != nil {
 		summary.Error = result.Err.Error()
 	}

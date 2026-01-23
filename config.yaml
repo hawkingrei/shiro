@@ -78,6 +78,7 @@ weights:
     cert: 1
     coddtest: 2
     dqe: 5
+    impo: 6
   features:
     join_count: 5
     cte_count: 20
@@ -101,6 +102,9 @@ logging:
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
+  impo_max_rows: 200
+  impo_max_mutations: 64
+  impo_timeout_ms: 5000
 
 qpg:
   enabled: true

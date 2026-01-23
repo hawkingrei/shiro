@@ -90,21 +90,7 @@
 - SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
 - When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
 
-## TODO
-- QPG: tune seenSQL cache defaults after longer runs and consider making per-interval summary logs replace per-plan logs.
-- QPG: switch to TiDB-native plan hash when it becomes available.
-- Highest priority: focus on join reorder, multi-table joins, and plan cache testing; optimize all oracles to target these scenarios.
+## Roadmap
+- High priority: focus on join reorder, multi-table joins, and plan cache testing; optimize all oracles to target these scenarios.
 - High priority: expand coverage for CTEs, correlated subqueries, and TiDB optimizer capabilities to broaden search space.
-- CERT: temporarily restrict to simple single-table queries (no JOIN/subquery/aggregate); revisit to relax later.
-- Case minimization: expand AST reducer coverage (IN list trimming, expression simplification, order-by reduction) and validate impact on DQP cases.
-- Case minimization: trim GROUP BY items, simplify HAVING, and drop LIMIT offsets where possible.
-- Case minimization: reduce replay SQL for signature/count oracles by AST transformations before emitting case_min.
-- Case minimization: strip EXPLAIN wrapper and recursively simplify subqueries; re-merge single-row inserts after reduction.
-- Case minimization: simplify JOIN trees (drop join conditions, collapse to left side) and handle nested table sources.
-- Case minimization: optionally coerce JOIN types/USING lists and replace scalar subqueries with constants to shrink further (may reduce repro rate).
-- Documentation: add richer, end-to-end oracle examples (SQL + expected/actual signatures) for training/onboarding.
-- Generator: consider extending orderedArgs to handle cross-type comparisons (int vs int64/float/string) deterministically.
-- Generator: when generating plan-cache string args, use fixed prefixes if an index exists; otherwise allow uuidv7 strings.
-- Low priority: CODDTest tightening to only run on integer/boolean predicates to reduce noise.
-- Low priority: CERT gating by base_est_rows threshold to avoid small-sample estimator noise.
-- TODO: add TiFlash hint coverage (read_from_storage) when TiFlash is enabled.
+- Full plan: see docs/roadmap.md.
