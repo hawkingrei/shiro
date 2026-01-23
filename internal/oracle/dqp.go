@@ -327,10 +327,7 @@ func tableHasIndex(table schema.Table) bool {
 			return true
 		}
 	}
-	if len(table.Indexes) > 0 {
-		return true
-	}
-	return false
+	return len(table.Indexes) > 0
 }
 
 func buildHintSQL(hint string, tables []string, noArgHints map[string]struct{}) string {

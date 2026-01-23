@@ -9,7 +9,7 @@ import (
 
 // addFixMRmUnionAllL: FixMRmUnionAllL, *ast.SetOprSelectList: remove Selects[1:] for UNION ALL
 func (v *MutateVisitor) addFixMRmUnionAllL(in *ast.SetOprSelectList, flag int) {
-	if in.Selects != nil && len(in.Selects) == 2 {
+	if len(in.Selects) == 2 {
 		if sel, ok := in.Selects[1].(*ast.SelectStmt); ok {
 			if *sel.AfterSetOperator == ast.UnionAll {
 				v.addCandidate(FixMRmUnionAllL, 0, in, flag)
@@ -24,8 +24,8 @@ func doFixMRmUnionAllL(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	case *ast.SetOprSelectList:
 		lst := in.(*ast.SetOprSelectList)
 		// check
-		if lst.Selects == nil || len(lst.Selects) <= 1 {
-			return nil, errors.New("[doFixMRmUnionAllL]lst.Selects == nil || len(lst.Selects) <= 1")
+		if len(lst.Selects) <= 1 {
+			return nil, errors.New("[doFixMRmUnionAllL]len(lst.Selects) <= 1")
 		}
 		// mutate
 		oldSels := lst.Selects

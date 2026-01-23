@@ -5,6 +5,6 @@ import (
 )
 
 // rmUncertain is a placeholder for removing non-deterministic functions.
-func rmUncertain(in ast.Node) bool {
+func rmUncertain(_ ast.Node) bool {
 	return false
 }

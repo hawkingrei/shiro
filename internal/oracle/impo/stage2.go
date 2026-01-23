@@ -26,8 +26,8 @@ func CalCandidates(sql string) (*MutateVisitor, error) {
 	return v, nil
 }
 
-// ImpoMutate applies one candidate mutation and returns the mutated SQL.
-func ImpoMutate(rootNode ast.Node, candidate *Candidate, seed int64) (string, error) {
+// Mutate applies one candidate mutation and returns the mutated SQL.
+func Mutate(rootNode ast.Node, candidate *Candidate, seed int64) (string, error) {
 	var (
 		sql []byte
 		err error
@@ -103,7 +103,7 @@ func MutateAll(sql string, seed int64) *MutateResult {
 	root := v.Root
 	for mutationName, candidateList := range v.Candidates {
 		for _, candidate := range candidateList {
-			newSQL, err := ImpoMutate(root, candidate, seed)
+			newSQL, err := Mutate(root, candidate, seed)
 			mutateResult.MutateUnits = append(mutateResult.MutateUnits, &MutateUnit{
 				Name:    mutationName,
 				SQL:     newSQL,

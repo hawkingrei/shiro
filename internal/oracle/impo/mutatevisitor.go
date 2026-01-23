@@ -108,11 +108,11 @@ func (v *MutateVisitor) visitSetOprSelectList(in *ast.SetOprSelectList, flag int
 	}
 	v.visitWithClause(in.With, flag)
 	for _, sel := range in.Selects {
-		switch sel.(type) {
+		switch sel := sel.(type) {
 		case *ast.SetOprSelectList:
-			v.visitSetOprSelectList(sel.(*ast.SetOprSelectList), flag)
+			v.visitSetOprSelectList(sel, flag)
 		case *ast.SelectStmt:
-			v.visitSelect(sel.(*ast.SelectStmt), flag)
+			v.visitSelect(sel, flag)
 		}
 	}
 
@@ -496,7 +496,7 @@ func (v *MutateVisitor) visitFuncCastExpr(in *ast.FuncCastExpr, _ int) {
 	// skip cast
 }
 
-func (v *MutateVisitor) visitTrimDirectionExpr(in *ast.TrimDirectionExpr, flag int) {
+func (v *MutateVisitor) visitTrimDirectionExpr(in *ast.TrimDirectionExpr, _ int) {
 	if in == nil {
 		return
 	}

@@ -8,7 +8,7 @@ import (
 
 var charset []byte = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890!@#$%^&*()-=_+~[]{};:,./<>?|")
 
-// GenRandomStr: generate random with length n
+// GenRandomStr generates a random string with length n.
 func GenRandomStr(n int, seed int64) string {
 	rander := rand.New(rand.NewSource(seed))
 	result := make([]byte, n)
@@ -18,7 +18,7 @@ func GenRandomStr(n int, seed int64) string {
 	return string(result)
 }
 
-// GenRandomValueExpr: generate n randome value exprs: nil, int63, float64, string(len 1~10)
+// GenRandomValueExpr generates n random value exprs: nil, int63, float64, string(len 1~10).
 func GenRandomValueExpr(n int, seed int64) []*test_driver.ValueExpr {
 	rander := rand.New(rand.NewSource(seed))
 	res := make([]*test_driver.ValueExpr, 0)
