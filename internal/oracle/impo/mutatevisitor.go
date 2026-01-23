@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Candidate: (mutation name, U, candidate node, Flag).
+// Candidate is a mutation candidate consisting of name, direction, node, and flag.
 //
 // U: 1: upper mutation, 0: lower mutation;
 //
@@ -33,7 +33,7 @@ type Candidate struct {
 	Flag         int      // 1: positive, 0: negative
 }
 
-// MutateVisitor:
+// MutateVisitor traverses AST nodes and collects mutation candidates.
 //
 // There are lots of functions under MutateVisitor, we classify them by prefix:
 //
@@ -372,9 +372,8 @@ func (v *MutateVisitor) visitCompareSubqueryExpr(in *ast.CompareSubqueryExpr, fl
 	if in.All {
 		flag = flag ^ 1
 	}
-	switch (in.R).(type) {
-	case *ast.SubqueryExpr:
-		v.visitSubqueryExpr((in.R).(*ast.SubqueryExpr), flag)
+	if subq, ok := (in.R).(*ast.SubqueryExpr); ok {
+		v.visitSubqueryExpr(subq, flag)
 	}
 }
 
@@ -385,9 +384,8 @@ func (v *MutateVisitor) visitExistsSubqueryExpr(in *ast.ExistsSubqueryExpr, flag
 	if in.Not {
 		flag = flag ^ 1
 	}
-	switch (in.Sel).(type) {
-	case *ast.SubqueryExpr:
-		v.visitSubqueryExpr((in.Sel).(*ast.SubqueryExpr), flag)
+	if subq, ok := (in.Sel).(*ast.SubqueryExpr); ok {
+		v.visitSubqueryExpr(subq, flag)
 	}
 }
 
@@ -409,7 +407,7 @@ func (v *MutateVisitor) visitPatternInExpr(in *ast.PatternInExpr, flag int) {
 	}
 }
 
-func (v *MutateVisitor) visitIsNullExpr(in *ast.IsNullExpr, flag int) {
+func (v *MutateVisitor) visitIsNullExpr(in *ast.IsNullExpr, _ int) {
 	if in == nil {
 		return
 	}
@@ -484,14 +482,14 @@ func (v *MutateVisitor) visitUnaryOperationExpr(in *ast.UnaryOperationExpr, flag
 	}
 }
 
-func (v *MutateVisitor) visitFuncCallExpr(in *ast.FuncCallExpr, flag int) {
+func (v *MutateVisitor) visitFuncCallExpr(in *ast.FuncCallExpr, _ int) {
 	if in == nil {
 		return
 	}
 	// skip func call
 }
 
-func (v *MutateVisitor) visitFuncCastExpr(in *ast.FuncCastExpr, flag int) {
+func (v *MutateVisitor) visitFuncCastExpr(in *ast.FuncCastExpr, _ int) {
 	if in == nil {
 		return
 	}
