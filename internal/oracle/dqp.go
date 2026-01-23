@@ -109,8 +109,6 @@ type dqpVariant struct {
 	hint         string
 }
 
-const maxCombinedHintVariants = 12
-
 func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool) []dqpVariant {
 	tables := []string{query.From.BaseTable}
 	for _, join := range query.From.Joins {
@@ -141,7 +139,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
-	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, maxCombinedHintVariants) {
+	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, MaxCombinedHintVariants) {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})

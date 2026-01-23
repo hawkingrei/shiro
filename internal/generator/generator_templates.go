@@ -5,13 +5,7 @@ import (
 	"shiro/internal/util"
 )
 
-const templateEnabledProb = 55
-const templateJoinReorderWeight = 4
-const templateAggPushdownWeight = 3
-const templateSemiAntiWeight = 3
-const templateTablePickRetries = 4
-const templateSemiAntiExtraFilterProb = 60
-const templateJoinOnlyPredicateProb = 40
+// (constants moved to constants.go)
 
 type templateSpec struct {
 	weight int

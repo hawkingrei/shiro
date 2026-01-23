@@ -8,16 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
-const (
-	// NonPreparedExtraSelectProb is the chance to add an extra SELECT column.
-	NonPreparedExtraSelectProb = 50
-	// PartitionedTablePickProb is the chance to pick a partitioned table when available.
-	PartitionedTablePickProb = 60
-	// NextArgIntDeltaMax is the maximum delta for integer args.
-	NextArgIntDeltaMax = 3
-	// NextArgFloatDeltaMax is the maximum delta for float args.
-	NextArgFloatDeltaMax = 5
-)
+// (constants moved to constants.go)
 
 // GeneratePreparedQuery builds a prepared query candidate for plan cache testing.
 func (g *Generator) GeneratePreparedQuery() PreparedQuery {

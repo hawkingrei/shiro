@@ -123,9 +123,8 @@ func ensureTLPOrderBy(query *generator.SelectQuery) {
 }
 
 func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
-	const maxOrderByCols = 3
-	cols := make([]generator.ColumnRef, 0, maxOrderByCols)
-	seen := make(map[string]struct{}, maxOrderByCols)
+	cols := make([]generator.ColumnRef, 0, TLPMaxOrderByCols)
+	seen := make(map[string]struct{}, TLPMaxOrderByCols)
 	for _, item := range items {
 		for _, col := range item.Expr.Columns() {
 			key := col.Table + "." + col.Name
@@ -134,7 +133,7 @@ func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
 			}
 			seen[key] = struct{}{}
 			cols = append(cols, col)
-			if len(cols) >= maxOrderByCols {
+			if len(cols) >= TLPMaxOrderByCols {
 				return cols
 			}
 		}

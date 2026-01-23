@@ -8,32 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
-const (
-	// NumericExprPickTries is the number of attempts to pick a numeric column.
-	NumericExprPickTries = 3
-	// NumericLiteralMax is the upper bound for integer literals.
-	NumericLiteralMax = 100
-	// StringLiteralMax is the upper bound for generated string suffix.
-	StringLiteralMax = 100
-	// SmallIntLiteralMax is the upper bound for fallback small int literals.
-	SmallIntLiteralMax = 10
-	// FloatLiteralScale controls the raw float magnitude before rounding.
-	FloatLiteralScale = 10000
-	// FloatLiteralDiv rounds scaled float literals to two decimals.
-	FloatLiteralDiv = 100
-	// DateDayMax is the day range for date literals.
-	DateDayMax = 28
-	// TimeMinuteMax is the minute range for datetime/timestamp literals.
-	TimeMinuteMax = 59
-	// BoolLiteralTrueProb is the chance to emit TRUE-like literal for boolean.
-	BoolLiteralTrueProb = 50
-	// ComparablePairColumnLiteralProb is the chance to emit column vs literal pairs.
-	ComparablePairColumnLiteralProb = 60
-	// ScalarExprColumnProb is the chance to pick a column for a leaf scalar expression.
-	ScalarExprColumnProb = 50
-	// ScalarExprChoiceCount is the number of scalar expression variants.
-	ScalarExprChoiceCount = 5
-)
+// (constants moved to constants.go)
 
 // GenerateNumericExpr picks a numeric column or literal.
 func (g *Generator) GenerateNumericExpr(tables []schema.Table) Expr {

@@ -8,12 +8,7 @@ import (
 	"shiro/internal/util"
 )
 
-const (
-	// InsertRowCountMax is the maximum number of rows in a single INSERT.
-	InsertRowCountMax = 3
-	// DMLSubqueryProb is the chance to allow subqueries in DML predicates.
-	DMLSubqueryProb = 20
-)
+// (constants moved to constants.go)
 
 // InsertSQL emits an INSERT statement and advances auto IDs.
 func (g *Generator) InsertSQL(tbl *schema.Table) string {

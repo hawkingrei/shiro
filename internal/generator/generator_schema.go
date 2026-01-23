@@ -9,24 +9,7 @@ import (
 	"shiro/internal/util"
 )
 
-const (
-	// ColumnNullableProb is the chance to mark a column nullable.
-	ColumnNullableProb = 20
-	// ColumnIndexProb is the chance to add an index on a column.
-	ColumnIndexProb = 30
-	// CompositeIndexProb is the chance to add a composite index per table.
-	CompositeIndexProb = 10
-	// CompositeIndexColsMin is the minimum number of columns in a composite index.
-	CompositeIndexColsMin = 2
-	// CompositeIndexColsMax is the maximum number of columns in a composite index.
-	CompositeIndexColsMax = 3
-	// CompositeIndexMaxPerTable caps composite indexes per table.
-	CompositeIndexMaxPerTable = 2
-	// PartitionCountExtraMax controls how many partitions above the minimum.
-	PartitionCountExtraMax = 3
-	// PartitionCountMin is the minimum number of partitions.
-	PartitionCountMin = 2
-)
+// (constants moved to constants.go)
 
 // GenerateTable creates a randomized table definition.
 func (g *Generator) GenerateTable() schema.Table {
@@ -165,7 +148,7 @@ func (g *Generator) generateCompositeIndexes(cols []schema.Column) []schema.Inde
 	seen := map[string]struct{}{}
 	for i := 0; i < count; i++ {
 		colsCount := CompositeIndexColsMin
-		if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, 50) {
+		if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, CompositeIndexColsMaxProb) {
 			colsCount = CompositeIndexColsMax
 			if colsCount > len(candidates) {
 				colsCount = len(candidates)
@@ -198,7 +181,7 @@ func (g *Generator) buildCompositeIndex(tbl *schema.Table) (schema.Index, bool) 
 		return schema.Index{}, false
 	}
 	colsCount := CompositeIndexColsMin
-	if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, 50) {
+	if len(candidates) > CompositeIndexColsMin && util.Chance(g.Rand, CompositeIndexColsMaxProb) {
 		colsCount = CompositeIndexColsMax
 		if colsCount > len(candidates) {
 			colsCount = len(candidates)

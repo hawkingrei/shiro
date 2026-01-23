@@ -7,56 +7,7 @@ import (
 	"shiro/internal/util"
 )
 
-const (
-	// CrossJoinProb is the percentage chance to emit CROSS JOIN when multiple tables exist.
-	CrossJoinProb = 3
-	// ForceJoinFromSingleProb is the percentage chance to expand a single-table pick to two tables.
-	ForceJoinFromSingleProb = 80
-	// CTEExtraProb is the extra chance to allow CTE when multiple tables are present.
-	CTEExtraProb = 50
-	// CTECountMax is the maximum number of CTEs to generate.
-	CTECountMax = 2
-	// CTELimitMax is the maximum LIMIT value for CTE queries.
-	CTELimitMax = 10
-	// SelectListMax is the maximum number of SELECT items for regular queries.
-	SelectListMax = 3
-	// LimitMax is the maximum LIMIT value for regular queries.
-	LimitMax = 20
-	// WindowPartitionProb is the chance to add PARTITION BY in window functions.
-	WindowPartitionProb = 50
-	// WindowOrderDescProb is the chance to use DESC for window ORDER BY.
-	WindowOrderDescProb = 50
-	// OrderByDescProb is the chance to use DESC in ORDER BY.
-	OrderByDescProb = 50
-	// OrderByCountMax is the maximum number of ORDER BY items.
-	OrderByCountMax = 2
-	// OrderByFromItemsExtraProb is the chance to pick two items from SELECT list.
-	OrderByFromItemsExtraProb = 40
-	// PredicateSubqueryScale multiplies subquery weight for predicate generation.
-	PredicateSubqueryScale = 5
-	// PredicateExistsProb is the chance to use EXISTS in predicate subquery.
-	PredicateExistsProb = 50
-	// PredicateInListProb is the chance to use IN list instead of binary comparison.
-	PredicateInListProb = 20
-	// PredicateInListMax is the maximum IN list size.
-	PredicateInListMax = 3
-	// PredicateOrProb is the chance to use OR instead of AND.
-	PredicateOrProb = 30
-	// CorrelatedSubqProb is the chance to use a correlated subquery.
-	CorrelatedSubqProb = 90
-	// JoinCountToTwoProb is the chance to increase join count from 2 to 3.
-	JoinCountToTwoProb = 60
-	// JoinCountToThreeProb is the chance to increase join count from 3 to 4.
-	JoinCountToThreeProb = 40
-	// JoinCountToFourProb is the chance to increase join count from 4 to 5.
-	JoinCountToFourProb = 30
-	// ShuffleTablesProb is the chance to shuffle picked tables.
-	ShuffleTablesProb = 80
-	// UsingJoinProb is the chance to use USING when available.
-	UsingJoinProb = 20
-	// UsingColumnExtraProb is the chance to use two USING columns.
-	UsingColumnExtraProb = 30
-)
+// (constants moved to constants.go)
 
 // GenerateSelectQuery builds a randomized SELECT query for current schema.
 func (g *Generator) GenerateSelectQuery() *SelectQuery {
