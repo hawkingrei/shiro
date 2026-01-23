@@ -426,6 +426,51 @@ func (g *Generator) randomColumn(tables []schema.Table) ColumnRef {
 	return ColumnRef{Table: bl.Name, Name: col.Name, Type: col.Type}
 }
 
+// areTypesCompatibleForJoin checks if two column types are compatible for use in a join.
+// Compatible types include:
+// - Exact matches (always compatible)
+// - Integer types: INT and BIGINT
+// - Numeric types: all integer types (INT, BIGINT) with floating point types (FLOAT, DOUBLE, DECIMAL)
+// - Date/time types: DATE, DATETIME, TIMESTAMP
+func areTypesCompatibleForJoin(left, right schema.ColumnType) bool {
+	// Exact match is always compatible
+	if left == right {
+		return true
+	}
+
+	// Integer types are compatible with each other
+	if (left == schema.TypeInt || left == schema.TypeBigInt) &&
+		(right == schema.TypeInt || right == schema.TypeBigInt) {
+		return true
+	}
+
+	// Integer types are compatible with floating point types
+	isInteger := left == schema.TypeInt || left == schema.TypeBigInt
+	isFloat := right == schema.TypeFloat || right == schema.TypeDouble || right == schema.TypeDecimal
+	if isInteger && isFloat {
+		return true
+	}
+	isInteger = right == schema.TypeInt || right == schema.TypeBigInt
+	isFloat = left == schema.TypeFloat || left == schema.TypeDouble || left == schema.TypeDecimal
+	if isInteger && isFloat {
+		return true
+	}
+
+	// Floating point types are compatible with each other
+	if (left == schema.TypeFloat || left == schema.TypeDouble || left == schema.TypeDecimal) &&
+		(right == schema.TypeFloat || right == schema.TypeDouble || right == schema.TypeDecimal) {
+		return true
+	}
+
+	// Date/time types are compatible with each other
+	if (left == schema.TypeDate || left == schema.TypeDatetime || left == schema.TypeTimestamp) &&
+		(right == schema.TypeDate || right == schema.TypeDatetime || right == schema.TypeTimestamp) {
+		return true
+	}
+
+	return false
+}
+
 func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []string {
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
@@ -441,7 +486,7 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 	for _, ltbl := range left {
 		for _, lcol := range ltbl.Columns {
 			for _, rcol := range right.Columns {
-				if lcol.Name == rcol.Name && lcol.Type == rcol.Type && leftCounts[lcol.Name] == 1 && leftTypes[lcol.Name] == lcol.Type {
+				if lcol.Name == rcol.Name && areTypesCompatibleForJoin(lcol.Type, rcol.Type) && leftCounts[lcol.Name] == 1 && areTypesCompatibleForJoin(leftTypes[lcol.Name], lcol.Type) {
 					names = append(names, lcol.Name)
 				}
 			}
