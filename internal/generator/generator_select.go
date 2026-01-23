@@ -688,6 +688,13 @@ func tableHasIndexPrefixColumn(tbl schema.Table, name string) bool {
 }
 
 func compatibleColumnType(left, right schema.ColumnType) bool {
+	// Compatible types include:
+	// - Exact matches (always compatible)
+	// - Integer types: INT and BIGINT
+	// - Numeric types: all integer types (INT, BIGINT) with floating point types (FLOAT, DOUBLE, DECIMAL)
+	// - Floating point types are compatible with each other
+	// - Date/time types: DATE, DATETIME, TIMESTAMP
+	// - Strings only with strings, booleans only with booleans
 	return typeCategory(left) == typeCategory(right)
 }
 
