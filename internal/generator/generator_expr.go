@@ -135,6 +135,21 @@ func (g *Generator) pickComparableExpr(tables []schema.Table) (Expr, schema.Colu
 	return g.literalForColumn(schema.Column{Type: colType}), colType
 }
 
+func (g *Generator) pickComparableExprPreferJoinGraph(tables []schema.Table) (Expr, schema.ColumnType, bool) {
+	if leftCol, _, ok := g.pickJoinGraphComparablePair(tables); ok {
+		return ColumnExpr{Ref: leftCol}, leftCol.Type, true
+	}
+	expr, colType := g.pickComparableExpr(tables)
+	return expr, colType, false
+}
+
+func (g *Generator) pickNumericExprPreferJoinGraph(tables []schema.Table) (Expr, bool) {
+	if leftCol, _, ok := g.pickJoinGraphComparablePair(tables); ok && g.isNumericType(leftCol.Type) {
+		return ColumnExpr{Ref: leftCol}, true
+	}
+	return nil, false
+}
+
 func literalStringType(value string) (schema.ColumnType, bool) {
 	if isDateLiteral(value) {
 		return schema.TypeDate, true
@@ -192,6 +207,11 @@ func isDateTimeLiteral(value string) bool {
 }
 
 func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery bool, subqDepth int) (left Expr, right Expr) {
+	if leftCol, rightCol, ok := g.pickJoinGraphComparablePair(tables); ok {
+		g.trackPredicatePair(true)
+		return ColumnExpr{Ref: leftCol}, ColumnExpr{Ref: rightCol}
+	}
+	g.trackPredicatePair(false)
 	if leftCol, rightCol, ok := g.pickComparableColumnPair(tables); ok {
 		return ColumnExpr{Ref: leftCol}, ColumnExpr{Ref: rightCol}
 	}
@@ -214,6 +234,42 @@ func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery 
 	return lit, g.literalForColumn(schema.Column{Type: colType})
 }
 
+func (g *Generator) pickJoinGraphComparablePair(tables []schema.Table) (left ColumnRef, right ColumnRef, ok bool) {
+	if len(tables) < 2 {
+		return
+	}
+	adj := buildJoinAdjacency(tables)
+	if !hasJoinEdges(adj) {
+		return
+	}
+	edges := make([][2]int, 0, len(tables))
+	for i := 0; i < len(adj); i++ {
+		for _, j := range adj[i] {
+			if i < j {
+				edges = append(edges, [2]int{i, j})
+			}
+		}
+	}
+	if len(edges) == 0 {
+		return
+	}
+	useIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+	tries := min(4, len(edges))
+	for i := 0; i < tries; i++ {
+		edge := edges[g.Rand.Intn(len(edges))]
+		pairs := g.collectJoinPairs(tables[edge[0]], tables[edge[1]], false, useIndexPrefix)
+		if len(pairs) == 0 && useIndexPrefix {
+			pairs = g.collectJoinPairs(tables[edge[0]], tables[edge[1]], false, false)
+		}
+		if len(pairs) == 0 {
+			continue
+		}
+		pair := pairs[g.Rand.Intn(len(pairs))]
+		return pair.Left, pair.Right, true
+	}
+	return
+}
+
 func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool) {
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
 		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) > 0 {
@@ -230,19 +286,19 @@ func (g *Generator) pickComparableColumn(tables []schema.Table) (ColumnRef, bool
 func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left ColumnRef, right ColumnRef, ok bool) {
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
 		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) >= 2 {
-			byType := map[schema.ColumnType][]ColumnRef{}
+			byCategory := map[int][]ColumnRef{}
 			for _, col := range idxCols {
-				byType[col.Type] = append(byType[col.Type], col)
+				byCategory[typeCategory(col.Type)] = append(byCategory[typeCategory(col.Type)], col)
 			}
-			typeCandidates := make([]schema.ColumnType, 0, len(byType))
-			for t, list := range byType {
+			typeCandidates := make([]int, 0, len(byCategory))
+			for t, list := range byCategory {
 				if len(list) >= 2 {
 					typeCandidates = append(typeCandidates, t)
 				}
 			}
 			if len(typeCandidates) > 0 {
 				t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
-				list := byType[t]
+				list := byCategory[t]
 				i := g.Rand.Intn(len(list))
 				j := g.Rand.Intn(len(list))
 				for i == j && len(list) > 1 {
@@ -257,12 +313,12 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left Column
 	if len(cols) < 2 {
 		return
 	}
-	byType := map[schema.ColumnType][]ColumnRef{}
+	byCategory := map[int][]ColumnRef{}
 	for _, col := range cols {
-		byType[col.Type] = append(byType[col.Type], col)
+		byCategory[typeCategory(col.Type)] = append(byCategory[typeCategory(col.Type)], col)
 	}
-	typeCandidates := make([]schema.ColumnType, 0, len(byType))
-	for t, list := range byType {
+	typeCandidates := make([]int, 0, len(byCategory))
+	for t, list := range byCategory {
 		if len(list) >= 2 {
 			typeCandidates = append(typeCandidates, t)
 		}
@@ -271,7 +327,7 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left Column
 		return
 	}
 	t := typeCandidates[g.Rand.Intn(len(typeCandidates))]
-	list := byType[t]
+	list := byCategory[t]
 	if len(list) < 2 {
 		return
 	}

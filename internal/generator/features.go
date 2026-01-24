@@ -12,9 +12,13 @@ type AdaptiveWeights struct {
 
 // QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
-	JoinCount    int
-	HasSubquery  bool
-	HasAggregate bool
+	JoinCount     int
+	JoinTypeSeq   string
+	JoinGraphSig  string
+	HasSubquery   bool
+	HasAggregate  bool
+	PredicatePairsTotal int64
+	PredicatePairsJoin  int64
 }
 
 // AnalyzeQueryFeatures summarizes a query for feature tracking.
@@ -23,7 +27,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		return QueryFeatures{}
 	}
 	features := QueryFeatures{
-		JoinCount: len(query.From.Joins),
+		JoinCount:    len(query.From.Joins),
+		JoinTypeSeq:  joinTypeSequence(query),
+		JoinGraphSig: joinGraphSignature(query),
 	}
 	for _, item := range query.Items {
 		if exprHasAggregate(item.Expr) {
@@ -50,6 +56,39 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		}
 	}
 	return features
+}
+
+func joinTypeSequence(query *SelectQuery) string {
+	if query == nil {
+		return ""
+	}
+	if len(query.From.Joins) == 0 {
+		return "base"
+	}
+	parts := make([]string, 0, len(query.From.Joins))
+	for _, join := range query.From.Joins {
+		parts = append(parts, string(join.Type))
+	}
+	return strings.Join(parts, "-")
+}
+
+func joinGraphSignature(query *SelectQuery) string {
+	if query == nil {
+		return ""
+	}
+	base := query.From.BaseTable
+	if base == "" {
+		base = "base"
+	}
+	if len(query.From.Joins) == 0 {
+		return base
+	}
+	parts := make([]string, 0, len(query.From.Joins)+1)
+	parts = append(parts, base)
+	for _, join := range query.From.Joins {
+		parts = append(parts, string(join.Type)+":"+join.Table)
+	}
+	return strings.Join(parts, "->")
 }
 
 func exprHasAggregate(expr Expr) bool {

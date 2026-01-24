@@ -78,12 +78,26 @@ const (
 	PredicateOrProb = 30
 	// CorrelatedSubqProb is the chance to use a correlated subquery.
 	CorrelatedSubqProb = 90
+	// CorrelatedSubqExtraProb is the chance to add an extra correlated predicate.
+	CorrelatedSubqExtraProb = 30
 	// JoinCountToTwoProb is the chance to increase join count from 2 to 3.
 	JoinCountToTwoProb = 60
 	// JoinCountToThreeProb is the chance to increase join count from 3 to 4.
 	JoinCountToThreeProb = 40
 	// JoinCountToFourProb is the chance to increase join count from 4 to 5.
 	JoinCountToFourProb = 30
+	// JoinCountBiasProb is the chance to bias join count into a target range.
+	JoinCountBiasProb = 70
+	// JoinCountBiasMin is the preferred minimum join count when biasing.
+	JoinCountBiasMin = 3
+	// JoinCountBiasMax is the preferred maximum join count when biasing.
+	JoinCountBiasMax = 7
+	// JoinShapeChainProb is the chance to pick a chain join shape.
+	JoinShapeChainProb = 45
+	// JoinShapeStarProb is the chance to pick a star join shape.
+	JoinShapeStarProb = 35
+	// JoinShapeSnowflakeProb is the chance to pick a shallow snowflake shape.
+	JoinShapeSnowflakeProb = 20
 	// ShuffleTablesProb is the chance to shuffle picked tables.
 	ShuffleTablesProb = 80
 	// UsingJoinProb is the chance to use USING when available.

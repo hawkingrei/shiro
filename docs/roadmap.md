@@ -1,5 +1,13 @@
 # Shiro Roadmap: 100-Step Plan
 
+## Stability milestones
+
+1. **Metrics baseline**: log sql_valid_ratio, impo_invalid_columns_ratio, impo_base_exec_failed_ratio every interval.
+2. **Alert thresholds**: keep sql_valid_ratio >= 0.95, impo_invalid_columns_ratio <= 0.05, impo_base_exec_failed_ratio <= 0.02 for a 2h run.
+3. **Feature gates**: stabilize in layers (single-table → joins → subqueries → aggregates) with per-layer configs.
+4. **Noise isolation**: categorize and cap non-bug errors; keep oracle false positives below 1%.
+5. **Long-run regression**: daily 6h/24h smoke with fixed seeds and auto-minimized repros.
+
 1. Add Impo oracle metrics to stats logging (counts, skips, truncations).
 2. Add Impo-specific skip reasons to dynamic_state.json for observability.
 3. Add Impo replay_kind to minimizer for base/mutated comparison.

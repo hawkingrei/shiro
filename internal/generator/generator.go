@@ -24,6 +24,8 @@ type Generator struct {
 	constraintSeq int
 	maxDepth      int
 	maxSubqDepth  int
+	predicatePairsTotal int64
+	predicatePairsJoin  int64
 }
 
 // PreparedQuery holds a prepared statement and args.
@@ -68,6 +70,18 @@ func (g *Generator) SetTemplateWeights(weights TemplateWeights) {
 // ClearTemplateWeights disables template sampling overrides.
 func (g *Generator) ClearTemplateWeights() {
 	g.Template = nil
+}
+
+func (g *Generator) resetPredicateStats() {
+	g.predicatePairsTotal = 0
+	g.predicatePairsJoin = 0
+}
+
+func (g *Generator) trackPredicatePair(fromJoinGraph bool) {
+	g.predicatePairsTotal++
+	if fromJoinGraph {
+		g.predicatePairsJoin++
+	}
 }
 
 // NextTableName returns a unique table name.
