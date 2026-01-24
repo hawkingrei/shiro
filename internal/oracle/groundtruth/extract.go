@@ -66,20 +66,20 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 	return edges
 }
 
-func extractColumnEquality(expr generator.Expr) (generator.ColumnRef, generator.ColumnRef, bool) {
+func extractColumnEquality(expr generator.Expr) (left generator.ColumnRef, right generator.ColumnRef, ok bool) {
 	bin, ok := expr.(generator.BinaryExpr)
 	if !ok || bin.Op != "=" {
 		return generator.ColumnRef{}, generator.ColumnRef{}, false
 	}
-	left, okLeft := bin.Left.(generator.ColumnExpr)
-	right, okRight := bin.Right.(generator.ColumnExpr)
+	leftExpr, okLeft := bin.Left.(generator.ColumnExpr)
+	rightExpr, okRight := bin.Right.(generator.ColumnExpr)
 	if !okLeft || !okRight {
 		return generator.ColumnRef{}, generator.ColumnRef{}, false
 	}
-	if left.Ref.Table == "" || right.Ref.Table == "" {
+	if leftExpr.Ref.Table == "" || rightExpr.Ref.Table == "" {
 		return generator.ColumnRef{}, generator.ColumnRef{}, false
 	}
-	return left.Ref, right.Ref, true
+	return leftExpr.Ref, rightExpr.Ref, true
 }
 
 func pickUsingLeftTable(state *schema.State, tables []string, col string) string {

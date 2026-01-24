@@ -245,7 +245,7 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 		sub := g.GenerateSubquery(tables, subqDepth-1)
 		if sub != nil {
 			if util.Chance(g.Rand, PredicateExistsProb) {
-				existsSub := g.GenerateExistsSubquery(tables, subqDepth-1)
+				existsSub := g.generateExistsSubquery(tables, subqDepth-1)
 				if existsSub != nil {
 					sub = existsSub
 				}
@@ -256,7 +256,7 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 				return expr
 			}
 			leftExpr, leftType, _ := g.pickComparableExprPreferJoinGraph(tables)
-			typedSub := g.GenerateInSubquery(tables, leftType, subqDepth-1)
+			typedSub := g.generateInSubquery(tables, leftType, subqDepth-1)
 			if typedSub == nil {
 				left, ok := g.pickNumericExprPreferJoinGraph(tables)
 				if !ok {
@@ -382,7 +382,7 @@ func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) 
 	return query
 }
 
-func (g *Generator) GenerateInSubquery(outerTables []schema.Table, leftType schema.ColumnType, subqDepth int) *SelectQuery {
+func (g *Generator) generateInSubquery(outerTables []schema.Table, leftType schema.ColumnType, subqDepth int) *SelectQuery {
 	if len(g.State.Tables) == 0 {
 		return nil
 	}
@@ -439,7 +439,7 @@ func (g *Generator) GenerateInSubquery(outerTables []schema.Table, leftType sche
 	return query
 }
 
-func (g *Generator) GenerateExistsSubquery(outerTables []schema.Table, subqDepth int) *SelectQuery {
+func (g *Generator) generateExistsSubquery(outerTables []schema.Table, subqDepth int) *SelectQuery {
 	if len(g.State.Tables) == 0 {
 		return nil
 	}
@@ -1111,18 +1111,6 @@ func (g *Generator) pickCorrelatedJoinPair(outerTables []schema.Table, inner sch
 
 func (g *Generator) trueExpr() Expr {
 	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}}
-}
-
-func tableHasIndexPrefixColumn(tbl schema.Table, name string) bool {
-	for _, idx := range tbl.Indexes {
-		if len(idx.Columns) == 0 {
-			continue
-		}
-		if idx.Columns[0] == name {
-			return true
-		}
-	}
-	return false
 }
 
 // compatibleColumnType and typeCategory are defined in type_compat.go.

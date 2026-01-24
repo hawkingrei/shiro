@@ -87,7 +87,9 @@ func (r *Runner) applyKQELiteWeights() bool {
 			if minJoin > maxJoin {
 				minJoin = maxJoin
 			}
+			r.genMu.Lock()
 			joinCount := minJoin + r.gen.Rand.Intn(maxJoin-minJoin+1)
+			r.genMu.Unlock()
 			r.kqeState.override = &generator.AdaptiveWeights{JoinCount: joinCount}
 			r.kqeState.overrideTTL = kqeOverrideTTL
 			if r.cfg.Logging.Verbose {

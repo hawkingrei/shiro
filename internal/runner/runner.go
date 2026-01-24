@@ -19,41 +19,41 @@ import (
 
 // Runner orchestrates fuzzing, execution, and reporting.
 type Runner struct {
-	cfg              config.Config
-	exec             *db.DB
-	gen              *generator.Generator
-	state            *schema.State
-	baseDB           string
-	validator        *validator.Validator
-	reporter         *report.Reporter
-	replayer         *replayer.Replayer
-	uploader         uploader.Uploader
-	oracles          []oracle.Oracle
-	insertLog        []string
-	statsMu          sync.Mutex
-	genMu            sync.Mutex
-	qpgMu            sync.Mutex
-	kqeMu            sync.Mutex
-	sqlTotal         int64
-	sqlValid         int64
-	sqlExists        int64
-	sqlNotEx         int64
-	sqlIn            int64
-	sqlNotIn         int64
-	impoTotal        int64
-	impoSkips        int64
-	impoTrunc        int64
-	impoSkipReasons  map[string]int64
-	impoSkipErrCodes map[string]int64
-	impoLastFailSQL  string
-	joinCounts       map[int]int64
-	joinTypeSeqs     map[string]int64
-	joinGraphSigs    map[string]int64
+	cfg                 config.Config
+	exec                *db.DB
+	gen                 *generator.Generator
+	state               *schema.State
+	baseDB              string
+	validator           *validator.Validator
+	reporter            *report.Reporter
+	replayer            *replayer.Replayer
+	uploader            uploader.Uploader
+	oracles             []oracle.Oracle
+	insertLog           []string
+	statsMu             sync.Mutex
+	genMu               sync.Mutex
+	qpgMu               sync.Mutex
+	kqeMu               sync.Mutex
+	sqlTotal            int64
+	sqlValid            int64
+	sqlExists           int64
+	sqlNotEx            int64
+	sqlIn               int64
+	sqlNotIn            int64
+	impoTotal           int64
+	impoSkips           int64
+	impoTrunc           int64
+	impoSkipReasons     map[string]int64
+	impoSkipErrCodes    map[string]int64
+	impoLastFailSQL     string
+	joinCounts          map[int]int64
+	joinTypeSeqs        map[string]int64
+	joinGraphSigs       map[string]int64
 	predicatePairsTotal int64
 	predicatePairsJoin  int64
-	truthMismatches  int64
-	qpgState         *qpgState
-	kqeState         *kqeState
+	truthMismatches     int64
+	qpgState            *qpgState
+	kqeState            *kqeState
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -322,10 +322,10 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		}
 		r.updateOracleBandit(oracleIdx, reward)
 		r.updateFeatureBandits(reward)
-	r.tickQPG()
-	r.tickKQELite()
-	return reward > 0
-}
+		r.tickQPG()
+		r.tickKQELite()
+		return reward > 0
+	}
 	r.handleResult(ctx, result)
 	reward = 1
 	r.updateOracleBandit(oracleIdx, reward)

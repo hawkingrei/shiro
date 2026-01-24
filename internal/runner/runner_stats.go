@@ -39,16 +39,6 @@ func (r *Runner) observeSQL(sql string, err error) {
 	}
 }
 
-func (r *Runner) observeJoinCount(query *generator.SelectQuery) {
-	if query == nil || query.From == nil {
-		return
-	}
-	joinCount := len(query.From.Joins)
-	r.statsMu.Lock()
-	defer r.statsMu.Unlock()
-	r.joinCounts[joinCount]++
-}
-
 func (r *Runner) observeJoinCountValue(joinCount int) {
 	if joinCount < 0 {
 		return

@@ -42,6 +42,7 @@ type JoinEdge struct {
 // JoinType enumerates join semantics used by truth executor.
 type JoinType int
 
+// Join type constants for truth evaluation.
 const (
 	JoinInner JoinType = iota
 	JoinLeft
@@ -56,8 +57,8 @@ type JoinTruthExecutor struct {
 	Truth SchemaTruth
 }
 
-// GroundTruthResult captures a truth-evaluation summary.
-type GroundTruthResult struct {
+// Result captures a truth-evaluation summary.
+type Result struct {
 	OK         bool
 	JoinCount  int
 	JoinSig    string
