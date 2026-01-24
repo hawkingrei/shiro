@@ -42,10 +42,18 @@ type Summary struct {
 	NoRECUnoptimizedSQL string         `json:"norec_unoptimized_sql"`
 	NoRECPredicate      string         `json:"norec_predicate"`
 	Details             map[string]any `json:"details"`
+	GroundTruth         *TruthSummary  `json:"groundtruth,omitempty"`
 	Timestamp           string         `json:"timestamp"`
 	TiDBVersion         string         `json:"tidb_version"`
 	PlanSignature       string         `json:"plan_signature"`
 	PlanSigFormat       string         `json:"plan_signature_format"`
+}
+
+// TruthSummary captures optional ground-truth evaluation metadata.
+type TruthSummary struct {
+	Mismatch bool   `json:"mismatch"`
+	JoinSig  string `json:"join_sig"`
+	RowCount int    `json:"row_count"`
 }
 
 // New creates a reporter that writes to outputDir.

@@ -17,7 +17,16 @@ type Result struct {
 	Actual   string
 	Details  map[string]any
 	Metrics  map[string]int64
+	Truth    *GroundTruthMetrics
 	Err      error
+}
+
+// GroundTruthMetrics carries optional truth-check signals for reporting.
+type GroundTruthMetrics struct {
+	Enabled  bool
+	Mismatch bool
+	JoinSig  string
+	RowCount int
 }
 
 // Oracle defines a SQL oracle contract.

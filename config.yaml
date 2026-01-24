@@ -98,6 +98,10 @@ weights:
 logging:
   verbose: true
   report_interval_seconds: 30
+  metrics:
+    sql_valid_min_ratio: 0.95
+    impo_invalid_columns_max_ratio: 0.05
+    impo_base_exec_failed_max_ratio: 0.02
 
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
@@ -113,6 +117,9 @@ qpg:
   seen_sql_ttl_seconds: 120
   seen_sql_max: 8192
   seen_sql_sweep_seconds: 600
+
+kqe:
+  enabled: true
 
 signature:
   round_scale: 6

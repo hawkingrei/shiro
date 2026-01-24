@@ -32,6 +32,7 @@ type Config struct {
 	Logging             Logging         `yaml:"logging"`
 	Oracles             OracleConfig    `yaml:"oracles"`
 	QPG                 QPGConfig       `yaml:"qpg"`
+	KQE                 KQEConfig       `yaml:"kqe"`
 	Signature           SignatureConfig `yaml:"signature"`
 	Minimize            MinimizeConfig  `yaml:"minimize"`
 }
@@ -125,6 +126,14 @@ type FeatureWeights struct {
 type Logging struct {
 	Verbose               bool `yaml:"verbose"`
 	ReportIntervalSeconds int  `yaml:"report_interval_seconds"`
+	Metrics               MetricsThresholds `yaml:"metrics"`
+}
+
+// MetricsThresholds defines alert thresholds for periodic stats logging.
+type MetricsThresholds struct {
+	SQLValidMinRatio             float64 `yaml:"sql_valid_min_ratio"`
+	ImpoInvalidColumnsMaxRatio   float64 `yaml:"impo_invalid_columns_max_ratio"`
+	ImpoBaseExecFailedMaxRatio   float64 `yaml:"impo_base_exec_failed_max_ratio"`
 }
 
 // OracleConfig holds oracle-specific settings.
@@ -145,6 +154,11 @@ type QPGConfig struct {
 	SeenSQLTTLSeconds   int    `yaml:"seen_sql_ttl_seconds"`
 	SeenSQLMax          int    `yaml:"seen_sql_max"`
 	SeenSQLSweepSeconds int    `yaml:"seen_sql_sweep_seconds"`
+}
+
+// KQEConfig controls lightweight join-coverage guidance.
+type KQEConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // SignatureConfig controls signature rounding for comparisons.
@@ -253,7 +267,14 @@ func defaultConfig() Config {
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2},
 			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
 		},
-		Logging:  Logging{ReportIntervalSeconds: 30},
+		Logging: Logging{
+			ReportIntervalSeconds: 30,
+			Metrics: MetricsThresholds{
+				SQLValidMinRatio:           0.95,
+				ImpoInvalidColumnsMaxRatio: 0.05,
+				ImpoBaseExecFailedMaxRatio: 0.02,
+			},
+		},
 		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
@@ -263,6 +284,9 @@ func defaultConfig() Config {
 			SeenSQLTTLSeconds:   120,
 			SeenSQLMax:          8192,
 			SeenSQLSweepSeconds: 600,
+		},
+		KQE: KQEConfig{
+			Enabled: true,
 		},
 		Signature: SignatureConfig{
 			RoundScale:          6,
