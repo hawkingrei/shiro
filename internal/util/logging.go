@@ -24,6 +24,10 @@ var (
 
 // InitLogging configures the detail logger to write to a file.
 func InitLogging(logFile string) error {
+	if detailCloser != nil {
+		_ = detailCloser.Close()
+		detailCloser = nil
+	}
 	if logFile == "" {
 		detailLogger = basicLogger
 		return nil
@@ -49,6 +53,7 @@ func CloseLogging() {
 		_ = detailCloser.Close()
 		detailCloser = nil
 	}
+	detailLogger = basicLogger
 }
 
 // Infof logs an info message.
@@ -89,7 +94,7 @@ func Highlightf(format string, args ...any) {
 
 // Detailf logs a message to the detail log only.
 func Detailf(format string, args ...any) {
-	if detailLogger == nil {
+	if detailLogger == nil || detailLogger == basicLogger {
 		return
 	}
 	detailLogger.Printf("INFO %s", fmt.Sprintf(format, args...))

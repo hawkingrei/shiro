@@ -305,11 +305,17 @@ func joinRows(left []map[string]string, right []map[string]string, leftTable, le
 	rightIndex := make(map[string][]map[string]string)
 	for _, row := range right {
 		key := row[rk]
+		if key == "__NULL__" {
+			continue
+		}
 		rightIndex[key] = append(rightIndex[key], row)
 	}
 	out := make([]map[string]string, 0)
 	for _, lrow := range left {
 		key := lrow[lk]
+		if key == "__NULL__" {
+			continue
+		}
 		matches := rightIndex[key]
 		for _, rrow := range matches {
 			if maxRows > 0 && len(out) >= maxRows {

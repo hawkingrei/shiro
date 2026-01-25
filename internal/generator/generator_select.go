@@ -580,23 +580,23 @@ func (g *Generator) pickTables() []schema.Table {
 			count = g.Rand.Intn(min(limit, g.joinCount()+1)) + 1
 			if count == 1 && util.Chance(g.Rand, ForceJoinFromSingleProb) {
 				count = min(2, limit)
-		}
-		if count == 2 && limit >= 3 && util.Chance(g.Rand, JoinCountToTwoProb) {
-			count = 3
-		}
-		if count == 3 && limit >= 4 && util.Chance(g.Rand, JoinCountToThreeProb) {
-			count = 4
-		}
-		if count == 4 && limit >= 5 && util.Chance(g.Rand, JoinCountToFourProb) {
-			count = 5
-		}
-		if count > 1 && util.Chance(g.Rand, JoinCountBiasProb) {
-			biasMin := min(JoinCountBiasMin, limit)
-			biasMax := min(JoinCountBiasMax, limit)
-			if biasMin <= biasMax && limit >= biasMin {
-				count = g.Rand.Intn(biasMax-biasMin+1) + biasMin
 			}
-		}
+			if count == 2 && limit >= 3 && util.Chance(g.Rand, JoinCountToTwoProb) {
+				count = 3
+			}
+			if count == 3 && limit >= 4 && util.Chance(g.Rand, JoinCountToThreeProb) {
+				count = 4
+			}
+			if count == 4 && limit >= 5 && util.Chance(g.Rand, JoinCountToFourProb) {
+				count = 5
+			}
+			if count > 1 && util.Chance(g.Rand, JoinCountBiasProb) {
+				biasMin := min(JoinCountBiasMin, limit)
+				biasMax := min(JoinCountBiasMax, limit)
+				if biasMin <= biasMax && limit >= biasMin {
+					count = g.Rand.Intn(biasMax-biasMin+1) + biasMin
+				}
+			}
 		}
 	}
 	if count > 1 && g.Config.Features.Joins {
@@ -1098,12 +1098,21 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 		from.Joins = append(from.Joins, join)
 	}
 	if g.Config.TQS.Enabled && g.TQSWalker != nil {
-		path := make([]string, 0, 1+len(from.Joins))
-		path = append(path, from.BaseTable)
-		for _, join := range from.Joins {
-			path = append(path, join.Table)
+		if g.Config.Features.DSG {
+			for _, join := range from.Joins {
+				if join.Table == "" {
+					continue
+				}
+				g.TQSWalker.RecordPath([]string{from.BaseTable, join.Table})
+			}
+		} else {
+			path := make([]string, 0, 1+len(from.Joins))
+			path = append(path, from.BaseTable)
+			for _, join := range from.Joins {
+				path = append(path, join.Table)
+			}
+			g.TQSWalker.RecordPath(path)
 		}
-		g.TQSWalker.RecordPath(path)
 	}
 	return from
 }

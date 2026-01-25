@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"shiro/internal/config"
 	"shiro/internal/util"
@@ -13,11 +14,12 @@ func EnsureDatabase(ctx context.Context, dsn string, dbName string) error {
 	if dbName == "" {
 		return nil
 	}
+	escaped := strings.ReplaceAll(dbName, "`", "``")
 	exec, err := Open(config.AdminDSN(dsn))
 	if err != nil {
 		return err
 	}
 	defer util.CloseWithErr(exec, "db exec")
-	_, err = exec.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName))
+	_, err = exec.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", escaped))
 	return err
 }

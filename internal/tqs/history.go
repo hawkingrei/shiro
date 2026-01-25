@@ -59,6 +59,10 @@ func (h *History) WalkTables(r *rand.Rand, length int, gamma float64) []string {
 	for len(path) < length {
 		cur := path[len(path)-1]
 		candidates := h.unvisitedNeighbors(cur, visited)
+		if len(candidates) == 0 && cur != base {
+			cur = base
+			candidates = h.unvisitedNeighbors(base, visited)
+		}
 		if len(candidates) == 0 {
 			break
 		}

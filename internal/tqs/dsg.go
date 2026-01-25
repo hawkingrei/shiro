@@ -3,6 +3,7 @@ package tqs
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"shiro/internal/config"
@@ -247,7 +248,7 @@ func buildInsertStatements(tbl schema.Table, rows []map[string]typedValue, chunk
 			}
 			values = append(values, fmt.Sprintf("(%s)", joinCSV(vals)))
 		}
-		stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", tbl.Name, joinCSV(cols), joinCSV(values))
+		stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", quoteIdent(tbl.Name), joinCSV(quoteIdents(cols)), joinCSV(values))
 		stmts = append(stmts, stmt)
 	}
 	return stmts
@@ -256,16 +257,34 @@ func buildInsertStatements(tbl schema.Table, rows []map[string]typedValue, chunk
 func createTableSQL(tbl schema.Table) string {
 	parts := make([]string, 0, len(tbl.Columns)+1)
 	for _, col := range tbl.Columns {
-		line := fmt.Sprintf("%s %s", col.Name, col.SQLType())
+		line := fmt.Sprintf("%s %s", quoteIdent(col.Name), col.SQLType())
 		if !col.Nullable {
 			line += " NOT NULL"
 		}
 		parts = append(parts, line)
 	}
 	if tbl.HasPK {
-		parts = append(parts, "PRIMARY KEY (id)")
+		parts = append(parts, "PRIMARY KEY (`id`)")
 	}
-	return fmt.Sprintf("CREATE TABLE %s (%s)", tbl.Name, joinCSV(parts))
+	return fmt.Sprintf("CREATE TABLE %s (%s)", quoteIdent(tbl.Name), joinCSV(parts))
+}
+
+func quoteIdent(name string) string {
+	if name == "" {
+		return "``"
+	}
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+func quoteIdents(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, quoteIdent(name))
+	}
+	return out
 }
 
 func sqlLiteral(t schema.ColumnType, v any) string {
