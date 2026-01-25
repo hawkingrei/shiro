@@ -7,10 +7,10 @@
 - For every failing case (oracle mismatch or panic-like error), the runner triggers `PLAN REPLAYER DUMP` and attempts to download the artifact, then writes a report with SQL, schema, and bounded data samples.
 
 ## Paper-to-oracle mapping
-- NoREC (docs/norec.md): compare optimized query count vs. unoptimized predicate-evaluation count.
-- DQP (docs/dqp.md): execute same query under different plan hints and compare results.
-- CERT (docs/cert.md): EXPLAIN cardinality monotonicity under restrictive predicates.
-- CODDTest (docs/coddtest.md): constant folding/propagation via auxiliary query + CASE mapping.
+- NoREC ([norec.md](../norec.md)): compare optimized query count vs. unoptimized predicate-evaluation count.
+- DQP ([dqp.md](../dqp.md)): execute same query under different plan hints and compare results.
+- CERT ([cert.md](../cert.md)): EXPLAIN cardinality monotonicity under restrictive predicates.
+- CODDTest ([coddtest.md](../coddtest.md)): constant folding/propagation via auxiliary query + CASE mapping.
 - TLP/DQE: standard SQLancer oracles for predicate partitioning and DML row-selection checks.
 
 ## Notes & limitations
