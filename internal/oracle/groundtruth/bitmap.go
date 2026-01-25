@@ -166,17 +166,3 @@ func popcount64(v uint64) int {
 	v = (v & 0x3333333333333333) + ((v >> 2) & 0x3333333333333333)
 	return int((((v + (v >> 4)) & 0x0F0F0F0F0F0F0F0F) * 0x0101010101010101) >> 56)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

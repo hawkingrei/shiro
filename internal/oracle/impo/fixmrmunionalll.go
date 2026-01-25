@@ -28,7 +28,7 @@ func doFixMRmUnionAllL(rootNode ast.Node, in ast.Node) ([]byte, error) {
 		}
 		// mutate
 		oldSels := in.Selects
-		newSels := make([]ast.Node, 0)
+		newSels := make([]ast.Node, 0, 1)
 		newSels = append(newSels, oldSels[0])
 		in.Selects = newSels
 		sql, err := restore(rootNode)

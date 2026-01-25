@@ -110,7 +110,8 @@ type dqpVariant struct {
 }
 
 func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool) []dqpVariant {
-	tables := []string{query.From.BaseTable}
+	tables := make([]string, 0, 1+len(query.From.Joins))
+	tables = append(tables, query.From.BaseTable)
 	for _, join := range query.From.Joins {
 		tables = append(tables, join.Table)
 	}

@@ -148,7 +148,7 @@ func (e FuncExpr) Build(b *SQLBuilder) {
 
 // Columns reports the column references used.
 func (e FuncExpr) Columns() []ColumnRef {
-	var cols []ColumnRef
+	cols := make([]ColumnRef, 0, len(e.Args))
 	for _, arg := range e.Args {
 		cols = append(cols, arg.Columns()...)
 	}
@@ -349,7 +349,7 @@ func (e WindowExpr) Build(b *SQLBuilder) {
 
 // Columns reports the column references used.
 func (e WindowExpr) Columns() []ColumnRef {
-	var cols []ColumnRef
+	cols := make([]ColumnRef, 0, len(e.Args)+len(e.PartitionBy)+len(e.OrderBy))
 	for _, arg := range e.Args {
 		cols = append(cols, arg.Columns()...)
 	}
