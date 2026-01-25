@@ -417,17 +417,20 @@ func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {
 func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef {
 	cols := make([]ColumnRef, 0, 8)
 	seen := map[string]struct{}{}
+	addColIfNew := func(tblName string, col schema.Column) {
+		key := tblName + "." + col.Name
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		cols = append(cols, ColumnRef{Table: tblName, Name: col.Name, Type: col.Type})
+	}
 	for _, tbl := range tables {
 		for _, col := range tbl.Columns {
 			if !col.HasIndex {
 				continue
 			}
-			key := tbl.Name + "." + col.Name
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+			addColIfNew(tbl.Name, col)
 		}
 		for _, idx := range tbl.Indexes {
 			if len(idx.Columns) == 0 {
@@ -438,12 +441,7 @@ func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef
 			if !ok {
 				continue
 			}
-			key := tbl.Name + "." + col.Name
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+			addColIfNew(tbl.Name, col)
 		}
 	}
 	return cols
@@ -475,39 +473,31 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 		}
 		return
 	}
+	tryPick := func(requireSameName bool, useIndexPrefix bool) bool {
+		for _, ltbl := range left {
+			pairs := g.collectJoinPairs(ltbl, right, requireSameName, useIndexPrefix)
+			if len(pairs) == 0 {
+				continue
+			}
+			pair := pairs[g.Rand.Intn(len(pairs))]
+			leftCol, rightCol, ok = pair.Left, pair.Right, true
+			return true
+		}
+		return false
+	}
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
-		for _, ltbl := range left {
-			pairs := g.collectJoinPairs(ltbl, right, true, true)
-			if len(pairs) > 0 {
-				pair := pairs[g.Rand.Intn(len(pairs))]
-				leftCol, rightCol, ok = pair.Left, pair.Right, true
-				return
-			}
+		if tryPick(true, true) {
+			return
 		}
-		for _, ltbl := range left {
-			pairs := g.collectJoinPairs(ltbl, right, false, true)
-			if len(pairs) > 0 {
-				pair := pairs[g.Rand.Intn(len(pairs))]
-				leftCol, rightCol, ok = pair.Left, pair.Right, true
-				return
-			}
-		}
-	}
-	for _, ltbl := range left {
-		pairs := g.collectJoinPairs(ltbl, right, true, false)
-		if len(pairs) > 0 {
-			pair := pairs[g.Rand.Intn(len(pairs))]
-			leftCol, rightCol, ok = pair.Left, pair.Right, true
+		if tryPick(false, true) {
 			return
 		}
 	}
-	for _, ltbl := range left {
-		pairs := g.collectJoinPairs(ltbl, right, false, false)
-		if len(pairs) > 0 {
-			pair := pairs[g.Rand.Intn(len(pairs))]
-			leftCol, rightCol, ok = pair.Left, pair.Right, true
-			return
-		}
+	if tryPick(true, false) {
+		return
+	}
+	if tryPick(false, false) {
+		return
 	}
 	return
 }
