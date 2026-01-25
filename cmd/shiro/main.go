@@ -42,7 +42,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
 			os.Exit(1)
 		}
-		if err := ensureDatabase(context.Background(), cfg.DSN, cfg.Database); err != nil {
+		if err := db.EnsureDatabase(context.Background(), cfg.DSN, cfg.Database); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to ensure database: %v\n", err)
 			os.Exit(1)
 		}
@@ -75,7 +75,7 @@ func main() {
 			workerCfg := cfg
 			workerCfg.Database = fmt.Sprintf("%s_w%d", cfg.Database, worker)
 			workerCfg.DSN = config.UpdateDatabaseInDSN(workerCfg.DSN, workerCfg.Database)
-			if err := ensureDatabase(context.Background(), workerCfg.DSN, workerCfg.Database); err != nil {
+			if err := db.EnsureDatabase(context.Background(), workerCfg.DSN, workerCfg.Database); err != nil {
 				errCh <- err
 				return
 			}
@@ -115,18 +115,5 @@ func setGlobalTimeZoneOnConn(exec *db.DB) error {
 	tz := time.Now().Format("-07:00")
 	util.Infof("timezone: local=%s offset=%s", time.Local.String(), tz)
 	_, err := exec.ExecContext(context.Background(), fmt.Sprintf("SET GLOBAL time_zone='%s'", tz))
-	return err
-}
-
-func ensureDatabase(ctx context.Context, dsn string, dbName string) error {
-	if dbName == "" {
-		return nil
-	}
-	exec, err := db.Open(config.AdminDSN(dsn))
-	if err != nil {
-		return err
-	}
-	defer util.CloseWithErr(exec, "db exec")
-	_, err = exec.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName))
 	return err
 }
