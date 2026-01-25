@@ -17,6 +17,17 @@ var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
 
 const topJoinSigN = 20
+const topOracleReasonsN = 10
+
+type oracleFunnel struct {
+	Runs        int64
+	Skips       int64
+	Errors      int64
+	Mismatches  int64
+	Panics      int64
+	Reports     int64
+	SkipReasons map[string]int64
+}
 
 func (r *Runner) observeSQL(sql string, err error) {
 	if strings.TrimSpace(sql) == "" {
@@ -75,6 +86,65 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures) {
 		r.predicatePairsTotal += features.PredicatePairsTotal
 		r.predicatePairsJoin += features.PredicatePairsJoin
 	}
+}
+
+func (r *Runner) observeOracleRun(name string) {
+	if name == "" {
+		return
+	}
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	stat := r.oracleStats[name]
+	if stat == nil {
+		stat = &oracleFunnel{SkipReasons: make(map[string]int64)}
+		r.oracleStats[name] = stat
+	}
+	stat.Runs++
+}
+
+func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReason string, reported bool, isPanic bool) {
+	if name == "" {
+		return
+	}
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	stat := r.oracleStats[name]
+	if stat == nil {
+		stat = &oracleFunnel{SkipReasons: make(map[string]int64)}
+		r.oracleStats[name] = stat
+	}
+	if skipReason != "" {
+		stat.Skips++
+		stat.SkipReasons[skipReason]++
+	}
+	if result.Err != nil {
+		stat.Errors++
+	}
+	if !result.OK {
+		stat.Mismatches++
+	}
+	if isPanic {
+		stat.Panics++
+	}
+	if reported {
+		stat.Reports++
+	}
+}
+
+func oracleSkipReason(result oracle.Result) string {
+	if result.Details == nil {
+		return ""
+	}
+	if v, ok := result.Details["skip_reason"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := result.Details["groundtruth_skip"].(string); ok && v != "" {
+		return "groundtruth:" + v
+	}
+	if v, ok := result.Details["impo_skip_reason"].(string); ok && v != "" {
+		return "impo:" + v
+	}
+	return ""
 }
 
 func (r *Runner) applyResultMetrics(result oracle.Result) {
@@ -153,6 +223,7 @@ func (r *Runner) startStatsLogger() func() {
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
 		lastImpoReasonTotals := make(map[string]int64)
+		lastOracleStats := make(map[string]oracleFunnel)
 		for {
 			select {
 			case <-ticker.C:
@@ -188,6 +259,28 @@ func (r *Runner) startStatsLogger() func() {
 				impoSkipErrCodes := make(map[string]int64, len(r.impoSkipErrCodes))
 				for k, v := range r.impoSkipErrCodes {
 					impoSkipErrCodes[k] = v
+				}
+				oracleStats := make(map[string]oracleFunnel, len(r.oracleStats))
+				for name, stat := range r.oracleStats {
+					if stat == nil {
+						continue
+					}
+					copyStat := oracleFunnel{
+						Runs:       stat.Runs,
+						Skips:      stat.Skips,
+						Errors:     stat.Errors,
+						Mismatches: stat.Mismatches,
+						Panics:     stat.Panics,
+						Reports:    stat.Reports,
+						SkipReasons: func() map[string]int64 {
+							out := make(map[string]int64, len(stat.SkipReasons))
+							for k, v := range stat.SkipReasons {
+								out[k] = v
+							}
+							return out
+						}(),
+					}
+					oracleStats[name] = copyStat
 				}
 				r.statsMu.Unlock()
 				deltaTotal := total - lastTotal
@@ -309,6 +402,45 @@ func (r *Runner) startStatsLogger() func() {
 							formatTopJoinSigs(deltaJoinGraphSigs, topJoinSigN),
 						)
 					}
+					if len(oracleStats) > 0 {
+						deltaFunnel := make(map[string]oracleFunnel, len(oracleStats))
+						for name, stat := range oracleStats {
+							prev := lastOracleStats[name]
+							delta := oracleFunnel{
+								Runs:       stat.Runs - prev.Runs,
+								Skips:      stat.Skips - prev.Skips,
+								Errors:     stat.Errors - prev.Errors,
+								Mismatches: stat.Mismatches - prev.Mismatches,
+								Panics:     stat.Panics - prev.Panics,
+								Reports:    stat.Reports - prev.Reports,
+								SkipReasons: func() map[string]int64 {
+									out := make(map[string]int64)
+									for k, v := range stat.SkipReasons {
+										prevVal := prev.SkipReasons[k]
+										if v-prevVal > 0 {
+											out[k] = v - prevVal
+										}
+									}
+									return out
+								}(),
+							}
+							if delta.Runs > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
+								deltaFunnel[name] = delta
+							}
+						}
+						if len(deltaFunnel) > 0 {
+							util.Detailf("oracle_funnel last interval: %s", formatOracleFunnel(deltaFunnel))
+							if r.cfg.Logging.Verbose {
+								for name, delta := range deltaFunnel {
+									if len(delta.SkipReasons) == 0 {
+										continue
+									}
+									util.Detailf("oracle_skip_reasons last interval oracle=%s top=%d: %s", name, topOracleReasonsN, formatTopJoinSigs(delta.SkipReasons, topOracleReasonsN))
+								}
+							}
+						}
+						r.updateOracleBanditFromFunnel(deltaFunnel)
+					}
 					thresholds := r.cfg.Logging.Metrics
 					if thresholds.SQLValidMinRatio > 0 && sqlValidRatio < thresholds.SQLValidMinRatio {
 						util.Warnf(
@@ -422,6 +554,7 @@ func (r *Runner) startStatsLogger() func() {
 						}
 					}
 					lastImpoReasonTotals = impoSkipReasons
+					lastOracleStats = oracleStats
 					if r.cfg.QPG.Enabled && r.cfg.Logging.Verbose && r.qpgState != nil {
 						r.qpgMu.Lock()
 						plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
@@ -532,6 +665,23 @@ func formatTopJoinCount(counts map[int]int64, topN int) string {
 	parts := make([]string, 0, topN)
 	for i := 0; i < topN; i++ {
 		parts = append(parts, fmt.Sprintf("%d=%d", items[i].key, items[i].count))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatOracleFunnel(stats map[string]oracleFunnel) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(stats))
+	for name := range stats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		stat := stats[name]
+		parts = append(parts, fmt.Sprintf("%s=run/%d skip/%d err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Skips, stat.Errors, stat.Mismatches, stat.Panics, stat.Reports))
 	}
 	return strings.Join(parts, " ")
 }

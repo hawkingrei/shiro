@@ -37,22 +37,22 @@ func (o DQP) Name() string { return "DQP" }
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:empty_query"}}
 	}
 	if query.Limit != nil || queryHasWindow(query) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:limit_or_window"}}
 	}
 	if !queryDeterministic(query) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:nondeterministic"}}
 	}
 	if query.Where != nil {
 		policy := predicatePolicyFor(gen)
 		if !predicateMatches(query.Where, policy) {
-			return Result{OK: true, Oracle: o.Name()}
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:predicate_guard"}}
 		}
 	}
 	if cteHasUnstableLimit(query) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}
 	}
 	hasSubquery := queryHasSubquery(query)
 	hasSemi := queryHasSemiJoinSubquery(query)
@@ -60,7 +60,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	hasAgg := queryHasAggregate(query) || len(query.GroupBy) > 0 || query.Having != nil
 	hasIndexCandidate := queryHasIndexCandidate(query, state)
 	if len(query.From.Joins) == 0 && !hasAgg && !hasIndexCandidate && !hasSubquery {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:insufficient_features"}}
 	}
 
 	baseSQL := query.SQLString()

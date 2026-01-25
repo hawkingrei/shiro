@@ -31,7 +31,7 @@ func (o DQE) Name() string { return "DQE" }
 // If rows affected != count, execution semantics are wrong.
 func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if !state.HasTables() {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:no_tables"}}
 	}
 	tbl := state.Tables[gen.Rand.Intn(len(state.Tables))]
 	choice := gen.Rand.Intn(2)
@@ -39,10 +39,10 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if choice == 0 {
 		updateSQL, predicate, setExpr, colRef := gen.UpdateSQL(tbl)
 		if updateSQL == "" || predicate == nil || setExpr == nil || colRef.Table == "" {
-			return Result{OK: true, Oracle: o.Name()}
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:update_guard"}}
 		}
 		if !predicate.Deterministic() {
-			return Result{OK: true, Oracle: o.Name()}
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:predicate_guard"}}
 		}
 		colSQL := fmt.Sprintf("%s.%s", colRef.Table, colRef.Name)
 		setExprSQL := buildExpr(setExpr)
@@ -81,10 +81,10 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	deleteSQL, predicate := gen.DeleteSQL(tbl)
 	if deleteSQL == "" || predicate == nil {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:delete_guard"}}
 	}
 	if !predicate.Deterministic() {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:predicate_guard"}}
 	}
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", tbl.Name, buildExpr(predicate))
 	count, err := exec.QueryCount(ctx, countSQL)

@@ -38,24 +38,24 @@ func (o CODDTest) Name() string { return "CODDTest" }
 // If folding changes results, constant propagation is incorrect.
 func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	if !state.HasTables() {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:no_tables"}}
 	}
 	tbl := state.Tables[gen.Rand.Intn(len(state.Tables))]
 	phi := gen.GeneratePredicate([]schema.Table{tbl}, 2, false, 0)
 	if !phi.Deterministic() || exprHasSubquery(phi) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
 	}
 	policy := predicatePolicyFor(gen)
 	policy.allowIsNull = false
 	if !predicateMatches(phi, policy) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
 	}
 	columns := phi.Columns()
 	if !onlyIntOrBoolColumns(columns) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:type_guard"}}
 	}
 	if !o.noNullsInTable(ctx, exec, tbl, columns) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:null_guard"}}
 	}
 	if len(columns) == 0 {
 		return o.runIndependent(ctx, exec, gen, tbl, phi)

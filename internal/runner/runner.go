@@ -57,6 +57,7 @@ type Runner struct {
 	qpgState            *qpgState
 	kqeState            *kqeState
 	tqsHistory          *tqs.History
+	oracleStats         map[string]*oracleFunnel
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -96,6 +97,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinCounts:       make(map[int]int64),
 		joinTypeSeqs:     make(map[string]int64),
 		joinGraphSigs:    make(map[string]int64),
+		oracleStats:      make(map[string]*oracleFunnel),
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
@@ -336,10 +338,20 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		defer r.clearTemplateWeights()
 	}
 	oracleIdx := r.pickOracle()
+	oracleName := r.oracles[oracleIdx].Name()
+	r.observeOracleRun(oracleName)
+	appliedOracleBias := r.applyOracleBias(oracleName)
+	if appliedOracleBias {
+		defer r.clearAdaptiveWeights()
+	}
 	var reward float64
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	skipReason := oracleSkipReason(result)
+	isPanic := isPanicError(result.Err)
+	reported := !result.OK || isPanic
+	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
 		r.observeJoinSignature(r.gen.LastFeatures)

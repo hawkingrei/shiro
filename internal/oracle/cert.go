@@ -38,7 +38,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:no_where"}}
 	}
 
 	baseExplain := "EXPLAIN " + query.SQLString()
@@ -54,11 +54,11 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 	restrictPred := gen.GeneratePredicate(tables, 1, false, 0)
 	if !isSimplePredicate(restrictPred) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:restrict_predicate"}}
 	}
 	restricted.Where = generator.BinaryExpr{Left: query.Where, Op: "AND", Right: restrictPred}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), restricted.SQLString()}}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), restricted.SQLString()}, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
 	}
 	restrictedExplain := "EXPLAIN " + restricted.SQLString()
 	restrictedRows, err := exec.QueryPlanRows(ctx, restrictedExplain)

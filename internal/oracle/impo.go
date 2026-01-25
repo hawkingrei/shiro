@@ -249,6 +249,7 @@ func impoSkip(name string, metrics map[string]int64, reason string) Result {
 		Oracle: name,
 		Details: map[string]any{
 			"impo_skip_reason": reason,
+			"skip_reason":      "impo:" + reason,
 		},
 		Metrics: metrics,
 	}
@@ -258,6 +259,7 @@ func impoSkipErr(name string, metrics map[string]int64, reason string, sqlText s
 	metrics["impo_skip"]++
 	details := map[string]any{
 		"impo_skip_reason": reason,
+		"skip_reason":      "impo:" + reason,
 	}
 	if strings.TrimSpace(sqlText) != "" {
 		details["impo_init_sql"] = sqlText
