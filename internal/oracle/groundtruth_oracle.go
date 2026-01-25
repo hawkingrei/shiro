@@ -247,7 +247,14 @@ func shouldSkipGroundTruthByRowCount(ctx context.Context, exec *db.DB, query *ge
 	return false
 }
 
-func fetchRows(ctx context.Context, exec *db.DB, table string, cols []string, limit int) ([]map[string]string, string, error) {
+type cellValue struct {
+	Val  string
+	Null bool
+}
+
+type rowData map[string]cellValue
+
+func fetchRows(ctx context.Context, exec *db.DB, table string, cols []string, limit int) ([]rowData, string, error) {
 	if len(cols) == 0 {
 		return nil, "", nil
 	}
@@ -278,50 +285,51 @@ func fetchRows(ctx context.Context, exec *db.DB, table string, cols []string, li
 	for i := range values {
 		scanArgs[i] = &values[i]
 	}
-	out := make([]map[string]string, 0, limit)
+	out := make([]rowData, 0, limit)
 	for rows.Next() {
 		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, query, err
 		}
-		row := make(map[string]string, len(colNames))
+		row := make(rowData, len(colNames))
 		for i, name := range colNames {
-			val := string(values[i])
+			cell := cellValue{Val: string(values[i])}
 			if values[i] == nil {
-				val = "__NULL__"
+				cell.Null = true
+				cell.Val = ""
 			}
-			row[fmt.Sprintf("%s.%s", table, name)] = val
+			row[fmt.Sprintf("%s.%s", table, name)] = cell
 		}
 		out = append(out, row)
 	}
 	return out, query, nil
 }
 
-func joinRows(left []map[string]string, right []map[string]string, leftTable, leftKey, rightTable, rightKey string, maxRows int) ([]map[string]string, bool) {
+func joinRows(left []rowData, right []rowData, leftTable, leftKey, rightTable, rightKey string, maxRows int) ([]rowData, bool) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, true
 	}
 	lk := fmt.Sprintf("%s.%s", leftTable, leftKey)
 	rk := fmt.Sprintf("%s.%s", rightTable, rightKey)
-	rightIndex := make(map[string][]map[string]string)
+	rightIndex := make(map[string][]rowData)
 	for _, row := range right {
-		key := row[rk]
-		if key == "__NULL__" {
+		cell := row[rk]
+		if cell.Null {
 			continue
 		}
-		rightIndex[key] = append(rightIndex[key], row)
+		rightIndex[cell.Val] = append(rightIndex[cell.Val], row)
 	}
-	out := make([]map[string]string, 0)
+	out := make([]rowData, 0)
 	for _, lrow := range left {
-		key := lrow[lk]
-		if key == "__NULL__" {
+		cell := lrow[lk]
+		if cell.Null {
 			continue
 		}
-		matches := rightIndex[key]
+		matches := rightIndex[cell.Val]
 		for _, rrow := range matches {
 			if maxRows > 0 && len(out) >= maxRows {
 				return nil, false
 			}
-			merged := make(map[string]string, len(lrow)+len(rrow))
+			merged := make(rowData, len(lrow)+len(rrow))
 			for k, v := range lrow {
 				merged[k] = v
 			}

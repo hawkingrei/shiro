@@ -15,6 +15,7 @@ import (
 
 var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
+
 const topJoinSigN = 20
 
 func (r *Runner) observeSQL(sql string, err error) {
@@ -285,20 +286,11 @@ func (r *Runner) startStatsLogger() func() {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)
 					}
 					if len(deltaJoinCounts) > 0 {
-						parts := make([]string, 0, len(deltaJoinCounts))
-						keys := make([]int, 0, len(deltaJoinCounts))
-						for k := range deltaJoinCounts {
-							keys = append(keys, k)
-						}
-						sort.Ints(keys)
-						for _, k := range keys {
-							parts = append(parts, fmt.Sprintf("%d=%d", k, deltaJoinCounts[k]))
-						}
 						util.Detailf(
 							"join_count last interval top=%d total=%d: %s",
 							topJoinSigN,
 							len(deltaJoinCounts),
-							formatTopJoinCount(parts, topJoinSigN),
+							formatTopJoinCount(deltaJoinCounts, topJoinSigN),
 						)
 					}
 					if len(deltaJoinTypeSeqs) > 0 {
@@ -516,14 +508,32 @@ func formatTopJoinSigs(stats map[string]int64, topN int) string {
 	return strings.Join(parts, " ")
 }
 
-func formatTopJoinCount(parts []string, topN int) string {
-	if len(parts) == 0 || topN <= 0 {
+func formatTopJoinCount(counts map[int]int64, topN int) string {
+	if len(counts) == 0 || topN <= 0 {
 		return ""
 	}
-	if topN > len(parts) {
-		topN = len(parts)
+	type joinCountStat struct {
+		key   int
+		count int64
 	}
-	return strings.Join(parts[:topN], " ")
+	items := make([]joinCountStat, 0, len(counts))
+	for k, v := range counts {
+		items = append(items, joinCountStat{key: k, count: v})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count == items[j].count {
+			return items[i].key < items[j].key
+		}
+		return items[i].count > items[j].count
+	})
+	if topN > len(items) {
+		topN = len(items)
+	}
+	parts := make([]string, 0, topN)
+	for i := 0; i < topN; i++ {
+		parts = append(parts, fmt.Sprintf("%d=%d", items[i].key, items[i].count))
+	}
+	return strings.Join(parts, " ")
 }
 
 func compactSQL(sqlText string, limit int) string {
