@@ -12,6 +12,7 @@ import (
 	"shiro/internal/replayer"
 	"shiro/internal/report"
 	"shiro/internal/schema"
+	"shiro/internal/tqs"
 	"shiro/internal/uploader"
 	"shiro/internal/util"
 	"shiro/internal/validator"
@@ -46,6 +47,7 @@ type Runner struct {
 	impoSkipReasons     map[string]int64
 	impoSkipErrCodes    map[string]int64
 	impoLastFailSQL     string
+	impoLastFailErr     string
 	joinCounts          map[int]int64
 	joinTypeSeqs        map[string]int64
 	joinGraphSigs       map[string]int64
@@ -54,6 +56,7 @@ type Runner struct {
 	truthMismatches     int64
 	qpgState            *qpgState
 	kqeState            *kqeState
+	tqsHistory          *tqs.History
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -101,6 +104,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.CODDTest{},
 			oracle.DQE{},
 			oracle.Impo{},
+			oracle.GroundTruth{},
 		},
 	}
 	if cfg.QPG.Enabled {
@@ -159,13 +163,14 @@ func (r *Runner) setupDatabase(ctx context.Context) error {
 	if _, err := r.exec.ExecContext(ctx, fmt.Sprintf("USE %s", r.cfg.Database)); err != nil {
 		return err
 	}
-	if r.cfg.Features.PlanCache {
-		_, _ = r.exec.ExecContext(ctx, "SET SESSION tidb_enable_prepared_plan_cache = 1")
-	}
 	return nil
 }
 
 func (r *Runner) initState(ctx context.Context) error {
+	if r.cfg.TQS.Enabled {
+		return r.initStateDSG(ctx)
+	}
+	r.gen.SetTruth(nil)
 	initialTables := 2
 	for i := 0; i < initialTables; i++ {
 		tbl := r.gen.GenerateTable()
@@ -187,6 +192,35 @@ func (r *Runner) initState(ctx context.Context) error {
 				}
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func (r *Runner) initStateDSG(ctx context.Context) error {
+	result, err := tqs.Build(r.cfg, r.gen.Rand)
+	if err != nil {
+		return err
+	}
+	r.state.Tables = result.State.Tables
+	r.gen.State = r.state
+	r.gen.SetTruth(result.Truth)
+	r.tqsHistory = tqs.NewHistory(r.state, "t0")
+	r.gen.SetTQSWalker(r.tqsHistory)
+	for _, sql := range result.CreateSQL {
+		if err := r.execSQL(ctx, sql); err != nil {
+			if _, ok := isWhitelistedSQLError(err); ok {
+				continue
+			}
+			return err
+		}
+	}
+	for _, sql := range result.InsertSQL {
+		if err := r.execSQL(ctx, sql); err != nil {
+			if _, ok := isWhitelistedSQLError(err); ok {
+				continue
+			}
+			return err
 		}
 	}
 	return nil
@@ -227,11 +261,15 @@ func (r *Runner) runDDL(ctx context.Context) {
 	case "create_index":
 		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
 		tablePtr := &r.state.Tables[tableIdx]
-		sql, ok := r.gen.CreateIndexSQL(tablePtr)
+		tableCopy := *tablePtr
+		sql, ok := r.gen.CreateIndexSQL(&tableCopy)
 		if !ok {
 			return
 		}
-		_ = r.execSQL(ctx, sql)
+		if err := r.execSQL(ctx, sql); err != nil {
+			return
+		}
+		*tablePtr = tableCopy
 	case "create_view":
 		sql := r.gen.CreateViewSQL()
 		if sql == "" {
@@ -279,12 +317,6 @@ func (r *Runner) runDML(ctx context.Context) {
 
 func (r *Runner) runQuery(ctx context.Context) bool {
 	if r.cfg.Features.PlanCache && util.Chance(r.gen.Rand, r.cfg.PlanCacheProb) {
-		if r.cfg.Features.NonPreparedPlanCache && util.Chance(r.gen.Rand, r.cfg.NonPreparedProb) {
-			ran, bug := r.runNonPreparedPlanCache(ctx)
-			if ran {
-				return bug
-			}
-		}
 		return r.runPrepared(ctx)
 	}
 	r.prepareFeatureWeights()

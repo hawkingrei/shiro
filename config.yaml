@@ -1,15 +1,14 @@
 # TiDB fuzz configuration
 
-# MySQL DSN, database part left empty to allow CREATE DATABASE
+# MySQL DSN; database name is auto-appended if empty.
 # Example: user:password@tcp(127.0.0.1:4000)/
-dsn: root@tcp(127.0.0.1:4000)/
+dsn: root:@tcp(127.0.0.1:4000)/
 database: shiro_fuzz
 seed: 0
 iterations: 1000000
 workers: 1
 plan_cache_only: false
 plan_cache_prob: 50
-non_prepared_plan_cache_prob: 50
 plan_cache_meaningful_predicates: true
 max_tables: 6
 max_join_tables: 15
@@ -60,7 +59,7 @@ features:
   partition_tables: true
   not_exists: true
   not_in: true
-  non_prepared_plan_cache: true
+  dsg: true
 
 weights:
   actions:
@@ -75,10 +74,11 @@ weights:
     norec: 5
     tlp: 5
     dqp: 5
-    cert: 1
+    cert: 2
     coddtest: 2
     dqe: 5
-    impo: 6
+    impo: 5
+    groundtruth: 6
   features:
     join_count: 5
     cte_count: 20
@@ -98,6 +98,7 @@ weights:
 logging:
   verbose: true
   report_interval_seconds: 30
+  log_file: "logs/shiro.log"
   metrics:
     sql_valid_min_ratio: 0.95
     impo_invalid_columns_max_ratio: 0.05
@@ -106,6 +107,7 @@ logging:
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
+  groundtruth_max_rows: 50
   impo_max_rows: 200
   impo_max_mutations: 64
   impo_timeout_ms: 5000
@@ -120,6 +122,17 @@ qpg:
 
 kqe:
   enabled: true
+
+tqs:
+  enabled: true
+  wide_rows: 50
+  dim_tables: 3
+  dep_columns: 2
+  payload_columns: 2
+  walk_length: 4
+  walk_min: 3
+  walk_max: 6
+  gamma: 0.2
 
 signature:
   round_scale: 6

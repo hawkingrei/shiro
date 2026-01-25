@@ -47,7 +47,7 @@ func logWhitelistedSQLError(sqlText string, err error, verbose bool) bool {
 		return false
 	}
 	if verbose {
-		util.Infof("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
+		util.Detailf("sql error whitelisted code=%d sql=%s err=%v", code, sqlText, err)
 	}
 	return true
 }

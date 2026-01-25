@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -33,6 +34,7 @@ type Config struct {
 	Oracles             OracleConfig    `yaml:"oracles"`
 	QPG                 QPGConfig       `yaml:"qpg"`
 	KQE                 KQEConfig       `yaml:"kqe"`
+	TQS                 TQSConfig       `yaml:"tqs"`
 	Signature           SignatureConfig `yaml:"signature"`
 	Minimize            MinimizeConfig  `yaml:"minimize"`
 }
@@ -68,6 +70,7 @@ type Features struct {
 	NotExists            bool `yaml:"not_exists"`
 	NotIn                bool `yaml:"not_in"`
 	NonPreparedPlanCache bool `yaml:"non_prepared_plan_cache"`
+	DSG                  bool `yaml:"dsg"`
 }
 
 // Weights controls weighted selections for actions and features.
@@ -94,13 +97,14 @@ type DMLWeights struct {
 
 // OracleWeights sets probabilities for oracle selection.
 type OracleWeights struct {
-	NoREC    int `yaml:"norec"`
-	TLP      int `yaml:"tlp"`
-	DQP      int `yaml:"dqp"`
-	CERT     int `yaml:"cert"`
-	CODDTest int `yaml:"coddtest"`
-	DQE      int `yaml:"dqe"`
-	Impo     int `yaml:"impo"`
+	NoREC       int `yaml:"norec"`
+	TLP         int `yaml:"tlp"`
+	DQP         int `yaml:"dqp"`
+	CERT        int `yaml:"cert"`
+	CODDTest    int `yaml:"coddtest"`
+	DQE         int `yaml:"dqe"`
+	Impo        int `yaml:"impo"`
+	GroundTruth int `yaml:"groundtruth"`
 }
 
 // FeatureWeights sets feature generation weights.
@@ -124,26 +128,41 @@ type FeatureWeights struct {
 
 // Logging controls stdout logging behavior.
 type Logging struct {
-	Verbose               bool `yaml:"verbose"`
-	ReportIntervalSeconds int  `yaml:"report_interval_seconds"`
+	Verbose               bool              `yaml:"verbose"`
+	ReportIntervalSeconds int               `yaml:"report_interval_seconds"`
+	LogFile               string            `yaml:"log_file"`
 	Metrics               MetricsThresholds `yaml:"metrics"`
+}
+
+// TQSConfig configures TQS-style DSG + ground-truth generation.
+type TQSConfig struct {
+	Enabled     bool    `yaml:"enabled"`
+	WideRows    int     `yaml:"wide_rows"`
+	DimTables   int     `yaml:"dim_tables"`
+	DepColumns  int     `yaml:"dep_columns"`
+	PayloadCols int     `yaml:"payload_columns"`
+	WalkLength  int     `yaml:"walk_length"`
+	WalkMin     int     `yaml:"walk_min"`
+	WalkMax     int     `yaml:"walk_max"`
+	Gamma       float64 `yaml:"gamma"`
 }
 
 // MetricsThresholds defines alert thresholds for periodic stats logging.
 type MetricsThresholds struct {
-	SQLValidMinRatio             float64 `yaml:"sql_valid_min_ratio"`
-	ImpoInvalidColumnsMaxRatio   float64 `yaml:"impo_invalid_columns_max_ratio"`
-	ImpoBaseExecFailedMaxRatio   float64 `yaml:"impo_base_exec_failed_max_ratio"`
+	SQLValidMinRatio           float64 `yaml:"sql_valid_min_ratio"`
+	ImpoInvalidColumnsMaxRatio float64 `yaml:"impo_invalid_columns_max_ratio"`
+	ImpoBaseExecFailedMaxRatio float64 `yaml:"impo_base_exec_failed_max_ratio"`
 }
 
 // OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
-	StrictPredicates bool    `yaml:"strict_predicates"`
-	PredicateLevel   string  `yaml:"predicate_level"`
-	CertMinBaseRows  float64 `yaml:"cert_min_base_rows"`
-	ImpoMaxRows      int     `yaml:"impo_max_rows"`
-	ImpoMaxMutations int     `yaml:"impo_max_mutations"`
-	ImpoTimeoutMs    int     `yaml:"impo_timeout_ms"`
+	StrictPredicates   bool    `yaml:"strict_predicates"`
+	PredicateLevel     string  `yaml:"predicate_level"`
+	CertMinBaseRows    float64 `yaml:"cert_min_base_rows"`
+	GroundTruthMaxRows int     `yaml:"groundtruth_max_rows"`
+	ImpoMaxRows        int     `yaml:"impo_max_rows"`
+	ImpoMaxMutations   int     `yaml:"impo_max_mutations"`
+	ImpoTimeoutMs      int     `yaml:"impo_timeout_ms"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -230,11 +249,83 @@ func normalizeConfig(cfg *Config) {
 	if cfg.MaxJoinTables > 0 && cfg.Weights.Features.JoinCount > cfg.MaxJoinTables {
 		cfg.Weights.Features.JoinCount = cfg.MaxJoinTables
 	}
+	if cfg.Database != "" {
+		cfg.DSN = ensureDatabaseInDSN(cfg.DSN, cfg.Database)
+	}
+	if cfg.TQS.Enabled {
+		cfg.Features.DSG = true
+		cfg.Weights.Actions.DDL = 0
+		cfg.Weights.Actions.DML = 0
+		if cfg.Weights.Actions.Query <= 0 {
+			cfg.Weights.Actions.Query = 1
+		}
+		cfg.Weights.Oracles.DQE = 0
+	}
+}
+
+func ensureDatabaseInDSN(dsn string, dbName string) string {
+	if dsn == "" || dbName == "" {
+		return dsn
+	}
+	slash := strings.Index(dsn, "/")
+	if slash < 0 {
+		return dsn
+	}
+	query := strings.Index(dsn[slash+1:], "?")
+	if query >= 0 {
+		query = slash + 1 + query
+	}
+	afterSlash := dsn[slash+1:]
+	if query >= 0 {
+		afterSlash = dsn[slash+1 : query]
+	}
+	if strings.TrimSpace(afterSlash) != "" {
+		return dsn
+	}
+	if query >= 0 {
+		return dsn[:slash+1] + dbName + dsn[query:]
+	}
+	return dsn + dbName
+}
+
+// UpdateDatabaseInDSN replaces the database name in the DSN path with dbName.
+// It preserves query parameters, if any.
+func UpdateDatabaseInDSN(dsn string, dbName string) string {
+	if dsn == "" || dbName == "" {
+		return dsn
+	}
+	slash := strings.Index(dsn, "/")
+	if slash < 0 {
+		return dsn
+	}
+	query := strings.Index(dsn[slash+1:], "?")
+	if query >= 0 {
+		query = slash + 1 + query
+		return dsn[:slash+1] + dbName + dsn[query:]
+	}
+	return dsn[:slash+1] + dbName
+}
+
+// AdminDSN strips the database name from a DSN while preserving query parameters.
+func AdminDSN(dsn string) string {
+	if dsn == "" {
+		return dsn
+	}
+	slash := strings.Index(dsn, "/")
+	if slash < 0 {
+		return dsn
+	}
+	query := strings.Index(dsn[slash+1:], "?")
+	if query >= 0 {
+		query = slash + 1 + query
+		return dsn[:slash+1] + dsn[query:]
+	}
+	return dsn[:slash+1]
 }
 
 func defaultConfig() Config {
 	return Config{
-		DSN:                 "root@tcp(127.0.0.1:4000)/",
+		DSN:                 "root:@tcp(127.0.0.1:4000)/",
 		Database:            "shiro_fuzz",
 		Iterations:          1000,
 		Workers:             1,
@@ -255,6 +346,17 @@ func defaultConfig() Config {
 			NotIn:                true,
 			CorrelatedSubq:       true,
 		},
+		TQS: TQSConfig{
+			Enabled:     false,
+			WideRows:    50,
+			DimTables:   3,
+			DepColumns:  2,
+			PayloadCols: 2,
+			WalkLength:  4,
+			WalkMin:     0,
+			WalkMax:     0,
+			Gamma:       0.2,
+		},
 		PlanReplayer: PlanReplayer{
 			OutputDir:           "reports",
 			DownloadURLTemplate: "http://127.0.0.1:10080/plan_replayer/dump/%s.zip",
@@ -264,18 +366,19 @@ func defaultConfig() Config {
 		Weights: Weights{
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
-			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2},
+			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 0},
 			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
 		},
 		Logging: Logging{
 			ReportIntervalSeconds: 30,
+			LogFile:               "logs/shiro.log",
 			Metrics: MetricsThresholds{
 				SQLValidMinRatio:           0.95,
 				ImpoInvalidColumnsMaxRatio: 0.05,
 				ImpoBaseExecFailedMaxRatio: 0.02,
 			},
 		},
-		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
+		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50, GroundTruthMaxRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
 			Enabled:             false,

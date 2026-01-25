@@ -21,27 +21,34 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+	if err := util.InitLogging(cfg.Logging.LogFile); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to init logging: %v\n", err)
+	}
+	defer util.CloseLogging()
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	util.Infof("starting shiro with %d worker(s)", cfg.Workers)
 	if data, err := yaml.Marshal(&cfg); err == nil {
-		util.Highlightf("config:\n%s", string(data))
+		util.Detailf("config:\n%s", string(data))
 	}
 
 	if cfg.Workers == 1 {
+		if err := setGlobalTimeZone(cfg.DSN); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.EnsureDatabase(context.Background(), cfg.DSN, cfg.Database); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to ensure database: %v\n", err)
+			os.Exit(1)
+		}
 		exec, err := db.Open(cfg.DSN)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to connect to db: %v\n", err)
-			os.Exit(1)
-		}
-		if err := setGlobalTimeZone(exec); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
 			os.Exit(1)
 		}
 		defer util.CloseWithErr(exec, "db exec")
@@ -57,7 +64,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	errCh := make(chan error, cfg.Workers)
-	if err := setGlobalTimeZoneForWorkers(cfg); err != nil {
+	if err := setGlobalTimeZone(cfg.DSN); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to set global time_zone: %v\n", err)
 		os.Exit(1)
 	}
@@ -67,6 +74,11 @@ func main() {
 			defer wg.Done()
 			workerCfg := cfg
 			workerCfg.Database = fmt.Sprintf("%s_w%d", cfg.Database, worker)
+			workerCfg.DSN = config.UpdateDatabaseInDSN(workerCfg.DSN, workerCfg.Database)
+			if err := db.EnsureDatabase(context.Background(), workerCfg.DSN, workerCfg.Database); err != nil {
+				errCh <- err
+				return
+			}
 			exec, err := db.Open(workerCfg.DSN)
 			if err != nil {
 				errCh <- err
@@ -90,18 +102,18 @@ func main() {
 	}
 }
 
-func setGlobalTimeZone(exec *db.DB) error {
-	tz := time.Now().Format("-07:00")
-	util.Infof("timezone: local=%s offset=%s", time.Local.String(), tz)
-	_, err := exec.ExecContext(context.Background(), fmt.Sprintf("SET GLOBAL time_zone='%s'", tz))
-	return err
-}
-
-func setGlobalTimeZoneForWorkers(cfg config.Config) error {
-	exec, err := db.Open(cfg.DSN)
+func setGlobalTimeZone(dsn string) error {
+	exec, err := db.Open(config.AdminDSN(dsn))
 	if err != nil {
 		return err
 	}
 	defer util.CloseWithErr(exec, "db exec")
-	return setGlobalTimeZone(exec)
+	return setGlobalTimeZoneOnConn(exec)
+}
+
+func setGlobalTimeZoneOnConn(exec *db.DB) error {
+	tz := time.Now().Format("-07:00")
+	util.Infof("timezone: local=%s offset=%s", time.Local.String(), tz)
+	_, err := exec.ExecContext(context.Background(), fmt.Sprintf("SET GLOBAL time_zone='%s'", tz))
+	return err
 }

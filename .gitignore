@@ -1,4 +1,5 @@
 reports/
+logs/
 .cache/
 !.cache/.gitkeep
 *.zip

@@ -68,6 +68,9 @@
 - TLP oracle must compare against the base query without the predicate; otherwise false positives occur.
 - CODDTest mappings are sensitive to float formatting; preserving raw string literals avoids rounding mismatches.
 - Suppressing whitelist logs unless verbose keeps non-verbose runs clean.
+- join_type_seq / join_graph_sig logging can explode; keep stdout minimal and detail log to top-N summaries to avoid log bloat.
+- TQS alignment: random-walk history graph (H) with coverage-driven edges and gamma controls join-table selection in DSG mode.
+- DSG join generation constraints: only same-name k columns; t0 should be base; ON 1=1 removed; CROSS JOIN is rare.
 - CREATE VIEW should not strip WITH if the query references CTEs; regenerate without CTE or keep WITH.
 - Avoid ORDER BY numeric literals (TiDB treats them as column positions).
 - CODDTest requires careful NULL handling; current guard only enables when relevant columns have no NULLs, but some CODDTest cases still trigger.
@@ -88,6 +91,8 @@
 - Reports now emit `origin_result` from the second EXECUTE (signature + sample rows) to anchor prepared vs. original comparisons.
 - Prepared SQL in reports must use `SET @pN=...` + `EXECUTE ... USING @pN` form; limit PREPARE parameters to <= 8.
 - SQL error handling uses a hardcoded whitelist (e.g., 1064) as fuzz-tool faults; non-whitelisted MySQL errors are treated as bugs.
+- Impo base query errors that mention `_tidb_rowid` should be captured as bug cases (plan replayer + report), not skipped.
+- Errors containing "Can't find column ... in schema Column" should be treated as bugs and reported.
 - When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
 
 ## Roadmap

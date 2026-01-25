@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"shiro/internal/config"
+	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 func (r *Runner) recordInsert(sql string) {
@@ -26,6 +29,16 @@ func (r *Runner) recordInsert(sql string) {
 func (r *Runner) rotateDatabase(ctx context.Context) error {
 	seq := globalDBSeq.Add(1)
 	r.cfg.Database = fmt.Sprintf("%s_r%d", r.baseDB, seq)
+	if err := db.EnsureDatabase(ctx, r.cfg.DSN, r.cfg.Database); err != nil {
+		return err
+	}
+	r.cfg.DSN = config.UpdateDatabaseInDSN(r.cfg.DSN, r.cfg.Database)
+	util.CloseWithErr(r.exec, "db exec")
+	exec, err := db.Open(r.cfg.DSN)
+	if err != nil {
+		return err
+	}
+	r.exec = exec
 	r.state = &schema.State{}
 	r.genMu.Lock()
 	r.gen = generator.New(r.cfg, r.state, r.cfg.Seed+seq)

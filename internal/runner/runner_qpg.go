@@ -588,9 +588,12 @@ func (r *Runner) qpgMutate(ctx context.Context) {
 	if r.cfg.Features.Indexes && util.Chance(r.gen.Rand, 50) {
 		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
 		tablePtr := &r.state.Tables[tableIdx]
-		sql, ok := r.gen.CreateIndexSQL(tablePtr)
+		tableCopy := *tablePtr
+		sql, ok := r.gen.CreateIndexSQL(&tableCopy)
 		if ok {
-			_ = r.execSQL(ctx, sql)
+			if err := r.execSQL(ctx, sql); err == nil {
+				*tablePtr = tableCopy
+			}
 		}
 		return
 	}

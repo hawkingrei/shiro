@@ -35,12 +35,20 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if !queryDeterministic(seedQuery) {
 		return impoSkip(o.Name(), metrics, "nondeterministic")
 	}
+	if len(seedQuery.With) > 0 {
+		return impoSkip(o.Name(), metrics, "with_clause")
+	}
+	if containsScalarSubquery(seedQuery) {
+		return impoSkip(o.Name(), metrics, "scalar_subquery")
+	}
 	if sanitizeQueryColumns(seedQuery, state) {
 		metrics["impo_sanitize"] = 1
 	}
 	if ok, _ := queryColumnsValid(seedQuery, state, nil); !ok {
 		return impoSkip(o.Name(), metrics, "invalid_columns")
 	}
+	seedQuery = seedQuery.Clone()
+	rewriteUsingToOn(seedQuery, state)
 	seedSQL := seedQuery.SQLString()
 	initSQL, err := impo.Init(seedSQL)
 	if err != nil {
@@ -64,6 +72,50 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 	baseRows, baseTruncated, err := queryRowSet(ctx, exec, initSQL, maxRows)
 	if err != nil {
+		if isSchemaColumnMissingErr(err) {
+			details := map[string]any{
+				"impo_seed_sql":      seedSQL,
+				"impo_init_sql":      initSQL,
+				"impo_base_exec_err": err.Error(),
+				"replay_sql":         initSQL,
+			}
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) {
+				details["impo_base_exec_err_code"] = int(mysqlErr.Number)
+			}
+			return Result{
+				OK:       false,
+				Oracle:   o.Name(),
+				SQL:      []string{initSQL},
+				Expected: "base_exec_success",
+				Actual:   fmt.Sprintf("base_exec_error: %s", err.Error()),
+				Details:  details,
+				Metrics:  metrics,
+				Err:      err,
+			}
+		}
+		if isTidbRowidErr(err) {
+			details := map[string]any{
+				"impo_seed_sql":      seedSQL,
+				"impo_init_sql":      initSQL,
+				"impo_base_exec_err": err.Error(),
+				"replay_sql":         initSQL,
+			}
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) {
+				details["impo_base_exec_err_code"] = int(mysqlErr.Number)
+			}
+			return Result{
+				OK:       false,
+				Oracle:   o.Name(),
+				SQL:      []string{initSQL},
+				Expected: "base_exec_success",
+				Actual:   fmt.Sprintf("base_exec_error: %s", err.Error()),
+				Details:  details,
+				Metrics:  metrics,
+				Err:      err,
+			}
+		}
 		return impoSkipErr(o.Name(), metrics, "base_exec_failed", initSQL, err)
 	}
 	if baseTruncated {
@@ -100,6 +152,23 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		}
 		mutRows, mutTruncated, err := queryRowSet(ctx, exec, unit.SQL, maxRows)
 		if err != nil {
+			if isSchemaColumnMissingErr(err) {
+				return Result{
+					OK:       false,
+					Oracle:   o.Name(),
+					SQL:      []string{initSQL, unit.SQL},
+					Expected: "mut_exec_success",
+					Actual:   fmt.Sprintf("mut_exec_error: %s", err.Error()),
+					Details: map[string]any{
+						"impo_seed_sql":    seedSQL,
+						"impo_init_sql":    initSQL,
+						"impo_mutated_sql": unit.SQL,
+						"replay_sql":       unit.SQL,
+					},
+					Metrics: metrics,
+					Err:     err,
+				}
+			}
 			continue
 		}
 		if mutTruncated {
@@ -193,6 +262,9 @@ func impoSkipErr(name string, metrics map[string]int64, reason string, sqlText s
 	if strings.TrimSpace(sqlText) != "" {
 		details["impo_init_sql"] = sqlText
 	}
+	if err != nil {
+		details["impo_base_exec_err"] = err.Error()
+	}
 	var mysqlErr *mysql.MySQLError
 	if errors.As(err, &mysqlErr) {
 		details["impo_base_exec_err_code"] = int(mysqlErr.Number)
@@ -210,4 +282,148 @@ func impoSkipErr(name string, metrics map[string]int64, reason string, sqlText s
 func shouldPrecheckRows(query string) bool {
 	trimmed := strings.TrimSpace(query)
 	return !strings.HasPrefix(strings.ToUpper(trimmed), "WITH ")
+}
+
+func rewriteUsingToOn(query *generator.SelectQuery, state *schema.State) {
+	if query == nil || state == nil {
+		return
+	}
+	leftTables := make([]schema.Table, 0, len(query.From.Joins)+1)
+	if base, ok := state.TableByName(query.From.BaseTable); ok {
+		leftTables = append(leftTables, base)
+	}
+	for i, join := range query.From.Joins {
+		if len(join.Using) == 0 {
+			if tbl, ok := state.TableByName(join.Table); ok {
+				leftTables = append(leftTables, tbl)
+			}
+			continue
+		}
+		right, ok := state.TableByName(join.Table)
+		if !ok {
+			continue
+		}
+		var on generator.Expr
+		for _, name := range join.Using {
+			leftRef := generator.ColumnRef{}
+			for li := len(leftTables) - 1; li >= 0; li-- {
+				if _, ok := leftTables[li].ColumnByName(name); ok {
+					leftRef = generator.ColumnRef{Table: leftTables[li].Name, Name: name}
+					break
+				}
+			}
+			if leftRef.Table == "" {
+				continue
+			}
+			rightRef := generator.ColumnRef{Table: right.Name, Name: name}
+			eq := generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: leftRef},
+				Op:    "=",
+				Right: generator.ColumnExpr{Ref: rightRef},
+			}
+			if on == nil {
+				on = eq
+			} else {
+				on = generator.BinaryExpr{Left: on, Op: "AND", Right: eq}
+			}
+		}
+		if on != nil {
+			join.On = on
+			join.Using = nil
+			query.From.Joins[i] = join
+		}
+		leftTables = append(leftTables, right)
+	}
+}
+
+func containsScalarSubquery(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if exprHasScalarSubquery(item.Expr) {
+			return true
+		}
+	}
+	if exprHasScalarSubquery(query.Where) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasScalarSubquery(expr) {
+			return true
+		}
+	}
+	if exprHasScalarSubquery(query.Having) {
+		return true
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasScalarSubquery(ob.Expr) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTidbRowidErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "_tidb_rowid")
+}
+
+func exprHasScalarSubquery(expr generator.Expr) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case generator.SubqueryExpr:
+		return true
+	case generator.UnaryExpr:
+		return exprHasScalarSubquery(e.Expr)
+	case generator.BinaryExpr:
+		return exprHasScalarSubquery(e.Left) || exprHasScalarSubquery(e.Right)
+	case generator.FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasScalarSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case generator.CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasScalarSubquery(w.When) || exprHasScalarSubquery(w.Then) {
+				return true
+			}
+		}
+		return exprHasScalarSubquery(e.Else)
+	case generator.InExpr:
+		if exprHasScalarSubquery(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasScalarSubquery(item) {
+				return true
+			}
+		}
+		return false
+	case generator.WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasScalarSubquery(arg) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprHasScalarSubquery(expr) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasScalarSubquery(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }

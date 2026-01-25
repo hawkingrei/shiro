@@ -11,19 +11,21 @@ import (
 
 // Generator creates SQL statements based on schema state.
 type Generator struct {
-	Rand          *rand.Rand
-	Config        config.Config
-	State         *schema.State
-	Adaptive      *AdaptiveWeights
-	Template      *TemplateWeights
-	LastFeatures  *QueryFeatures
-	Seed          int64
-	tableSeq      int
-	viewSeq       int
-	indexSeq      int
-	constraintSeq int
-	maxDepth      int
-	maxSubqDepth  int
+	Rand                *rand.Rand
+	Config              config.Config
+	State               *schema.State
+	Adaptive            *AdaptiveWeights
+	Template            *TemplateWeights
+	LastFeatures        *QueryFeatures
+	Seed                int64
+	Truth               any
+	TQSWalker           TQSWalker
+	tableSeq            int
+	viewSeq             int
+	indexSeq            int
+	constraintSeq       int
+	maxDepth            int
+	maxSubqDepth        int
 	predicatePairsTotal int64
 	predicatePairsJoin  int64
 }
@@ -70,6 +72,22 @@ func (g *Generator) SetTemplateWeights(weights TemplateWeights) {
 // ClearTemplateWeights disables template sampling overrides.
 func (g *Generator) ClearTemplateWeights() {
 	g.Template = nil
+}
+
+// SetTruth stores the RowID bitmap truth for TQS evaluation.
+func (g *Generator) SetTruth(truth any) {
+	g.Truth = truth
+}
+
+// TQSWalker provides random-walk join paths for TQS.
+type TQSWalker interface {
+	WalkTables(r *rand.Rand, length int, gamma float64) []string
+	RecordPath(path []string)
+}
+
+// SetTQSWalker wires a TQS history graph for random-walk joins.
+func (g *Generator) SetTQSWalker(history TQSWalker) {
+	g.TQSWalker = history
 }
 
 func (g *Generator) resetPredicateStats() {

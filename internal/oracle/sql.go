@@ -148,6 +148,38 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		}
 		tableMap[name] = tbl
 	}
+	if len(query.From.Joins) > 0 {
+		leftTables := make([]schema.Table, 0, len(query.From.Joins)+1)
+		if base, ok := tableMap[query.From.BaseTable]; ok {
+			leftTables = append(leftTables, base)
+		}
+		for _, join := range query.From.Joins {
+			if len(join.Using) > 0 {
+				right, ok := tableMap[join.Table]
+				if !ok {
+					return false, "unknown_table"
+				}
+				for _, col := range join.Using {
+					if _, ok := right.ColumnByName(col); !ok {
+						return false, "unknown_using_column"
+					}
+					found := false
+					for _, left := range leftTables {
+						if _, ok := left.ColumnByName(col); ok {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return false, "unknown_using_column"
+					}
+				}
+			}
+			if tbl, ok := tableMap[join.Table]; ok {
+				leftTables = append(leftTables, tbl)
+			}
+		}
+	}
 	checkColumn := func(ref generator.ColumnRef) (bool, string) {
 		if ref.Table == "" || ref.Name == "" {
 			return false, "empty_column"

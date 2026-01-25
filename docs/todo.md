@@ -6,10 +6,8 @@
 
 ## Phase A - Multi-Join Complexity (High Priority)
 
-1. Schema graph + join random walk (depth main range 3-7).
-2. Join shape diversity: chain, star, snowflake.
-3. Mixed join type sequences: inner/outer/semi/anti/cross.
-4. Join graph signature metrics (tables/edges/type sequence).
+1. Join shape diversity: chain, star, snowflake.
+2. Mixed join type sequences: inner/outer/semi/anti/cross.
 
 ## Phase B - GroundTruth Oracle Prototype
 
@@ -24,6 +22,8 @@
 2. Join type sequence coverage score.
 3. Adaptive generation weights for low coverage structures.
 
+## Phase C2 - TQS History + Walk Alignment (Current)
+
 ## Phase D - Observability & Reporting
 
 1. Runtime stats: join depth distribution, join type combos, coverage delta.
@@ -36,6 +36,7 @@
 2. Extend join-graph sampling into scalar subquery SELECT list (non-COUNT paths).
 3. Add join-graph-aware predicate generation for HAVING/ORDER BY filters.
 4. Add join-graph stats for subquery predicates (separate ratio counters).
+5. Add optional hint injection for TQS paths (controlled, low-probability, for optimizer stress).
 
 ## Phase E - Systematic Tests (Late Stage)
 
