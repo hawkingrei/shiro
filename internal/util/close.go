@@ -2,7 +2,6 @@ package util
 
 import (
 	"io"
-	"log"
 	"reflect"
 )
 
@@ -17,9 +16,9 @@ func CloseWithErr(closer io.Closer, name string) {
 	}
 	if err := closer.Close(); err != nil {
 		if name == "" {
-			log.Printf("close error: %v", err)
+			Warnf("close error: %v", err)
 			return
 		}
-		log.Printf("close %s: %v", name, err)
+		Warnf("close %s: %v", name, err)
 	}
 }

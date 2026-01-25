@@ -15,6 +15,7 @@ import (
 
 var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
+const topJoinSigN = 20
 
 func (r *Runner) observeSQL(sql string, err error) {
 	if strings.TrimSpace(sql) == "" {
@@ -106,6 +107,9 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 				r.impoSkipErrCodes[codeKey]++
 				if sqlText, ok := result.Details["impo_init_sql"].(string); ok && strings.TrimSpace(sqlText) != "" {
 					r.impoLastFailSQL = sqlText
+				}
+				if errText, ok := result.Details["impo_base_exec_err"].(string); ok && strings.TrimSpace(errText) != "" {
+					r.impoLastFailErr = errText
 				}
 			}
 		}
@@ -281,40 +285,37 @@ func (r *Runner) startStatsLogger() func() {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)
 					}
 					if len(deltaJoinCounts) > 0 {
+						parts := make([]string, 0, len(deltaJoinCounts))
 						keys := make([]int, 0, len(deltaJoinCounts))
 						for k := range deltaJoinCounts {
 							keys = append(keys, k)
 						}
 						sort.Ints(keys)
-						parts := make([]string, 0, len(keys))
 						for _, k := range keys {
 							parts = append(parts, fmt.Sprintf("%d=%d", k, deltaJoinCounts[k]))
 						}
-						util.Infof("join_count last interval: %s", strings.Join(parts, " "))
+						util.Detailf(
+							"join_count last interval top=%d total=%d: %s",
+							topJoinSigN,
+							len(deltaJoinCounts),
+							formatTopJoinCount(parts, topJoinSigN),
+						)
 					}
 					if len(deltaJoinTypeSeqs) > 0 {
-						keys := make([]string, 0, len(deltaJoinTypeSeqs))
-						for k := range deltaJoinTypeSeqs {
-							keys = append(keys, k)
-						}
-						sort.Strings(keys)
-						parts := make([]string, 0, len(keys))
-						for _, k := range keys {
-							parts = append(parts, fmt.Sprintf("%s=%d", k, deltaJoinTypeSeqs[k]))
-						}
-						util.Infof("join_type_seq last interval: %s", strings.Join(parts, " "))
+						util.Detailf(
+							"join_type_seq last interval top=%d total=%d: %s",
+							topJoinSigN,
+							len(deltaJoinTypeSeqs),
+							formatTopJoinSigs(deltaJoinTypeSeqs, topJoinSigN),
+						)
 					}
 					if len(deltaJoinGraphSigs) > 0 {
-						keys := make([]string, 0, len(deltaJoinGraphSigs))
-						for k := range deltaJoinGraphSigs {
-							keys = append(keys, k)
-						}
-						sort.Strings(keys)
-						parts := make([]string, 0, len(keys))
-						for _, k := range keys {
-							parts = append(parts, fmt.Sprintf("%s=%d", k, deltaJoinGraphSigs[k]))
-						}
-						util.Infof("join_graph_sig last interval: %s", strings.Join(parts, " "))
+						util.Detailf(
+							"join_graph_sig last interval top=%d total=%d: %s",
+							topJoinSigN,
+							len(deltaJoinGraphSigs),
+							formatTopJoinSigs(deltaJoinGraphSigs, topJoinSigN),
+						)
 					}
 					thresholds := r.cfg.Logging.Metrics
 					if thresholds.SQLValidMinRatio > 0 && sqlValidRatio < thresholds.SQLValidMinRatio {
@@ -339,7 +340,7 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					if deltaImpoTotal > 0 || deltaImpoSkips > 0 || deltaImpoTrunc > 0 {
-						util.Infof(
+						util.Detailf(
 							"impo stats total=%d(+%d) skipped=%d(+%d) truncated=%d(+%d)",
 							impoTotal,
 							deltaImpoTotal,
@@ -378,12 +379,16 @@ func (r *Runner) startStatsLogger() func() {
 								for i := 0; i < limit; i++ {
 									parts = append(parts, fmt.Sprintf("%s=%d", reasons[i].reason, reasons[i].delta))
 								}
-								util.Infof("impo skip reasons last interval: %s", strings.Join(parts, " "))
+								util.Detailf("impo skip reasons last interval: %s", strings.Join(parts, " "))
 							}
 						}
 						if r.cfg.Logging.Verbose && deltaImpoSkips > 0 {
 							if r.impoLastFailSQL != "" {
-								util.Infof("impo base_exec_failed example: %s", compactSQL(r.impoLastFailSQL, 2000))
+								if r.impoLastFailErr != "" {
+									util.Detailf("impo base_exec_failed example: %s err=%s", compactSQL(r.impoLastFailSQL, 2000), r.impoLastFailErr)
+								} else {
+									util.Detailf("impo base_exec_failed example: %s", compactSQL(r.impoLastFailSQL, 2000))
+								}
 							}
 						}
 						if r.cfg.Logging.Verbose && deltaImpoSkips > 0 && len(impoSkipErrCodes) > 0 {
@@ -416,7 +421,7 @@ func (r *Runner) startStatsLogger() func() {
 								for i := 0; i < limit; i++ {
 									parts = append(parts, fmt.Sprintf("%s=%d", codes[i].code, codes[i].delta))
 								}
-								util.Infof("impo base_exec_failed codes last interval: %s", strings.Join(parts, " "))
+								util.Detailf("impo base_exec_failed codes last interval: %s", strings.Join(parts, " "))
 							}
 						}
 						if r.cfg.Logging.Verbose && deltaImpoSkips > 0 {
@@ -442,7 +447,7 @@ func (r *Runner) startStatsLogger() func() {
 						lastJoinOrders = joinOrders
 						lastOpSigs = opSigs
 						lastSeenSQL = seenSQL
-						util.Infof(
+						util.Detailf(
 							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d(+%d)",
 							plans,
 							deltaPlans,
@@ -460,11 +465,11 @@ func (r *Runner) startStatsLogger() func() {
 							deltaSeenSQL,
 						)
 						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
-							util.Infof("qpg override=%s", r.qpgState.lastOverride)
+							util.Detailf("qpg override=%s", r.qpgState.lastOverride)
 							r.qpgState.lastOverrideLogged = r.qpgState.lastOverride
 						}
 						if r.qpgState.lastTemplate != "" && r.qpgState.lastTemplate != r.qpgState.lastTemplateLogged {
-							util.Infof("qpg template_override=%s", r.qpgState.lastTemplate)
+							util.Detailf("qpg template_override=%s", r.qpgState.lastTemplate)
 							r.qpgState.lastTemplateLogged = r.qpgState.lastTemplate
 						}
 						r.qpgMu.Unlock()
@@ -480,6 +485,45 @@ func (r *Runner) startStatsLogger() func() {
 		close(done)
 		ticker.Stop()
 	}
+}
+
+type joinSigStat struct {
+	key   string
+	count int64
+}
+
+func formatTopJoinSigs(stats map[string]int64, topN int) string {
+	if len(stats) == 0 || topN <= 0 {
+		return ""
+	}
+	items := make([]joinSigStat, 0, len(stats))
+	for k, v := range stats {
+		items = append(items, joinSigStat{key: k, count: v})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].count == items[j].count {
+			return items[i].key < items[j].key
+		}
+		return items[i].count > items[j].count
+	})
+	if topN > len(items) {
+		topN = len(items)
+	}
+	parts := make([]string, 0, topN)
+	for i := 0; i < topN; i++ {
+		parts = append(parts, fmt.Sprintf("%s=%d", items[i].key, items[i].count))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatTopJoinCount(parts []string, topN int) string {
+	if len(parts) == 0 || topN <= 0 {
+		return ""
+	}
+	if topN > len(parts) {
+		topN = len(parts)
+	}
+	return strings.Join(parts[:topN], " ")
 }
 
 func compactSQL(sqlText string, limit int) string {

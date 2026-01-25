@@ -28,6 +28,7 @@ func (r *Runner) initBandits() {
 			r.cfg.Weights.Oracles.CODDTest > 0,
 			r.cfg.Weights.Oracles.DQE > 0,
 			r.cfg.Weights.Oracles.Impo > 0,
+			r.cfg.Weights.Oracles.GroundTruth > 0,
 		}
 	}
 	if r.cfg.Adaptive.AdaptDML {
@@ -68,6 +69,7 @@ func (r *Runner) pickOracle() int {
 		r.cfg.Weights.Oracles.CODDTest,
 		r.cfg.Weights.Oracles.DQE,
 		r.cfg.Weights.Oracles.Impo,
+		r.cfg.Weights.Oracles.GroundTruth,
 	})
 }
 

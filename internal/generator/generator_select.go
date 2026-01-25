@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"shiro/internal/schema"
 	"shiro/internal/util"
@@ -18,12 +19,17 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	}
 	g.resetPredicateStats()
 
-	if query := g.generateTemplateQuery(baseTables); query != nil {
-		queryFeatures := AnalyzeQueryFeatures(query)
-		queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
-		queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
-		g.LastFeatures = &queryFeatures
-		return query
+	if !g.Config.TQS.Enabled {
+		if query := g.generateTemplateQuery(baseTables); query != nil {
+			if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
+				query.OrderBy = g.deterministicOrderBy(baseTables)
+			}
+			queryFeatures := AnalyzeQueryFeatures(query)
+			queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
+			queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
+			g.LastFeatures = &queryFeatures
+			return query
+		}
 	}
 
 	query := &SelectQuery{}
@@ -40,7 +46,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 	}
 
-	queryTables = g.maybeShuffleTables(queryTables)
+	if !g.Config.Features.DSG {
+		queryTables = g.maybeShuffleTables(queryTables)
+	}
 	query.From = g.buildFromClause(queryTables)
 	query.Items = g.GenerateSelectList(queryTables)
 
@@ -72,6 +80,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			limit := g.Rand.Intn(LimitMax) + 1
 			query.Limit = &limit
 		}
+	}
+	if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
+		query.OrderBy = g.deterministicOrderBy(queryTables)
 	}
 
 	queryFeatures := AnalyzeQueryFeatures(query)
@@ -563,9 +574,12 @@ func (g *Generator) pickTables() []schema.Table {
 	count := 1
 	if g.Config.Features.Joins && maxTables > 1 {
 		limit := min(maxTables, g.Config.MaxJoinTables)
-		count = g.Rand.Intn(min(limit, g.joinCount()+1)) + 1
-		if count == 1 && util.Chance(g.Rand, ForceJoinFromSingleProb) {
-			count = min(2, limit)
+		if g.Config.TQS.Enabled {
+			count = g.pickTQSJoinCount(limit)
+		} else {
+			count = g.Rand.Intn(min(limit, g.joinCount()+1)) + 1
+			if count == 1 && util.Chance(g.Rand, ForceJoinFromSingleProb) {
+				count = min(2, limit)
 		}
 		if count == 2 && limit >= 3 && util.Chance(g.Rand, JoinCountToTwoProb) {
 			count = 3
@@ -583,6 +597,7 @@ func (g *Generator) pickTables() []schema.Table {
 				count = g.Rand.Intn(biasMax-biasMin+1) + biasMin
 			}
 		}
+		}
 	}
 	if count > 1 && g.Config.Features.Joins {
 		if picked := g.pickJoinTables(count); len(picked) == count {
@@ -597,9 +612,39 @@ func (g *Generator) pickTables() []schema.Table {
 	return picked
 }
 
+func (g *Generator) pickTQSJoinCount(limit int) int {
+	if limit <= 1 {
+		return 1
+	}
+	minLen := g.Config.TQS.WalkMin
+	maxLen := g.Config.TQS.WalkMax
+	if maxLen > 0 && minLen <= 0 {
+		minLen = 1
+	}
+	if minLen > 0 && maxLen > 0 {
+		if minLen > maxLen {
+			minLen, maxLen = maxLen, minLen
+		}
+		if minLen > limit {
+			return limit
+		}
+		if maxLen > limit {
+			maxLen = limit
+		}
+		return g.Rand.Intn(maxLen-minLen+1) + minLen
+	}
+	if g.Config.TQS.WalkLength > 0 {
+		return min(limit, g.Config.TQS.WalkLength)
+	}
+	return min(limit, g.joinCount()+1)
+}
+
 func (g *Generator) pickJoinTables(count int) []schema.Table {
 	if count <= 1 {
 		return nil
+	}
+	if g.Config.Features.DSG {
+		return g.pickDSGJoinTables(count)
 	}
 	tables := g.State.Tables
 	if len(tables) < count {
@@ -627,6 +672,109 @@ func (g *Generator) pickJoinTables(count int) []schema.Table {
 		return mapJoinTables(tables, idxs)
 	}
 	return nil
+}
+
+func (g *Generator) pickDSGJoinTables(count int) []schema.Table {
+	if count <= 0 || len(g.State.Tables) == 0 {
+		return nil
+	}
+	var base schema.Table
+	baseOK := false
+	dims := make([]schema.Table, 0, len(g.State.Tables)-1)
+	for _, tbl := range g.State.Tables {
+		if tbl.Name == "t0" {
+			base = tbl
+			baseOK = true
+			continue
+		}
+		dims = append(dims, tbl)
+	}
+	if !baseOK {
+		return nil
+	}
+	if count == 1 || len(dims) == 0 {
+		return []schema.Table{base}
+	}
+	maxCount := 1 + len(dims)
+	if count > maxCount {
+		count = maxCount
+	}
+	if g.Config.TQS.Enabled && g.TQSWalker != nil {
+		path := g.TQSWalker.WalkTables(g.Rand, count, g.Config.TQS.Gamma)
+		if len(path) >= 2 {
+			picked := mapTablesByName(g.State.Tables, path)
+			picked = ensureBaseFirst(picked, base.Name)
+			if len(picked) < count {
+				picked = appendMissingTables(picked, dims, count)
+			}
+			if len(picked) >= 2 {
+				return picked
+			}
+		}
+	}
+	perm := g.Rand.Perm(len(dims))
+	picked := make([]schema.Table, 0, count)
+	picked = append(picked, base)
+	for i := 0; i < count-1; i++ {
+		picked = append(picked, dims[perm[i]])
+	}
+	return picked
+}
+
+func mapTablesByName(tables []schema.Table, names []string) []schema.Table {
+	if len(names) == 0 {
+		return nil
+	}
+	tableMap := make(map[string]schema.Table, len(tables))
+	for _, tbl := range tables {
+		tableMap[tbl.Name] = tbl
+	}
+	out := make([]schema.Table, 0, len(names))
+	for _, name := range names {
+		if tbl, ok := tableMap[name]; ok {
+			out = append(out, tbl)
+		}
+	}
+	return out
+}
+
+func ensureBaseFirst(tables []schema.Table, base string) []schema.Table {
+	if len(tables) == 0 || base == "" {
+		return tables
+	}
+	if tables[0].Name == base {
+		return tables
+	}
+	for i, tbl := range tables {
+		if tbl.Name == base {
+			out := make([]schema.Table, 0, len(tables))
+			out = append(out, tbl)
+			out = append(out, append(tables[:i], tables[i+1:]...)...)
+			return out
+		}
+	}
+	return tables
+}
+
+func appendMissingTables(picked []schema.Table, candidates []schema.Table, target int) []schema.Table {
+	if len(picked) >= target {
+		return picked
+	}
+	seen := make(map[string]struct{}, len(picked))
+	for _, tbl := range picked {
+		seen[tbl.Name] = struct{}{}
+	}
+	for _, tbl := range candidates {
+		if len(picked) >= target {
+			break
+		}
+		if _, ok := seen[tbl.Name]; ok {
+			continue
+		}
+		picked = append(picked, tbl)
+		seen[tbl.Name] = struct{}{}
+	}
+	return picked
 }
 
 type joinShape int
@@ -669,10 +817,25 @@ func buildJoinAdjacency(tables []schema.Table) [][]int {
 }
 
 func (g *Generator) collectJoinColumns(tbl schema.Table, useIndexPrefix bool) []ColumnRef {
+	var cols []ColumnRef
 	if useIndexPrefix {
-		return g.collectIndexPrefixColumns([]schema.Table{tbl})
+		cols = g.collectIndexPrefixColumns([]schema.Table{tbl})
+	} else {
+		cols = g.collectColumns([]schema.Table{tbl})
 	}
-	return g.collectColumns([]schema.Table{tbl})
+	if !g.Config.Features.DSG {
+		return cols
+	}
+	filtered := make([]ColumnRef, 0, len(cols))
+	for _, col := range cols {
+		if strings.HasPrefix(col.Name, "k") {
+			filtered = append(filtered, col)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered
+	}
+	return cols
 }
 
 func (g *Generator) collectJoinPairs(left schema.Table, right schema.Table, requireSameName bool, useIndexPrefix bool) []columnPair {
@@ -911,7 +1074,7 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 	}
 	for i := 1; i < len(tables); i++ {
 		joinType := JoinInner
-		if util.Chance(g.Rand, CrossJoinProb) {
+		if rareChance(g.Rand, crossJoinRareDenom) {
 			joinType = JoinCross
 		} else {
 			switch g.Rand.Intn(3) {
@@ -933,6 +1096,14 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 			}
 		}
 		from.Joins = append(from.Joins, join)
+	}
+	if g.Config.TQS.Enabled && g.TQSWalker != nil {
+		path := make([]string, 0, 1+len(from.Joins))
+		path = append(path, from.BaseTable)
+		for _, join := range from.Joins {
+			path = append(path, join.Table)
+		}
+		g.TQSWalker.RecordPath(path)
 	}
 	return from
 }
@@ -990,7 +1161,7 @@ func (g *Generator) joinCondition(left []schema.Table, right schema.Table) Expr 
 	if l, r, ok := g.pickJoinColumnPair(left, right); ok {
 		return BinaryExpr{Left: ColumnExpr{Ref: l}, Op: "=", Right: ColumnExpr{Ref: r}}
 	}
-	return g.trueExpr()
+	return g.falseExpr()
 }
 
 func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {
@@ -1039,6 +1210,31 @@ func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef
 }
 
 func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) (leftCol ColumnRef, rightCol ColumnRef, ok bool) {
+	if g.Config.Features.DSG {
+		leftTables := left
+		for _, tbl := range left {
+			if tbl.Name == "t0" {
+				leftTables = []schema.Table{tbl}
+				break
+			}
+		}
+		preferIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+		prefixFirst := []bool{true, false}
+		if !preferIndexPrefix {
+			prefixFirst = []bool{false, true}
+		}
+		for _, useIndexPrefix := range prefixFirst {
+			for _, ltbl := range leftTables {
+				pairs := g.collectJoinPairs(ltbl, right, true, useIndexPrefix)
+				if len(pairs) > 0 {
+					pair := pairs[g.Rand.Intn(len(pairs))]
+					leftCol, rightCol, ok = pair.Left, pair.Right, true
+					return
+				}
+			}
+		}
+		return
+	}
 	if util.Chance(g.Rand, g.indexPrefixProb()) {
 		for _, ltbl := range left {
 			pairs := g.collectJoinPairs(ltbl, right, true, true)
@@ -1080,6 +1276,31 @@ func (g *Generator) pickCorrelatedJoinPair(outerTables []schema.Table, inner sch
 	if len(outerTables) == 0 {
 		return ColumnRef{}, ColumnRef{}, false
 	}
+	if g.Config.Features.DSG {
+		anchors := outerTables
+		for _, tbl := range outerTables {
+			if tbl.Name == "t0" {
+				anchors = []schema.Table{tbl}
+				break
+			}
+		}
+		preferIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+		prefixFirst := []bool{true, false}
+		if !preferIndexPrefix {
+			prefixFirst = []bool{false, true}
+		}
+		for _, useIndexPrefix := range prefixFirst {
+			for _, tbl := range anchors {
+				pairs := g.collectJoinPairs(tbl, inner, true, useIndexPrefix)
+				if len(pairs) == 0 {
+					continue
+				}
+				pair := pairs[g.Rand.Intn(len(pairs))]
+				return pair.Left, pair.Right, true
+			}
+		}
+		return ColumnRef{}, ColumnRef{}, false
+	}
 	outerOrder := g.Rand.Perm(len(outerTables))
 	tryPick := func(requireSameName bool, useIndexPrefix bool) (ColumnRef, ColumnRef, bool) {
 		for _, idx := range outerOrder {
@@ -1109,8 +1330,54 @@ func (g *Generator) pickCorrelatedJoinPair(outerTables []schema.Table, inner sch
 	return ColumnRef{}, ColumnRef{}, false
 }
 
-func (g *Generator) trueExpr() Expr {
-	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}}
+func (g *Generator) falseExpr() Expr {
+	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 0}}
+}
+
+func hasCrossOrTrueJoin(from FromClause) bool {
+	for _, join := range from.Joins {
+		if join.Type == JoinCross {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) deterministicOrderBy(tables []schema.Table) []OrderBy {
+	if len(tables) == 0 {
+		return nil
+	}
+	base := tables[0]
+	var col schema.Column
+	found := false
+	for _, c := range base.Columns {
+		if c.Name == "id" {
+			col = c
+			found = true
+			break
+		}
+	}
+	if !found {
+		if len(base.Columns) == 0 {
+			return nil
+		}
+		col = base.Columns[0]
+	}
+	return []OrderBy{{
+		Expr: ColumnExpr{Ref: ColumnRef{Table: base.Name, Name: col.Name, Type: col.Type}},
+		Desc: false,
+	}}
+}
+
+const (
+	crossJoinRareDenom = 10_000
+)
+
+func rareChance(r *rand.Rand, denom int) bool {
+	if r == nil || denom <= 1 {
+		return denom <= 1
+	}
+	return r.Intn(denom) == 0
 }
 
 // compatibleColumnType and typeCategory are defined in type_compat.go.

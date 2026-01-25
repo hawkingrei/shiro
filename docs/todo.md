@@ -36,6 +36,7 @@
 2. Extend join-graph sampling into scalar subquery SELECT list (non-COUNT paths).
 3. Add join-graph-aware predicate generation for HAVING/ORDER BY filters.
 4. Add join-graph stats for subquery predicates (separate ratio counters).
+5. Add optional hint injection for TQS paths (controlled, low-probability, for optimizer stress).
 
 ## Phase E - Systematic Tests (Late Stage)
 

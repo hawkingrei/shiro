@@ -96,12 +96,17 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		}
 	}
 
+	details := result.Details
+	if details == nil {
+		details = map[string]any{}
+	}
+
 	summary := report.Summary{
 		Oracle:        result.Oracle,
 		SQL:           result.SQL,
 		Expected:      result.Expected,
 		Actual:        result.Actual,
-		Details:       result.Details,
+		Details:       details,
 		Seed:          r.gen.Seed,
 		Timestamp:     time.Now().Format(time.RFC3339),
 		PlanReplay:    planPath,

@@ -15,7 +15,6 @@ statement_timeout_ms: 15000
 features:
   plan_cache: true
   partition_tables: true
-  non_prepared_plan_cache: true
   joins: true
   cte: true
   subqueries: true
@@ -33,6 +32,7 @@ features:
   check_constraints: true
   not_exists: true
   not_in: true
+  dsg: false
 
 weights:
   actions:
@@ -62,6 +62,14 @@ weights:
 logging:
   verbose: true
   report_interval_seconds: 30
+  log_file: "logs/shiro.log"
+
+oracles:
+  strict_predicates: true
+  groundtruth_max_rows: 50
+  impo_max_rows: 200
+  impo_max_mutations: 64
+  impo_timeout_ms: 5000
 
 qpg:
   enabled: true
@@ -70,6 +78,17 @@ qpg:
   seen_sql_ttl_seconds: 60
   seen_sql_max: 4096
   seen_sql_sweep_seconds: 300
+
+tqs:
+  enabled: false
+  wide_rows: 50
+  dim_tables: 3
+  dep_columns: 2
+  payload_columns: 2
+  walk_length: 4
+  walk_min: 0
+  walk_max: 0
+  gamma: 0.2
 
 signature:
   round_scale: 6

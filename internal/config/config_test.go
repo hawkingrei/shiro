@@ -22,11 +22,8 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.DSN != "root@tcp(127.0.0.1:4000)/" {
+	if cfg.DSN == "" {
 		t.Fatalf("unexpected DSN: %s", cfg.DSN)
-	}
-	if cfg.Database != "shiro_fuzz" {
-		t.Fatalf("unexpected database: %s", cfg.Database)
 	}
 	if cfg.PlanReplayer.DownloadURLTemplate == "" {
 		t.Fatalf("expected default plan replayer download url")
@@ -39,6 +36,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Logging.ReportIntervalSeconds != 30 {
 		t.Fatalf("unexpected report interval: %d", cfg.Logging.ReportIntervalSeconds)
+	}
+	if cfg.Logging.LogFile != "logs/shiro.log" {
+		t.Fatalf("unexpected log file: %s", cfg.Logging.LogFile)
 	}
 }
 

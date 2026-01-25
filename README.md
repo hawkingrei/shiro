@@ -30,6 +30,7 @@ Set `workers` in `config.yaml`. Each worker runs in its own database (`<database
 ## SQL validity logging
 Every `report_interval_seconds`, Shiro logs the ratio of parser-valid SQL to total SQL observed in that interval.
 When QPG is enabled and `logging.verbose` is true, it also prints per-interval QPG coverage deltas (plans/shapes/ops/join types).
+Set `logging.log_file` to write detailed logs to a file (default `logs/shiro.log`), while stdout keeps only the basic interval summaries and errors. Stdout entries are also mirrored into the log file.
 
 ## EXISTS/IN coverage
 `features.not_exists` and `features.not_in` toggle negation forms, while `weights.features.not_exists_prob` and `weights.features.not_in_prob` control how often NOT EXISTS/NOT IN are generated.
@@ -37,6 +38,10 @@ When QPG is enabled and `logging.verbose` is true, it also prints per-interval Q
 ## Oracle strictness
 `oracles.strict_predicates: true` (default) limits TLP/CODDTest to simple deterministic predicates to reduce false positives.
 Set it to `false` if you want broader coverage at the cost of more noisy cases.
+
+## GroundTruth oracle limits
+`oracles.groundtruth_max_rows` caps per-table sample size used by the GroundTruth join-count checker (default 50).
+Lower values reduce runtime overhead but may increase false negatives.
 
 ## Adaptive weights (bandit)
 Enable `adaptive.enabled` to let Shiro adjust selection of actions/oracles/DML based on bug yield.
@@ -60,7 +65,6 @@ In normal mode, Shiro still runs prepared statements and applies the same plan-c
 The plan-cache check verifies `SELECT @@last_plan_from_cache = 1` on the second execution (when no warning indicates a cache skip).
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.
-Enable `features.non_prepared_plan_cache` to test non-prepared plan cache behavior; Shiro replays parameterized variants and compares cached vs. non-cached results, recording whether `@@last_plan_from_cache` hit.
 Signature comparisons round floating-point outputs to reduce false positives; set `signature.round_scale` and `signature.plan_cache_round_scale` to tune.
 
 ## Case minimization

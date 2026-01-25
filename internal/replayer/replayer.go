@@ -122,7 +122,7 @@ func (r *Replayer) download(ctx context.Context, url string, caseDir string) (st
 	}
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil {
-			util.Infof("close replayer response: %v", cerr)
+			util.Detailf("close replayer response: %v", cerr)
 		}
 	}()
 	if resp.StatusCode/100 != 2 {
