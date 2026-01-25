@@ -7,6 +7,7 @@ linters:
   default: none
   enable:
     - bodyclose
+    - copyloopvar
     - durationcheck
     - errcheck
     - govet
@@ -14,9 +15,23 @@ linters:
     - revive
     - staticcheck
     - unused
-    - revive
+    - durationcheck
+    - predeclared
+    - prealloc
 
   settings:
+    govet:
+      enable:
+        - nilfunc
+        - printf
+        - structtag
+        - unmarshal
+        - unreachable
+        - unusedresult
+        - lostcancel
+        - sortslice
+        - stdmethods  
+        - unusedwrite
     revive:
       rules:
         - name: atomic

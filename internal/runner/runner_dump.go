@@ -131,8 +131,8 @@ func (r *Runner) snapshotQPG() *qpgDump {
 	plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
 	var override *generator.AdaptiveWeights
 	if r.qpgState.override != nil {
-		copy := *r.qpgState.override
-		override = &copy
+		overrideCopy := *r.qpgState.override
+		override = &overrideCopy
 	}
 	return &qpgDump{
 		SeenPlans:      plans,

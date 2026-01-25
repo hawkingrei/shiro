@@ -786,7 +786,9 @@ func (r *Runner) warningsOnConn(ctx context.Context, conn *sql.Conn) ([]string, 
 }
 
 func planCacheSQLSequence(concreteSQL, preparedSQL string, firstArgs []any, baseArgs []any, connID int64) []string {
-	seq := []string{concreteSQL, formatPrepareSQL(preparedSQL)}
+	capacity := 8 + len(firstArgs) + 3*len(baseArgs)
+	seq := make([]string, 0, capacity)
+	seq = append(seq, concreteSQL, formatPrepareSQL(preparedSQL))
 	seq = append(seq, formatExecuteSQLWithVars("stmt", firstArgs)...)
 	seq = append(seq, "SELECT @@last_plan_from_cache")
 	seq = append(seq, formatExecuteSQLWithVars("stmt", baseArgs)...)

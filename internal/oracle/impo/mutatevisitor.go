@@ -577,7 +577,7 @@ func (v *MutateVisitor) addCandidate(mutationName string, u int, in ast.Node, fl
 	var ls []*Candidate
 	ok := false
 	if ls, ok = v.Candidates[mutationName]; !ok {
-		ls = make([]*Candidate, 0)
+		ls = make([]*Candidate, 0, 1)
 	}
 	ls = append(ls, &Candidate{
 		MutationName: mutationName,
