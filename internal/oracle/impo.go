@@ -150,6 +150,14 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		if unit.Err != nil || unit.SQL == "" {
 			continue
 		}
+		if shouldPrecheckRows(unit.SQL) {
+			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS impo_mut", unit.SQL)
+			count, err := exec.QueryCount(ctx, countSQL)
+			if err == nil && int(count) > maxRows {
+				metrics["impo_trunc"]++
+				continue
+			}
+		}
 		mutRows, mutTruncated, err := queryRowSet(ctx, exec, unit.SQL, maxRows)
 		if err != nil {
 			if isSchemaColumnMissingErr(err) {

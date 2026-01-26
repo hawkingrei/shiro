@@ -490,6 +490,14 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 					return
 				}
 			}
+			for _, ltbl := range leftTables {
+				pairs := g.collectJoinPairs(ltbl, right, false, useIndexPrefix)
+				if len(pairs) > 0 {
+					pair := pairs[g.Rand.Intn(len(pairs))]
+					leftCol, rightCol, ok = pair.Left, pair.Right, true
+					return
+				}
+			}
 		}
 		return
 	}
@@ -542,6 +550,14 @@ func (g *Generator) pickCorrelatedJoinPair(outerTables []schema.Table, inner sch
 		for _, useIndexPrefix := range prefixFirst {
 			for _, tbl := range anchors {
 				pairs := g.collectJoinPairs(tbl, inner, true, useIndexPrefix)
+				if len(pairs) == 0 {
+					continue
+				}
+				pair := pairs[g.Rand.Intn(len(pairs))]
+				return pair.Left, pair.Right, true
+			}
+			for _, tbl := range anchors {
+				pairs := g.collectJoinPairs(tbl, inner, false, useIndexPrefix)
 				if len(pairs) == 0 {
 					continue
 				}

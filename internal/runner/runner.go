@@ -277,6 +277,9 @@ func (r *Runner) runDDL(ctx context.Context) {
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
 		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
+		if r.tqsHistory != nil {
+			r.tqsHistory.Refresh(r.state)
+		}
 	case "create_index":
 		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
 		tablePtr := &r.state.Tables[tableIdx]
