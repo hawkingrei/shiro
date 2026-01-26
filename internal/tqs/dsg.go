@@ -79,7 +79,7 @@ func Build(cfg config.Config, r *rand.Rand) (BuildResult, error) {
 	domains := make([][]typedValue, dimTables)
 	depMaps := make([]map[string]map[string]typedValue, dimTables)
 	for i := 0; i < dimTables; i++ {
-		domainSize := minInt(10, maxInt(2, rows/3))
+		domainSize := min(10, max(2, rows/3))
 		values := make([]typedValue, 0, domainSize)
 		seen := map[string]struct{}{}
 		for len(values) < domainSize {
@@ -380,18 +380,4 @@ func joinCSV(items []string) string {
 		out += ", " + items[i]
 	}
 	return out
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

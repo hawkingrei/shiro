@@ -10,7 +10,7 @@ func (r *Runner) applyOracleBias(oracleName string) bool {
 	applied := false
 	switch oracleName {
 	case "DQP":
-		weights.JoinCount = maxInt(r.cfg.Weights.Features.JoinCount, 3)
+		weights.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
 		weights.SubqCount = 0
 		weights.AggProb = 0
 		applied = true
@@ -28,11 +28,4 @@ func (r *Runner) applyOracleBias(oracleName string) bool {
 	}
 	r.setAdaptiveWeights(weights)
 	return true
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
