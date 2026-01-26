@@ -434,16 +434,6 @@ func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {
 	return cols
 }
 
-func (g *Generator) collectColumnsExact(tables []schema.Table) []ColumnRef {
-	cols := make([]ColumnRef, 0, 8)
-	for _, tbl := range tables {
-		for _, col := range tbl.Columns {
-			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
-		}
-	}
-	return cols
-}
-
 func (g *Generator) collectIndexPrefixColumns(tables []schema.Table) []ColumnRef {
 	cols := make([]ColumnRef, 0, 8)
 	seen := map[string]struct{}{}
