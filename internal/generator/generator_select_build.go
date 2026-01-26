@@ -19,7 +19,15 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	if !g.Config.TQS.Enabled {
 		if query := g.generateTemplateQuery(baseTables); query != nil {
 			if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
-				query.OrderBy = g.deterministicOrderBy(baseTables)
+				if query.Distinct {
+					if ob := g.GenerateOrderByFromItems(query.Items); len(ob) > 0 {
+						query.OrderBy = ob
+					} else {
+						query.OrderBy = g.deterministicOrderBy(baseTables)
+					}
+				} else {
+					query.OrderBy = g.deterministicOrderBy(baseTables)
+				}
 			}
 			if !g.validateQueryScope(query) {
 				return nil
@@ -96,7 +104,15 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 	}
 	if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
-		query.OrderBy = g.deterministicOrderBy(queryTables)
+		if query.Distinct {
+			if ob := g.GenerateOrderByFromItems(query.Items); len(ob) > 0 {
+				query.OrderBy = ob
+			} else {
+				query.OrderBy = g.deterministicOrderBy(queryTables)
+			}
+		} else {
+			query.OrderBy = g.deterministicOrderBy(queryTables)
+		}
 	}
 
 	if !g.validateQueryScope(query) {
