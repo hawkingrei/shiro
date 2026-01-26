@@ -20,16 +20,7 @@ func (r *Runner) initBandits() {
 	}
 	if r.cfg.Adaptive.AdaptOracles {
 		r.oracleBandit = util.NewBandit(len(r.oracles), r.cfg.Adaptive.UCBExploration)
-		r.oracleEnabled = []bool{
-			r.cfg.Weights.Oracles.NoREC > 0,
-			r.cfg.Weights.Oracles.TLP > 0,
-			r.cfg.Weights.Oracles.DQP > 0,
-			r.cfg.Weights.Oracles.CERT > 0,
-			r.cfg.Weights.Oracles.CODDTest > 0,
-			r.cfg.Weights.Oracles.DQE > 0,
-			r.cfg.Weights.Oracles.Impo > 0,
-			r.cfg.Weights.Oracles.GroundTruth > 0,
-		}
+		r.refreshOracleEnabled()
 	}
 	if r.cfg.Adaptive.AdaptDML {
 		r.dmlBandit = util.NewBandit(3, r.cfg.Adaptive.UCBExploration)
@@ -41,6 +32,29 @@ func (r *Runner) initBandits() {
 	}
 	if r.cfg.Adaptive.AdaptFeatures {
 		r.featureBandit = newFeatureBandits(r.cfg)
+	}
+}
+
+func (r *Runner) oracleWeights() []int {
+	return []int{
+		r.cfg.Weights.Oracles.NoREC,
+		r.cfg.Weights.Oracles.TLP,
+		r.cfg.Weights.Oracles.DQP,
+		r.cfg.Weights.Oracles.CERT,
+		r.cfg.Weights.Oracles.CODDTest,
+		r.cfg.Weights.Oracles.DQE,
+		r.cfg.Weights.Oracles.Impo,
+		r.cfg.Weights.Oracles.GroundTruth,
+	}
+}
+
+func (r *Runner) refreshOracleEnabled() {
+	weights := r.oracleWeights()
+	if r.oracleEnabled == nil || len(r.oracleEnabled) != len(weights) {
+		r.oracleEnabled = make([]bool, len(weights))
+	}
+	for i, w := range weights {
+		r.oracleEnabled[i] = w > 0
 	}
 }
 
@@ -59,6 +73,8 @@ func (r *Runner) updateActionBandit(action int, reward float64) {
 
 func (r *Runner) pickOracle() int {
 	if r.oracleBandit != nil {
+		r.statsMu.Lock()
+		defer r.statsMu.Unlock()
 		return r.oracleBandit.Pick(r.gen.Rand, r.oracleEnabled)
 	}
 	return util.PickWeighted(r.gen.Rand, []int{
@@ -76,6 +92,31 @@ func (r *Runner) pickOracle() int {
 func (r *Runner) updateOracleBandit(oracleIdx int, reward float64) {
 	if r.oracleBandit != nil {
 		r.oracleBandit.Update(oracleIdx, reward)
+	}
+}
+
+func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
+	if r.oracleBandit == nil || len(delta) == 0 {
+		return
+	}
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	for i, o := range r.oracles {
+		stat, ok := delta[o.Name()]
+		if !ok || stat.Runs == 0 {
+			continue
+		}
+		reward := float64(stat.Mismatches + stat.Panics)
+		if stat.Errors > 0 {
+			reward += 0.5 * float64(stat.Errors)
+		}
+		skipRatio := float64(stat.Skips) / float64(stat.Runs)
+		reward -= 0.2 * skipRatio
+		if reward < 0 {
+			reward = 0
+		}
+		rewardPerRun := reward / float64(stat.Runs)
+		r.oracleBandit.UpdateBatch(i, rewardPerRun, int(stat.Runs))
 	}
 }
 

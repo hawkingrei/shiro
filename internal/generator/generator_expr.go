@@ -341,6 +341,9 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left Column
 }
 
 func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
+	if g.disallowScalarSubq {
+		allowSubquery = false
+	}
 	if depth <= 0 {
 		if util.Chance(g.Rand, ScalarExprColumnProb) {
 			col := g.randomColumn(tables)

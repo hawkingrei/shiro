@@ -15,6 +15,14 @@ type History struct {
 	edge map[string]int64
 }
 
+// Stats summarizes the walk coverage over the history graph.
+type Stats struct {
+	Nodes   int
+	Edges   int
+	Covered int
+	Steps   int64
+}
+
 // NewHistory builds a history graph from the current schema.
 func NewHistory(state *schema.State, base string) *History {
 	h := &History{
@@ -81,6 +89,36 @@ func (h *History) RecordPath(path []string) {
 	for i := 1; i < len(path); i++ {
 		key := edgeKey(path[i-1], path[i])
 		h.edge[key]++
+	}
+}
+
+// Stats returns a snapshot of current edge coverage and total steps.
+func (h *History) Stats() Stats {
+	if h == nil {
+		return Stats{}
+	}
+	edges := map[string]struct{}{}
+	for left, neighbors := range h.adj {
+		for _, right := range neighbors {
+			edges[edgeKey(left, right)] = struct{}{}
+		}
+	}
+	var covered int
+	var steps int64
+	for key, count := range h.edge {
+		if count <= 0 {
+			continue
+		}
+		if _, ok := edges[key]; ok {
+			covered++
+		}
+		steps += count
+	}
+	return Stats{
+		Nodes:   len(h.adj),
+		Edges:   len(edges),
+		Covered: covered,
+		Steps:   steps,
 	}
 }
 

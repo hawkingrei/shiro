@@ -56,16 +56,16 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	}
 }
 
-// GenerateAggregateSelectList builds a SELECT list with aggregates.
-func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, withGroupBy bool) []SelectItem {
-	items := make([]SelectItem, 0, 3)
+// GenerateAggregateSelectList builds a SELECT list with aggregates and group keys.
+func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, groupBy []Expr) []SelectItem {
+	items := make([]SelectItem, 0, 2+len(groupBy))
+	for i, expr := range groupBy {
+		items = append(items, SelectItem{Expr: expr, Alias: fmt.Sprintf("g%d", i)})
+	}
 	items = append(items, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
 	sumArg := g.GenerateNumericExprPreferDecimalNoDouble(tables)
 	g.warnAggOnDouble("SUM", sumArg)
 	items = append(items, SelectItem{Expr: FuncExpr{Name: "SUM", Args: []Expr{sumArg}}, Alias: "sum1"})
-	if withGroupBy {
-		items = append(items, SelectItem{Expr: g.GenerateScalarExpr(tables, g.maxDepth-1, false), Alias: "g1"})
-	}
 	return items
 }
 

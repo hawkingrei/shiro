@@ -1,25 +1,25 @@
 # Detecting Optimization Bugs in Database Engines via Non-Optimizing Reference Engine Construction (NoREC)
 
-## 问题背景
-优化器错误会让数据库在不报错的情况下返回错误结果。传统的“等价查询”差分测试往往需要精心设计的变换规则，覆盖面受限，并且对复杂查询不易扩展。
+## Background
+Optimizer bugs can return wrong results without errors. Traditional differential testing relies on complex equivalence rewrites, which are limited in coverage and hard to scale to complex queries.
 
-## 核心思路
-NoREC 的核心思想是构造一个“非优化参考执行”版本的查询，通过强制让数据库逐行计算谓词，从而得到与原查询等价但不会依赖优化器重写的结果。若两者结果数量不一致，则高度怀疑存在优化器逻辑错误。
+## Core Idea
+NoREC constructs a non-optimizing reference query that forces row-by-row predicate evaluation. If the optimized query count differs from the reference count, it likely exposes an optimizer logic bug.
 
-## 关键机制
-1. 将原查询重写为一个计算谓词并统计为真的行数的查询，避免优化器对谓词进行常规等价变换。
-2. 原查询执行得到的行数作为基准，参考查询执行得到的行数作为对照。
-3. 只比较行数而非具体行内容，降低受排序与投影差异的影响。
+## Key Mechanics
+1. Rewrite the original query into a form that evaluates the predicate per row and counts TRUE results, avoiding optimizer rewrites.
+2. Use the original query count as the baseline and the reference query count as the control.
+3. Compare counts only to avoid noise from ordering and projection differences.
 
-## Oracle 形式
-- 原查询：SELECT ... WHERE predicate
-- 参考查询：SELECT COUNT(*) FROM (SELECT predicate IS TRUE AS p FROM ...) t WHERE p
-- 若两者 COUNT 不一致，则触发 bug。
+## Oracle Form
+- Original: SELECT ... WHERE predicate
+- Reference: SELECT COUNT(*) FROM (SELECT predicate IS TRUE AS p FROM ...) t WHERE p
+- If counts differ, flag a bug.
 
-## 适用范围与限制
-- 适用于优化器相关错误，特别是谓词下推、逻辑重写、表达式简化等场景。
-- 假设查询的谓词逻辑可被安全投影并评估；复杂副作用或非确定性函数需避开。
-- 仅比较行数会降低对“行内容错误但行数相同”的覆盖。
+## Scope and Limitations
+- Targets optimizer logic errors such as predicate pushdown, logical rewrites, and expression simplification.
+- Assumes predicates are safe to evaluate and project; avoid side effects or non-deterministic functions.
+- Count-only comparison may miss wrong-row-content bugs with identical counts.
 
-## 价值与影响
-NoREC 通过构造“非优化”对照执行绕开了等价重写规则的局限，提升了发现优化器逻辑错误的概率，是面向优化器正确性的经典 oracle 之一。
+## Impact
+NoREC bypasses equivalence rewrite complexity by constructing a non-optimizing control, improving discovery of optimizer logic errors.

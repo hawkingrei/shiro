@@ -39,15 +39,15 @@ func (o TLP) Name() string { return "TLP" }
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	query := gen.GenerateSelectQuery()
 	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:no_where"}}
 	}
 	if !queryDeterministic(query) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:nondeterministic"}}
 	}
 	policy := predicatePolicyFor(gen)
 	policy.allowIsNull = false
 	if !predicateMatches(query.Where, policy) {
-		return Result{OK: true, Oracle: o.Name()}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:predicate_guard"}}
 	}
 
 	base := query.Clone()

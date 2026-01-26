@@ -1,32 +1,31 @@
 # Oracles Boundary Notes
 
-本目录用于记录每个 oracle 的适用边界、已知限制与常见误报场景。请按 oracle 名称新增单独文件，例如：
+This directory documents each oracle's scope, limitations, and common false positives.
 
-- `docs/oracles/norec.md`
-- `docs/oracles/dqp.md`
-- `docs/oracles/impo.md`
+Current oracle notes live under `docs/` (for example `docs/norec.md`, `docs/dqp.md`, `docs/impo.md`).
+If you move them here, add per-oracle files and update references.
 
-建议使用以下模板：
+Suggested template:
 
 ## Scope
 
-- 适用的 SQL 形态与特性。
-- 明确排除的语法/函数/语义组合。
+- Supported SQL shapes and features.
+- Explicitly excluded syntax or semantics.
 
 ## Guardrails
 
-- 运行前的过滤条件。
-- 运行中的限制条件（例如行数上限、时间预算）。
+- Pre-run filters.
+- Runtime limits (row caps, time budgets).
 
 ## False Positives
 
-- 常见误报来源。
-- 最小示例与触发原因。
+- Common causes.
+- Minimal reproducing example and why it triggers.
 
 ## Comparison Model
 
-- Optimized vs Unoptimized 对比的核心假设。
-- 可能破坏对比假设的条件。
+- Core assumptions for optimized vs unoptimized comparison.
+- Conditions that break the assumptions.
 
 ## Example
 

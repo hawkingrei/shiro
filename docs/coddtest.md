@@ -1,25 +1,25 @@
 # Constant Optimization Driven Database System Testing (CODDTest)
 
-## 问题背景
-数据库优化器会执行常量折叠与常量传播等编译期优化。若这些优化存在逻辑缺陷，可能导致查询结果错误，但传统等价变换难以稳定触发。
+## Background
+Optimizers perform constant folding and propagation at compile time. If these optimizations are flawed, queries can return wrong results, yet equivalence-based testing may not reliably trigger them.
 
-## 核心思路
-CODDTest 将“常量优化”转化为测试 oracle。通过构造语义等价的查询对（一个依赖常量优化、一个显式展开），比较执行结果以发现优化器在常量处理上的逻辑错误。
+## Core Idea
+CODDTest turns constant optimization into an oracle. It constructs semantically equivalent query pairs (one relying on constant optimization and one explicitly expanded) and compares their results.
 
-## 关键机制
-1. 选择包含谓词或表达式的查询作为种子。
-2. 生成“常量化”版本，例如将部分表达式替换为常量或通过 CASE 显式展开逻辑。
-3. 对比原查询与变换查询的结果签名或行集。
+## Key Mechanics
+1. Select a query with predicates or expressions as a seed.
+2. Generate a "constantized" version, e.g., expand expressions via CASE.
+3. Compare result signatures or row sets.
 
-## Oracle 形式
-- Q: SELECT ... WHERE p(x)
+## Oracle Form
+- Q:  SELECT ... WHERE p(x)
 - Q': SELECT ... WHERE CASE WHEN p(x) THEN TRUE ELSE FALSE END
-- 若结果不一致，则提示常量折叠/传播错误。
+- If results differ, flag a bug.
 
-## 适用范围与限制
-- 对 NULL 语义敏感；若 NULL 参与谓词，三值逻辑可能破坏等价关系。
-- 需要避免非确定性函数与隐式类型转换带来的噪声。
-- 更适合触达表达式简化、常量传播路径。
+## Scope and Limitations
+- Sensitive to NULL semantics; three-valued logic can break equivalence.
+- Avoid non-deterministic functions and implicit casts that add noise.
+- Best for expression simplification and constant propagation paths.
 
-## 价值与影响
-CODDTest 提供一种面向优化器表达式处理的强 oracle，可系统性地覆盖常量相关的逻辑错误。
+## Impact
+CODDTest provides a strong oracle for optimizer expression handling, systematically exercising constant-related logic.

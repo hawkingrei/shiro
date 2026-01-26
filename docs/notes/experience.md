@@ -19,10 +19,11 @@
 - Report summaries now record `plan_signature` (QPG EXPLAIN hash) for filtering in the frontend.
 - Added `plan_signature_format` (plain/json) to report summaries and UI filters.
 - QPG coexists with bandits: bandit weights apply first, QPG can temporarily override join/subquery/agg when plan coverage stalls.
-- TODO: Frontend aggregation views (commit/bug type) and export.
-- TODO: S3/report incremental merging and multi-source aggregation.
-- TODO: Generator coverage: more join/subquery variants and stability tuning.
-- TODO: Centralize tuning knobs for template sampling/weights and QPG template overrides (enable prob, weights, TTLs, thresholds).
+- Stdout logging minimized; detailed metrics are emitted to `logs/shiro.log` with top-N summaries.
+- Oracle-specific generator overrides are applied per run (e.g., GroundTruth inner joins without predicates, Impo without scalar subqueries).
+- CTE column metadata now follows SELECT aliases (c0/c1/...), avoiding unknown-column join errors.
+- Aggregation SELECT lists include group keys to satisfy ONLY_FULL_GROUP_BY.
+- CERT error samples are logged to aid debugging EXPLAIN failures.
 - `PLAN REPLAYER DUMP` output may include URL or only a zip name; URL parsing must be tolerant of trailing punctuation.
 - Using `EXPLAIN` in replayer avoids executing the buggy SQL again during dump.
 - Tracking inserts in-memory provides a lightweight reproduction script without exporting full data dumps.
@@ -55,3 +56,4 @@
 - Impo base query errors that mention `_tidb_rowid` should be captured as bug cases (plan replayer + report), not skipped.
 - Errors containing "Can't find column ... in schema Column" should be treated as bugs and reported.
 - When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
+- If Go version is 1.21 or newer, prefer built-in `max`/`min` instead of custom helpers to reduce utility clutter.

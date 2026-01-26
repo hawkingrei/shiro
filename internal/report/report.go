@@ -92,7 +92,14 @@ func (r *Reporter) WriteSummary(c Case, summary Summary) error {
 // WriteSQL writes a SQL file from the provided statements.
 func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 	content := strings.Join(statements, ";\n") + ";\n"
-	return os.WriteFile(filepath.Join(c.Dir, name), []byte(content), 0o644)
+	path := filepath.Join(c.Dir, name)
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 // DumpSchema writes schema.sql for the current state.

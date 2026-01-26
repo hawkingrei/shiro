@@ -378,7 +378,7 @@ func defaultConfig() Config {
 				ImpoBaseExecFailedMaxRatio: 0.02,
 			},
 		},
-		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 50, GroundTruthMaxRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
+		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 20, GroundTruthMaxRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
 		Adaptive: Adaptive{UCBExploration: 1.5},
 		QPG: QPGConfig{
 			Enabled:             false,

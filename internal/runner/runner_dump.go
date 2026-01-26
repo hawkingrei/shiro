@@ -24,10 +24,13 @@ type dynamicDump struct {
 }
 
 type banditDump struct {
-	Action  *util.BanditSnapshot `json:"action,omitempty"`
-	Oracle  *util.BanditSnapshot `json:"oracle,omitempty"`
-	DML     *util.BanditSnapshot `json:"dml,omitempty"`
-	Feature *featureDump         `json:"feature,omitempty"`
+	Action        *util.BanditSnapshot `json:"action,omitempty"`
+	Oracle        *util.BanditSnapshot `json:"oracle,omitempty"`
+	OracleArms    []string             `json:"oracle_arms,omitempty"`
+	OracleEnabled []bool               `json:"oracle_enabled,omitempty"`
+	OracleWeights []int                `json:"oracle_weights,omitempty"`
+	DML           *util.BanditSnapshot `json:"dml,omitempty"`
+	Feature       *featureDump         `json:"feature,omitempty"`
 }
 
 type featureDump struct {
@@ -103,6 +106,14 @@ func (r *Runner) snapshotBandits() *banditDump {
 	if r.oracleBandit != nil {
 		s := r.oracleBandit.Snapshot()
 		out.Oracle = &s
+		out.OracleWeights = append([]int{}, r.oracleWeights()...)
+		out.OracleArms = make([]string, 0, len(r.oracles))
+		for _, o := range r.oracles {
+			out.OracleArms = append(out.OracleArms, o.Name())
+		}
+		if r.oracleEnabled != nil {
+			out.OracleEnabled = append([]bool{}, r.oracleEnabled...)
+		}
 	}
 	if r.dmlBandit != nil {
 		s := r.dmlBandit.Snapshot()

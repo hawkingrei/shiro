@@ -48,6 +48,9 @@ type Runner struct {
 	impoSkipErrCodes    map[string]int64
 	impoLastFailSQL     string
 	impoLastFailErr     string
+	certLastErrSQL      string
+	certLastErr         string
+	certLastErrReason   string
 	joinCounts          map[int]int64
 	joinTypeSeqs        map[string]int64
 	joinGraphSigs       map[string]int64
@@ -57,6 +60,7 @@ type Runner struct {
 	qpgState            *qpgState
 	kqeState            *kqeState
 	tqsHistory          *tqs.History
+	oracleStats         map[string]*oracleFunnel
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -96,6 +100,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinCounts:       make(map[int]int64),
 		joinTypeSeqs:     make(map[string]int64),
 		joinGraphSigs:    make(map[string]int64),
+		oracleStats:      make(map[string]*oracleFunnel),
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
@@ -198,7 +203,21 @@ func (r *Runner) initState(ctx context.Context) error {
 }
 
 func (r *Runner) initStateDSG(ctx context.Context) error {
-	result, err := tqs.Build(r.cfg, r.gen.Rand)
+	cfg := r.cfg
+	adjusted := false
+	if cfg.TQS.DimTables > 0 && cfg.TQS.DimTables < 4 {
+		cfg.TQS.DimTables = 4
+		adjusted = true
+	}
+	if cfg.TQS.WideRows > 0 && cfg.TQS.WideRows < 80 {
+		cfg.TQS.WideRows = 80
+		adjusted = true
+	}
+	if adjusted {
+		util.Detailf("tqs config adjusted dim_tables=%d wide_rows=%d", cfg.TQS.DimTables, cfg.TQS.WideRows)
+		r.gen.Config = cfg
+	}
+	result, err := tqs.Build(cfg, r.gen.Rand)
 	if err != nil {
 		return err
 	}
@@ -336,10 +355,31 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		defer r.clearTemplateWeights()
 	}
 	oracleIdx := r.pickOracle()
+	oracleName := r.oracles[oracleIdx].Name()
+	r.observeOracleRun(oracleName)
+	restoreOracleBias := r.applyOracleBias(oracleName)
+	if restoreOracleBias != nil {
+		defer restoreOracleBias()
+	}
+	restoreOracleOverrides := r.applyOracleOverrides(oracleName)
+	defer restoreOracleOverrides()
 	var reward float64
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "unknown_column"
+		}
+		result.OK = false
+	}
+	skipReason := oracleSkipReason(result)
+	isPanic := isPanicError(result.Err)
+	reported := !result.OK || isPanic
+	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
 		r.observeJoinSignature(r.gen.LastFeatures)

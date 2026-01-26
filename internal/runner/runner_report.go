@@ -100,6 +100,11 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if details == nil {
 		details = map[string]any{}
 	}
+	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
+		if _, ok := details["error_reason"]; !ok {
+			details["error_reason"] = "unknown_column"
+		}
+	}
 
 	summary := report.Summary{
 		Oracle:        result.Oracle,
@@ -156,13 +161,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		minimized := r.minimizeCase(ctx, result)
 		if minimized.minimized {
 			if len(minimized.caseSQL) > 0 {
-				_ = r.reporter.WriteSQL(caseData, "case_min.sql", minimized.caseSQL)
+				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
 			}
 			if len(minimized.insertSQL) > 0 {
-				_ = r.reporter.WriteSQL(caseData, "inserts_min.sql", minimized.insertSQL)
+				_ = r.reporter.WriteSQL(caseData, "min/inserts.sql", minimized.insertSQL)
 			}
 			if len(minimized.reproSQL) > 0 {
-				_ = r.reporter.WriteSQL(caseData, "repro_min.sql", minimized.reproSQL)
+				_ = r.reporter.WriteSQL(caseData, "min/repro.sql", minimized.reproSQL)
 			}
 		}
 	}
