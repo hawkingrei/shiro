@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"shiro/internal/generator"
 	"shiro/internal/schema"
 )
 
@@ -260,20 +261,5 @@ func keyColumns(tbl schema.Table) []schema.Column {
 }
 
 func compatibleKeyType(left, right schema.ColumnType) bool {
-	return keyTypeCategory(left) == keyTypeCategory(right)
-}
-
-func keyTypeCategory(t schema.ColumnType) int {
-	switch t {
-	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
-		return 0
-	case schema.TypeVarchar:
-		return 1
-	case schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
-		return 2
-	case schema.TypeBool:
-		return 3
-	default:
-		return 4
-	}
+	return generator.TypeCategory(left) == generator.TypeCategory(right)
 }

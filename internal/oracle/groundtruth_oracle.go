@@ -29,17 +29,17 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	if shouldSkipGroundTruth(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:guardrail"}}
 	}
-	if gen.Truth != nil {
-		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
-			return o.runWithTruth(ctx, exec, truth, query, state, gen.Config.Features.DSG)
-		}
-	}
 	edges := groundtruth.JoinEdgesFromQuery(query, state)
 	if len(edges) != len(query.From.Joins) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
 	}
 	if gen != nil && gen.Config.Features.DSG && !validDSGTruthJoin(query.From.BaseTable, edges) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:dsg_key_mismatch"}}
+	}
+	if gen.Truth != nil {
+		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
+			return o.runWithTruth(ctx, exec, truth, query, state, edges, gen.Config.Features.DSG)
+		}
 	}
 	for _, edge := range edges {
 		if edge.JoinType != groundtruth.JoinInner {
@@ -124,13 +124,9 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truth}
 }
 
-func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, dsgEnabled bool) Result {
+func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, edges []groundtruth.JoinEdge, dsgEnabled bool) Result {
 	if truth == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:truth_missing"}}
-	}
-	edges := groundtruth.JoinEdgesFromQuery(query, state)
-	if len(edges) != len(query.From.Joins) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
 	}
 	if dsgEnabled && !validDSGTruthJoin(query.From.BaseTable, edges) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:dsg_key_mismatch"}}
@@ -221,7 +217,7 @@ func validDSGTruthKey(base, table, key string) bool {
 	if !ok || idx <= 0 {
 		return false
 	}
-	return key == fmt.Sprintf("k%d", idx-1)
+	return key == "k0" || key == fmt.Sprintf("k%d", idx-1)
 }
 
 func parseTableIndex(name string) (int, bool) {

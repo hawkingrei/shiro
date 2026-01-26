@@ -288,7 +288,7 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left Column
 		if idxCols := g.collectIndexPrefixColumns(tables); len(idxCols) >= 2 {
 			byCategory := map[int][]ColumnRef{}
 			for _, col := range idxCols {
-				byCategory[typeCategory(col.Type)] = append(byCategory[typeCategory(col.Type)], col)
+				byCategory[TypeCategory(col.Type)] = append(byCategory[TypeCategory(col.Type)], col)
 			}
 			typeCandidates := make([]int, 0, len(byCategory))
 			for t, list := range byCategory {
@@ -315,7 +315,7 @@ func (g *Generator) pickComparableColumnPair(tables []schema.Table) (left Column
 	}
 	byCategory := map[int][]ColumnRef{}
 	for _, col := range cols {
-		byCategory[typeCategory(col.Type)] = append(byCategory[typeCategory(col.Type)], col)
+		byCategory[TypeCategory(col.Type)] = append(byCategory[TypeCategory(col.Type)], col)
 	}
 	typeCandidates := make([]int, 0, len(byCategory))
 	for t, list := range byCategory {

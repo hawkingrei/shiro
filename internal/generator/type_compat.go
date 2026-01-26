@@ -3,10 +3,10 @@ package generator
 import "shiro/internal/schema"
 
 func compatibleColumnType(left, right schema.ColumnType) bool {
-	return typeCategory(left) == typeCategory(right)
+	return TypeCategory(left) == TypeCategory(right)
 }
 
-func typeCategory(t schema.ColumnType) int {
+func TypeCategory(t schema.ColumnType) int {
 	switch t {
 	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
 		return 0
