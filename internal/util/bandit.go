@@ -69,6 +69,21 @@ func (b *Bandit) Update(arm int, reward float64) {
 	b.total++
 }
 
+// UpdateBatch records rewards for multiple runs of the same arm.
+func (b *Bandit) UpdateBatch(arm int, rewardPerRun float64, runs int) {
+	if runs <= 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if arm < 0 || arm >= len(b.counts) {
+		return
+	}
+	b.counts[arm] += runs
+	b.rewards[arm] += rewardPerRun * float64(runs)
+	b.total += runs
+}
+
 // Snapshot returns a copy of the bandit state.
 func (b *Bandit) Snapshot() BanditSnapshot {
 	b.mu.Lock()

@@ -2,15 +2,17 @@ package runner
 
 import "shiro/internal/generator"
 
-func (r *Runner) applyOracleBias(oracleName string) bool {
-	if r.adaptiveSnapshot() != nil {
-		return false
-	}
+func (r *Runner) applyOracleBias(oracleName string) func() {
+	snapshot := r.adaptiveSnapshot()
 	weights := generator.AdaptiveWeights{}
+	if snapshot != nil {
+		weights = *snapshot
+	}
 	applied := false
 	switch oracleName {
 	case "DQP":
-		weights.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
+		minJoin := max(r.cfg.Weights.Features.JoinCount, 3)
+		weights.JoinCount = max(weights.JoinCount, minJoin)
 		weights.SubqCount = 0
 		weights.AggProb = 0
 		applied = true
@@ -24,8 +26,13 @@ func (r *Runner) applyOracleBias(oracleName string) bool {
 		applied = true
 	}
 	if !applied {
-		return false
+		return nil
 	}
 	r.setAdaptiveWeights(weights)
-	return true
+	if snapshot == nil {
+		return r.clearAdaptiveWeights
+	}
+	return func() {
+		r.setAdaptiveWeights(*snapshot)
+	}
 }

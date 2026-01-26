@@ -56,3 +56,4 @@
 - Impo base query errors that mention `_tidb_rowid` should be captured as bug cases (plan replayer + report), not skipped.
 - Errors containing "Can't find column ... in schema Column" should be treated as bugs and reported.
 - When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
+- If Go version is 1.21 or newer, prefer built-in `max`/`min` instead of custom helpers to reduce utility clutter.

@@ -222,25 +222,31 @@ func buildBaseFromClause(tables []schema.Table, cte *schema.Table) generator.Fro
 	return from
 }
 
-func firstJoinPair(left schema.Table, right schema.Table) (generator.ColumnRef, generator.ColumnRef, bool) {
+func firstJoinPair(left schema.Table, right schema.Table) (leftRef generator.ColumnRef, rightRef generator.ColumnRef, ok bool) {
 	for _, lcol := range left.Columns {
 		if !strings.HasPrefix(lcol.Name, "k") {
 			continue
 		}
 		if rcol, ok := right.ColumnByName(lcol.Name); ok {
+			if !compatibleJoinColumnType(lcol.Type, rcol.Type) {
+				continue
+			}
 			return generator.ColumnRef{Table: left.Name, Name: lcol.Name, Type: lcol.Type},
 				generator.ColumnRef{Table: right.Name, Name: rcol.Name, Type: rcol.Type},
 				true
 		}
 	}
-	if len(left.Columns) == 0 || len(right.Columns) == 0 {
-		return generator.ColumnRef{}, generator.ColumnRef{}, false
+	for _, lcol := range left.Columns {
+		for _, rcol := range right.Columns {
+			if !compatibleJoinColumnType(lcol.Type, rcol.Type) {
+				continue
+			}
+			return generator.ColumnRef{Table: left.Name, Name: lcol.Name, Type: lcol.Type},
+				generator.ColumnRef{Table: right.Name, Name: rcol.Name, Type: rcol.Type},
+				true
+		}
 	}
-	lcol := left.Columns[0]
-	rcol := right.Columns[0]
-	return generator.ColumnRef{Table: left.Name, Name: lcol.Name, Type: lcol.Type},
-		generator.ColumnRef{Table: right.Name, Name: rcol.Name, Type: rcol.Type},
-		true
+	return generator.ColumnRef{}, generator.ColumnRef{}, false
 }
 
 func fromHasTable(from generator.FromClause, name string) bool {
@@ -256,6 +262,28 @@ func fromHasTable(from generator.FromClause, name string) bool {
 		}
 	}
 	return false
+}
+
+func compatibleJoinColumnType(left schema.ColumnType, right schema.ColumnType) bool {
+	if left == right {
+		return true
+	}
+	leftCat := joinTypeCategory(left)
+	rightCat := joinTypeCategory(right)
+	return leftCat != 0 && leftCat == rightCat
+}
+
+func joinTypeCategory(typ schema.ColumnType) int {
+	switch typ {
+	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal, schema.TypeBool:
+		return 1
+	case schema.TypeVarchar:
+		return 2
+	case schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+		return 3
+	default:
+		return 0
+	}
 }
 
 func ensureFromHasPredicateTables(query *generator.SelectQuery, state *schema.State) bool {

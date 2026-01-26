@@ -215,7 +215,6 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 	}
 	if adjusted {
 		util.Detailf("tqs config adjusted dim_tables=%d wide_rows=%d", cfg.TQS.DimTables, cfg.TQS.WideRows)
-		r.cfg = cfg
 		r.gen.Config = cfg
 	}
 	result, err := tqs.Build(cfg, r.gen.Rand)
@@ -358,9 +357,9 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	oracleIdx := r.pickOracle()
 	oracleName := r.oracles[oracleIdx].Name()
 	r.observeOracleRun(oracleName)
-	appliedOracleBias := r.applyOracleBias(oracleName)
-	if appliedOracleBias {
-		defer r.clearAdaptiveWeights()
+	restoreOracleBias := r.applyOracleBias(oracleName)
+	if restoreOracleBias != nil {
+		defer restoreOracleBias()
 	}
 	restoreOracleOverrides := r.applyOracleOverrides(oracleName)
 	defer restoreOracleOverrides()

@@ -63,37 +63,62 @@ func splitSQL(input string) []string {
 				continue
 			}
 		}
-		if ch == '\'' && !inDouble && !inBacktick {
-			if !escaped {
-				inSingle = !inSingle
+		if inSingle {
+			if ch == '\\' && !escaped {
+				escaped = true
+				buf.WriteByte(ch)
+				prev = ch
+				continue
+			}
+			if ch == '\'' && !escaped {
+				inSingle = false
 			}
 			buf.WriteByte(ch)
-			escaped = ch == '\\' && inSingle
+			escaped = false
 			prev = ch
 			continue
 		}
-		if ch == '"' && !inSingle && !inBacktick {
-			if !escaped {
-				inDouble = !inDouble
+		if inDouble {
+			if ch == '\\' && !escaped {
+				escaped = true
+				buf.WriteByte(ch)
+				prev = ch
+				continue
+			}
+			if ch == '"' && !escaped {
+				inDouble = false
 			}
 			buf.WriteByte(ch)
-			escaped = ch == '\\' && inDouble
+			escaped = false
 			prev = ch
 			continue
 		}
-		if ch == '`' && !inSingle && !inDouble {
-			inBacktick = !inBacktick
+		if inBacktick {
+			if ch == '`' {
+				inBacktick = false
+			}
 			buf.WriteByte(ch)
 			prev = ch
 			continue
 		}
-		if ch == '\\' && (inSingle || inDouble) {
-			escaped = !escaped
+		if ch == '\'' {
+			inSingle = true
 			buf.WriteByte(ch)
 			prev = ch
 			continue
 		}
-		escaped = false
+		if ch == '"' {
+			inDouble = true
+			buf.WriteByte(ch)
+			prev = ch
+			continue
+		}
+		if ch == '`' {
+			inBacktick = true
+			buf.WriteByte(ch)
+			prev = ch
+			continue
+		}
 		if ch == ';' && !inSingle && !inDouble && !inBacktick {
 			stmt := strings.TrimSpace(buf.String())
 			if stmt != "" {

@@ -99,6 +99,8 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 	if r.oracleBandit == nil || len(delta) == 0 {
 		return
 	}
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
 	for i, o := range r.oracles {
 		stat, ok := delta[o.Name()]
 		if !ok || stat.Runs == 0 {
@@ -113,8 +115,8 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 		if reward < 0 {
 			reward = 0
 		}
-		reward = reward / float64(stat.Runs)
-		r.oracleBandit.Update(i, reward)
+		rewardPerRun := reward / float64(stat.Runs)
+		r.oracleBandit.UpdateBatch(i, rewardPerRun, int(stat.Runs))
 	}
 }
 
