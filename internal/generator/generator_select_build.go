@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"strings"
 
 	"shiro/internal/schema"
 	"shiro/internal/util"
@@ -20,6 +21,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
 				query.OrderBy = g.deterministicOrderBy(baseTables)
 			}
+			if !g.validateQueryScope(query) {
+				return nil
+			}
 			queryFeatures := AnalyzeQueryFeatures(query)
 			queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
 			queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
@@ -37,14 +41,19 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			cteBase := baseTables[g.Rand.Intn(len(baseTables))]
 			cteQuery := g.GenerateCTEQuery(cteBase)
 			cteName := fmt.Sprintf("cte_%d", i)
+			cteCols := g.columnsFromSelectItems(cteQuery.Items)
+			if len(cteCols) == 0 {
+				cteCols = cteBase.Columns
+			}
 			query.With = append(query.With, CTE{Name: cteName, Query: cteQuery})
-			queryTables = append(queryTables, schema.Table{Name: cteName, Columns: cteBase.Columns})
+			queryTables = append(queryTables, schema.Table{Name: cteName, Columns: cteCols})
 		}
 	}
 
 	if !g.Config.Features.DSG {
 		queryTables = g.maybeShuffleTables(queryTables)
 	}
+	queryTables = g.positionCTETables(queryTables, query.With)
 	query.From = g.buildFromClause(queryTables)
 	query.Items = g.GenerateSelectList(queryTables)
 
@@ -52,14 +61,23 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		query.Distinct = true
 	}
 
-	query.Where = g.GeneratePredicate(queryTables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+	switch g.predicateMode {
+	case PredicateModeNone:
+		query.Where = nil
+	case PredicateModeSimple:
+		query.Where = g.GenerateSimplePredicate(queryTables, min(2, g.maxDepth))
+	case PredicateModeSimpleColumns:
+		query.Where = g.GenerateSimplePredicateColumns(queryTables, min(2, g.maxDepth))
+	default:
+		query.Where = g.GeneratePredicate(queryTables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+	}
 
 	if g.Config.Features.Aggregates && util.Chance(g.Rand, g.aggProb()) {
 		withGroupBy := g.Config.Features.GroupBy && util.Chance(g.Rand, g.Config.Weights.Features.GroupByProb)
 		if withGroupBy {
 			query.GroupBy = g.GenerateGroupBy(queryTables)
 		}
-		query.Items = g.GenerateAggregateSelectList(queryTables, len(query.GroupBy) > 0)
+		query.Items = g.GenerateAggregateSelectList(queryTables, query.GroupBy)
 		if g.Config.Features.Having && len(query.GroupBy) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.HavingProb) {
 			query.Having = g.GenerateHavingPredicate(query.GroupBy, queryTables)
 		}
@@ -81,11 +99,49 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		query.OrderBy = g.deterministicOrderBy(queryTables)
 	}
 
+	if !g.validateQueryScope(query) {
+		return nil
+	}
 	queryFeatures := AnalyzeQueryFeatures(query)
 	queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
 	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
 	g.LastFeatures = &queryFeatures
 	return query
+}
+
+func (g *Generator) positionCTETables(tables []schema.Table, with []CTE) []schema.Table {
+	if len(tables) == 0 || len(with) == 0 {
+		return tables
+	}
+	cteNames := make(map[string]struct{}, len(with))
+	for _, cte := range with {
+		cteNames[cte.Name] = struct{}{}
+	}
+	cteIdx := make([]int, 0, len(with))
+	nonCTEIdx := make([]int, 0, len(tables))
+	for i, tbl := range tables {
+		if _, ok := cteNames[tbl.Name]; ok {
+			cteIdx = append(cteIdx, i)
+		} else {
+			nonCTEIdx = append(nonCTEIdx, i)
+		}
+	}
+	if len(cteIdx) == 0 {
+		return tables
+	}
+	if util.Chance(g.Rand, 50) {
+		swapIdx := cteIdx[g.Rand.Intn(len(cteIdx))]
+		tables[0], tables[swapIdx] = tables[swapIdx], tables[0]
+		return tables
+	}
+	if len(nonCTEIdx) == 0 {
+		return tables
+	}
+	if _, ok := cteNames[tables[0].Name]; ok {
+		swapIdx := nonCTEIdx[g.Rand.Intn(len(nonCTEIdx))]
+		tables[0], tables[swapIdx] = tables[swapIdx], tables[0]
+	}
+	return tables
 }
 
 // GenerateCTEQuery builds a small SELECT query for a CTE.
@@ -113,6 +169,26 @@ func (g *Generator) GenerateCTESelectList(tbl schema.Table) []SelectItem {
 		items = append(items, SelectItem{Expr: ColumnExpr{Ref: ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}}, Alias: fmt.Sprintf("c%d", i)})
 	}
 	return items
+}
+
+func (g *Generator) columnsFromSelectItems(items []SelectItem) []schema.Column {
+	if len(items) == 0 {
+		return nil
+	}
+	items = ensureUniqueAliases(items)
+	cols := make([]schema.Column, 0, len(items))
+	for i, item := range items {
+		name := strings.TrimSpace(item.Alias)
+		if name == "" {
+			name = fmt.Sprintf("c%d", i)
+		}
+		colType, ok := g.exprType(item.Expr)
+		if !ok {
+			colType = schema.TypeVarchar
+		}
+		cols = append(cols, schema.Column{Name: name, Type: colType})
+	}
+	return cols
 }
 
 // GenerateCTEOrderBy enforces a stable ORDER BY for CTEs with LIMIT.

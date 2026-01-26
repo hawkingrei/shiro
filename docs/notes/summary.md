@@ -15,6 +15,7 @@
 
 ## Notes & limitations
 - CTEs are generated and used in FROM; DQP skips CTE queries to avoid hint injection into nested SELECTs.
+- CTE column metadata now follows SELECT aliases (c0/c1/...), preventing unknown-column errors in joins.
 - Plan replayer output format varies by TiDB version; the downloader matches URLs or ZIP names and supports a template URL if needed.
 - The SQL generator favors smaller datasets for report dumps; row counts are capped by config.
 - Added window functions and correlated subqueries behind feature flags; subquery depth is capped to avoid runaway recursion.
@@ -26,9 +27,12 @@
 - Added join depth cap, USING/CROSS joins, and extra DDL coverage (index/view/check/fk).
 - Added concurrency via workers with per-database isolation; SQL validity ratio logging per interval.
 - Added plan-cache-only mode with PREPARE/EXECUTE and `@@last_plan_from_cache` verification.
+- Aggregation SELECT lists include group keys to satisfy ONLY_FULL_GROUP_BY.
 - Plan cache paths now capture `CONNECTION_ID()` and use `EXPLAIN FOR CONNECTION` to feed QPG plan-shape tracking (prepared statements only).
 - Prepared plan cache miss handling checks `SHOW WARNINGS`; a miss with no warnings is treated as an error and reported (non-prepared misses may be normal).
 - On bug, rotate to a fresh database (`<database>_rN`) and reinitialize schema/data to avoid cross-case contamination.
 - Default config now lives in code (`defaultConfig`) and is printed at startup; `oracles.strict_predicates` is true by default with a config toggle to loosen it.
 - CODDTest only runs when the referenced columns have no NULLs; NULL creates unknown truth values and breaks the CASE mapping.
 - Generated/computed columns are avoided for now to reduce TiDB master feature skew.
+- Oracle-specific generator overrides enforce guardrails (e.g., GroundTruth inner joins without predicates, Impo without scalar subqueries).
+- Stdout logs are kept minimal; detailed metrics are emitted to `logs/shiro.log` with top-N summaries.

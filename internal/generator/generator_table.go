@@ -38,6 +38,13 @@ func (g *Generator) pickTables() []schema.Table {
 			}
 		}
 	}
+	if g.minJoinTables > 0 && count < g.minJoinTables {
+		if maxTables >= g.minJoinTables {
+			count = g.minJoinTables
+		} else {
+			count = maxTables
+		}
+	}
 	if count > 1 && g.Config.Features.Joins {
 		if picked := g.pickJoinTables(count); len(picked) == count {
 			return picked

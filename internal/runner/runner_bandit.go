@@ -35,6 +35,29 @@ func (r *Runner) initBandits() {
 	}
 }
 
+func (r *Runner) oracleWeights() []int {
+	return []int{
+		r.cfg.Weights.Oracles.NoREC,
+		r.cfg.Weights.Oracles.TLP,
+		r.cfg.Weights.Oracles.DQP,
+		r.cfg.Weights.Oracles.CERT,
+		r.cfg.Weights.Oracles.CODDTest,
+		r.cfg.Weights.Oracles.DQE,
+		r.cfg.Weights.Oracles.Impo,
+		r.cfg.Weights.Oracles.GroundTruth,
+	}
+}
+
+func (r *Runner) refreshOracleEnabled() {
+	weights := r.oracleWeights()
+	if r.oracleEnabled == nil || len(r.oracleEnabled) != len(weights) {
+		r.oracleEnabled = make([]bool, len(weights))
+	}
+	for i, w := range weights {
+		r.oracleEnabled[i] = w > 0
+	}
+}
+
 func (r *Runner) pickAction() int {
 	if r.actionBandit != nil {
 		return r.actionBandit.Pick(r.gen.Rand, r.actionEnabled)

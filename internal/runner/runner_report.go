@@ -100,6 +100,11 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if details == nil {
 		details = map[string]any{}
 	}
+	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
+		if _, ok := details["error_reason"]; !ok {
+			details["error_reason"] = "unknown_column"
+		}
+	}
 
 	summary := report.Summary{
 		Oracle:        result.Oracle,

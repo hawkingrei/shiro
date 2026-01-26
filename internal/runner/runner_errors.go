@@ -59,3 +59,11 @@ func isMySQLError(err error) bool {
 	var mysqlErr *mysql.MySQLError
 	return errors.As(err, &mysqlErr)
 }
+
+func isUnknownColumnWhereErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown column") && strings.Contains(msg, "in where clause")
+}

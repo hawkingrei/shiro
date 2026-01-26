@@ -7,6 +7,9 @@ import (
 
 // GeneratePredicate builds a boolean predicate expression.
 func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
+	if g.disallowScalarSubq {
+		allowSubquery = false
+	}
 	if allowSubquery && subqDepth > 0 && util.Chance(g.Rand, g.subqCount()*PredicateSubqueryScale) {
 		sub := g.GenerateSubquery(tables, subqDepth-1)
 		if sub != nil {
@@ -73,6 +76,63 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 		op = "OR"
 	}
 	return BinaryExpr{Left: left, Op: op, Right: right}
+}
+
+// GenerateSimplePredicate builds a deterministic predicate composed of comparisons joined by AND.
+func (g *Generator) GenerateSimplePredicate(tables []schema.Table, depth int) Expr {
+	if depth <= 0 {
+		left, right := g.generateComparablePair(tables, false, 0)
+		return BinaryExpr{Left: left, Op: g.pickComparison(), Right: right}
+	}
+	left := g.GenerateSimplePredicate(tables, depth-1)
+	right := g.GenerateSimplePredicate(tables, depth-1)
+	return BinaryExpr{Left: left, Op: "AND", Right: right}
+}
+
+// GenerateSimplePredicateColumns builds an AND-only predicate with column comparisons only.
+func (g *Generator) GenerateSimplePredicateColumns(tables []schema.Table, depth int) Expr {
+	if depth <= 0 {
+		return g.generateComparableColumnPredicate(tables)
+	}
+	left := g.GenerateSimplePredicateColumns(tables, depth-1)
+	if left == nil {
+		return nil
+	}
+	right := g.GenerateSimplePredicateColumns(tables, depth-1)
+	if right == nil {
+		return left
+	}
+	return BinaryExpr{Left: left, Op: "AND", Right: right}
+}
+
+// GenerateSimpleColumnLiteralPredicate builds a single column-to-literal comparison.
+func (g *Generator) GenerateSimpleColumnLiteralPredicate(tables []schema.Table) Expr {
+	if col, ok := g.pickComparableColumn(tables); ok {
+		return BinaryExpr{
+			Left:  ColumnExpr{Ref: col},
+			Op:    g.pickComparison(),
+			Right: g.literalForColumn(schema.Column{Type: col.Type}),
+		}
+	}
+	return nil
+}
+
+func (g *Generator) generateComparableColumnPredicate(tables []schema.Table) Expr {
+	if leftCol, rightCol, ok := g.pickComparableColumnPair(tables); ok {
+		return BinaryExpr{
+			Left:  ColumnExpr{Ref: leftCol},
+			Op:    g.pickComparison(),
+			Right: ColumnExpr{Ref: rightCol},
+		}
+	}
+	if col, ok := g.pickComparableColumn(tables); ok {
+		return BinaryExpr{
+			Left:  ColumnExpr{Ref: col},
+			Op:    g.pickComparison(),
+			Right: g.literalForColumn(schema.Column{Type: col.Type}),
+		}
+	}
+	return nil
 }
 
 // GenerateHavingPredicate builds a HAVING predicate from group-by expressions and aggregates.

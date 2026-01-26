@@ -177,11 +177,29 @@ func (g *Generator) maybeShuffleTemplateTables(tables []schema.Table) []schema.T
 }
 
 func (g *Generator) templatePredicate(tables []schema.Table) Expr {
-	return g.GeneratePredicate(tables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+	switch g.predicateMode {
+	case PredicateModeNone:
+		return nil
+	case PredicateModeSimple:
+		return g.GenerateSimplePredicate(tables, g.maxDepth)
+	case PredicateModeSimpleColumns:
+		return g.GenerateSimplePredicateColumns(tables, g.maxDepth)
+	default:
+		return g.GeneratePredicate(tables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+	}
 }
 
 func (g *Generator) templatePredicateNoSubquery(tables []schema.Table) Expr {
-	return g.GeneratePredicate(tables, g.maxDepth-1, false, g.maxSubqDepth)
+	switch g.predicateMode {
+	case PredicateModeNone:
+		return nil
+	case PredicateModeSimple:
+		return g.GenerateSimplePredicate(tables, g.maxDepth-1)
+	case PredicateModeSimpleColumns:
+		return g.GenerateSimplePredicateColumns(tables, g.maxDepth-1)
+	default:
+		return g.GeneratePredicate(tables, g.maxDepth-1, false, g.maxSubqDepth)
+	}
 }
 
 func (g *Generator) templateSemiAntiPredicate(tables []schema.Table, sub *SelectQuery) Expr {
@@ -222,7 +240,7 @@ func (g *Generator) applyTemplateGroupBy(query *SelectQuery, tables []schema.Tab
 }
 
 func (g *Generator) applyTemplateAggSelect(query *SelectQuery, tables []schema.Table) {
-	query.Items = g.GenerateAggregateSelectList(tables, true)
+	query.Items = g.GenerateAggregateSelectList(tables, query.GroupBy)
 }
 
 func (g *Generator) applyTemplateHaving(query *SelectQuery, tables []schema.Table) {

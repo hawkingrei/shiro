@@ -305,7 +305,9 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 	}
 	for i := 1; i < len(tables); i++ {
 		joinType := JoinInner
-		if rareChance(g.Rand, crossJoinRareDenom) {
+		if g.joinTypeOverride != nil {
+			joinType = *g.joinTypeOverride
+		} else if rareChance(g.Rand, crossJoinRareDenom) {
 			joinType = JoinCross
 		} else {
 			switch g.Rand.Intn(3) {
@@ -405,6 +407,34 @@ func (g *Generator) joinCondition(left []schema.Table, right schema.Table) Expr 
 }
 
 func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {
+	cols := make([]ColumnRef, 0, 8)
+	for _, tbl := range tables {
+		// Preserve CTE/derived columns as-is; no schema lookup needed.
+		if len(tbl.Columns) == 0 {
+			continue
+		}
+		if g.State == nil {
+			for _, col := range tbl.Columns {
+				cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+			}
+			continue
+		}
+		if st, ok := g.State.TableByName(tbl.Name); ok {
+			for _, col := range tbl.Columns {
+				if _, ok := st.ColumnByName(col.Name); ok {
+					cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+				}
+			}
+			continue
+		}
+		for _, col := range tbl.Columns {
+			cols = append(cols, ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type})
+		}
+	}
+	return cols
+}
+
+func (g *Generator) collectColumnsExact(tables []schema.Table) []ColumnRef {
 	cols := make([]ColumnRef, 0, 8)
 	for _, tbl := range tables {
 		for _, col := range tbl.Columns {

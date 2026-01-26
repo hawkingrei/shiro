@@ -10,6 +10,7 @@ import (
 
 	"shiro/internal/generator"
 	"shiro/internal/oracle"
+	"shiro/internal/tqs"
 	"shiro/internal/util"
 )
 
@@ -20,13 +21,14 @@ const topJoinSigN = 20
 const topOracleReasonsN = 10
 
 type oracleFunnel struct {
-	Runs        int64
-	Skips       int64
-	Errors      int64
-	Mismatches  int64
-	Panics      int64
-	Reports     int64
-	SkipReasons map[string]int64
+	Runs         int64
+	Skips        int64
+	Errors       int64
+	Mismatches   int64
+	Panics       int64
+	Reports      int64
+	SkipReasons  map[string]int64
+	ErrorReasons map[string]int64
 }
 
 func (r *Runner) observeSQL(sql string, err error) {
@@ -96,7 +98,10 @@ func (r *Runner) observeOracleRun(name string) {
 	defer r.statsMu.Unlock()
 	stat := r.oracleStats[name]
 	if stat == nil {
-		stat = &oracleFunnel{SkipReasons: make(map[string]int64)}
+		stat = &oracleFunnel{
+			SkipReasons:  make(map[string]int64),
+			ErrorReasons: make(map[string]int64),
+		}
 		r.oracleStats[name] = stat
 	}
 	stat.Runs++
@@ -110,7 +115,10 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	defer r.statsMu.Unlock()
 	stat := r.oracleStats[name]
 	if stat == nil {
-		stat = &oracleFunnel{SkipReasons: make(map[string]int64)}
+		stat = &oracleFunnel{
+			SkipReasons:  make(map[string]int64),
+			ErrorReasons: make(map[string]int64),
+		}
 		r.oracleStats[name] = stat
 	}
 	if skipReason != "" {
@@ -119,6 +127,20 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	}
 	if result.Err != nil {
 		stat.Errors++
+		if result.Details != nil {
+			if reason, ok := result.Details["error_reason"].(string); ok && reason != "" {
+				stat.ErrorReasons[reason]++
+				if result.Oracle == "CERT" {
+					r.certLastErrReason = reason
+				}
+			}
+		}
+		if result.Oracle == "CERT" {
+			if len(result.SQL) > 0 {
+				r.certLastErrSQL = result.SQL[len(result.SQL)-1]
+			}
+			r.certLastErr = result.Err.Error()
+		}
 	}
 	if !result.OK {
 		stat.Mismatches++
@@ -214,6 +236,9 @@ func (r *Runner) startStatsLogger() func() {
 		var lastJoinOrders int
 		var lastOpSigs int
 		var lastSeenSQL int
+		var lastTQSSteps int64
+		var lastTQSCovered int
+		var lastTQSEdges int
 		lastJoinCounts := make(map[int]int64)
 		lastJoinTypeSeqs := make(map[string]int64)
 		lastJoinGraphSigs := make(map[string]int64)
@@ -279,6 +304,13 @@ func (r *Runner) startStatsLogger() func() {
 							}
 							return out
 						}(),
+						ErrorReasons: func() map[string]int64 {
+							out := make(map[string]int64, len(stat.ErrorReasons))
+							for k, v := range stat.ErrorReasons {
+								out[k] = v
+							}
+							return out
+						}(),
 					}
 					oracleStats[name] = copyStat
 				}
@@ -331,6 +363,10 @@ func (r *Runner) startStatsLogger() func() {
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
 				lastTruthMismatches = truthMismatches
+				var tqsStats tqs.Stats
+				if r.tqsHistory != nil {
+					tqsStats = r.tqsHistory.Stats()
+				}
 				if deltaTotal > 0 {
 					util.Infof(
 						"sql_valid/total last interval: %d/%d exists=%d not_exists=%d in=%d not_in=%d",
@@ -423,6 +459,16 @@ func (r *Runner) startStatsLogger() func() {
 									}
 									return out
 								}(),
+								ErrorReasons: func() map[string]int64 {
+									out := make(map[string]int64)
+									for k, v := range stat.ErrorReasons {
+										prevVal := prev.ErrorReasons[k]
+										if v-prevVal > 0 {
+											out[k] = v - prevVal
+										}
+									}
+									return out
+								}(),
 							}
 							if delta.Runs > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
 								deltaFunnel[name] = delta
@@ -437,9 +483,47 @@ func (r *Runner) startStatsLogger() func() {
 									}
 									util.Detailf("oracle_skip_reasons last interval oracle=%s top=%d: %s", name, topOracleReasonsN, formatTopJoinSigs(delta.SkipReasons, topOracleReasonsN))
 								}
+								for name, delta := range deltaFunnel {
+									if len(delta.ErrorReasons) == 0 {
+										continue
+									}
+									util.Detailf("oracle_error_reasons last interval oracle=%s top=%d: %s", name, topOracleReasonsN, formatTopJoinSigs(delta.ErrorReasons, topOracleReasonsN))
+								}
+								if certDelta, ok := deltaFunnel["CERT"]; ok && certDelta.Errors > 0 {
+									if r.certLastErrSQL != "" && r.certLastErr != "" {
+										util.Detailf(
+											"cert error example: reason=%s sql=%s err=%s",
+											r.certLastErrReason,
+											compactSQL(r.certLastErrSQL, 2000),
+											r.certLastErr,
+										)
+									}
+								}
 							}
 						}
 						r.updateOracleBanditFromFunnel(deltaFunnel)
+					}
+					if tqsStats.Nodes > 0 {
+						coveredDelta := tqsStats.Covered - lastTQSCovered
+						stepsDelta := tqsStats.Steps - lastTQSSteps
+						edgeDelta := tqsStats.Edges - lastTQSEdges
+						util.Detailf(
+							"tqs stats nodes=%d edges=%d(+%d) covered=%d(+%d) steps=%d(+%d) gamma=%.2f walk_len=%d walk_min=%d walk_max=%d",
+							tqsStats.Nodes,
+							tqsStats.Edges,
+							edgeDelta,
+							tqsStats.Covered,
+							coveredDelta,
+							tqsStats.Steps,
+							stepsDelta,
+							r.cfg.TQS.Gamma,
+							r.cfg.TQS.WalkLength,
+							r.cfg.TQS.WalkMin,
+							r.cfg.TQS.WalkMax,
+						)
+						lastTQSSteps = tqsStats.Steps
+						lastTQSCovered = tqsStats.Covered
+						lastTQSEdges = tqsStats.Edges
 					}
 					thresholds := r.cfg.Logging.Metrics
 					if thresholds.SQLValidMinRatio > 0 && sqlValidRatio < thresholds.SQLValidMinRatio {

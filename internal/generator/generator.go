@@ -28,7 +28,26 @@ type Generator struct {
 	maxSubqDepth        int
 	predicatePairsTotal int64
 	predicatePairsJoin  int64
+	joinTypeOverride    *JoinType
+	minJoinTables       int
+	predicateMode       PredicateMode
+	disallowScalarSubq  bool
 }
+
+// PredicateMode controls predicate generation.
+type PredicateMode int
+
+// PredicateMode values define predicate generation constraints.
+const (
+	// PredicateModeDefault uses standard predicate generation.
+	PredicateModeDefault PredicateMode = iota
+	// PredicateModeNone disables predicate generation.
+	PredicateModeNone
+	// PredicateModeSimple uses AND-combined comparisons.
+	PredicateModeSimple
+	// PredicateModeSimpleColumns uses AND-combined column comparisons only.
+	PredicateModeSimpleColumns
+)
 
 // PreparedQuery holds a prepared statement and args.
 type PreparedQuery struct {
@@ -72,6 +91,59 @@ func (g *Generator) SetTemplateWeights(weights TemplateWeights) {
 // ClearTemplateWeights disables template sampling overrides.
 func (g *Generator) ClearTemplateWeights() {
 	g.Template = nil
+}
+
+// SetPredicateMode overrides predicate generation behavior.
+func (g *Generator) SetPredicateMode(mode PredicateMode) {
+	g.predicateMode = mode
+}
+
+// PredicateMode returns the current predicate mode override.
+func (g *Generator) PredicateMode() PredicateMode {
+	return g.predicateMode
+}
+
+// SetJoinTypeOverride forces all joins to use the given join type.
+func (g *Generator) SetJoinTypeOverride(joinType JoinType) {
+	g.joinTypeOverride = &joinType
+}
+
+// ClearJoinTypeOverride removes join type overrides.
+func (g *Generator) ClearJoinTypeOverride() {
+	g.joinTypeOverride = nil
+}
+
+// JoinTypeOverride returns the current join override if set.
+func (g *Generator) JoinTypeOverride() (JoinType, bool) {
+	if g.joinTypeOverride == nil {
+		return "", false
+	}
+	return *g.joinTypeOverride, true
+}
+
+// SetMinJoinTables enforces a minimum join table count in selection.
+func (g *Generator) SetMinJoinTables(count int) {
+	g.minJoinTables = count
+}
+
+// MinJoinTables returns the current minimum join table override.
+func (g *Generator) MinJoinTables() int {
+	return g.minJoinTables
+}
+
+// ClearMinJoinTables removes the join table count override.
+func (g *Generator) ClearMinJoinTables() {
+	g.minJoinTables = 0
+}
+
+// SetDisallowScalarSubquery blocks generating scalar subqueries in expressions.
+func (g *Generator) SetDisallowScalarSubquery(disallow bool) {
+	g.disallowScalarSubq = disallow
+}
+
+// DisallowScalarSubquery reports whether scalar subqueries are disabled.
+func (g *Generator) DisallowScalarSubquery() bool {
+	return g.disallowScalarSubq
 }
 
 // SetTruth stores the RowID bitmap truth for TQS evaluation.

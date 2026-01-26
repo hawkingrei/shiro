@@ -107,6 +107,7 @@ logging:
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
+  cert_min_base_rows: 20
   groundtruth_max_rows: 50
   impo_max_rows: 200
   impo_max_mutations: 64
