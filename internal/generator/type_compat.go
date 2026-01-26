@@ -6,6 +6,7 @@ func compatibleColumnType(left, right schema.ColumnType) bool {
 	return TypeCategory(left) == TypeCategory(right)
 }
 
+// TypeCategory returns a coarse category for type compatibility checks.
 func TypeCategory(t schema.ColumnType) int {
 	switch t {
 	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:

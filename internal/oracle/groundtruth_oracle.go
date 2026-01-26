@@ -38,7 +38,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	}
 	if gen.Truth != nil {
 		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
-			return o.runWithTruth(ctx, exec, truth, query, state, edges, gen.Config.Features.DSG)
+			return o.runWithTruth(ctx, exec, truth, query, edges, gen.Config.Features.DSG)
 		}
 	}
 	for _, edge := range edges {
@@ -124,7 +124,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truth}
 }
 
-func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, edges []groundtruth.JoinEdge, dsgEnabled bool) Result {
+func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, edges []groundtruth.JoinEdge, dsgEnabled bool) Result {
 	if truth == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:truth_missing"}}
 	}
