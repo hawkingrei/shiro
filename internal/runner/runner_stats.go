@@ -369,13 +369,13 @@ func (r *Runner) startStatsLogger() func() {
 				}
 				if deltaTotal > 0 {
 					sqlValidRatio := float64(deltaValid) / float64(deltaTotal)
-					deltaInvalid := deltaTotal - deltaValid
+					deltaInvalidSQL := deltaTotal - deltaValid
 					util.Infof(
 						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d",
 						deltaValid,
 						deltaTotal,
 						sqlValidRatio,
-						deltaInvalid,
+						deltaInvalidSQL,
 						deltaExists,
 						deltaNotEx,
 						deltaIn,

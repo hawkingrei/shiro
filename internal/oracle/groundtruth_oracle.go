@@ -135,8 +135,7 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 		}
 	}
 	if dsgEnabled && !validDSGTruthJoin(query.From.BaseTable, edges) {
-		tableCap := groundTruthTableCap(maxRows)
-		joinCap := groundTruthJoinCap(maxRows)
+		tableCap, joinCap := groundTruthCaps(maxRows)
 		executor := groundtruth.JoinTruthExecutor{Truth: *truth}
 		truthCount, ok, reason := executor.EvalJoinChainExact(query.From.BaseTable, edges, tableCap, joinCap)
 		if !ok {
@@ -189,25 +188,18 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truthMeta}
 }
 
-func groundTruthJoinCap(maxRows int) int {
+func groundTruthCaps(maxRows int) (tableCap int, joinCap int) {
 	if maxRows <= 0 {
 		maxRows = 50
 	}
-	limit := maxRows * maxRows
-	if limit < maxRows {
-		limit = maxRows
+	joinCap = maxRows * maxRows
+	if joinCap < maxRows {
+		joinCap = maxRows
 	}
-	if limit > 10_000 {
-		limit = 10_000
+	if joinCap > 10_000 {
+		joinCap = 10_000
 	}
-	return limit
-}
-
-func groundTruthTableCap(maxRows int) int {
-	if maxRows <= 0 {
-		return 50
-	}
-	return maxRows
+	return maxRows, joinCap
 }
 
 func exactSkipReason(reason string) string {

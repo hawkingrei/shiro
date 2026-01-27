@@ -382,13 +382,6 @@ func buildCompositeIndex(rows []map[string]map[string]TypedValue, table, col str
 	return index
 }
 
-func minInt(a, b int) int {
-	if a <= b {
-		return a
-	}
-	return b
-}
-
 // NewKey encodes a join key from typed values for RowIDMap lookup.
 // It uses a stable, lossless encoding for basic scalar types.
 func NewKey(typ string, val string) string {
