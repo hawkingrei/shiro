@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"shiro/internal/generator"
 	"shiro/internal/schema"
 )
 
@@ -30,26 +31,43 @@ func NewHistory(state *schema.State, base string) *History {
 		adj:  make(map[string][]string),
 		edge: make(map[string]int64),
 	}
-	if state == nil || len(state.Tables) == 0 {
-		return h
+	h.Refresh(state)
+	return h
+}
+
+// Refresh rebuilds the history graph for the current schema, preserving edge counts
+// for edges that still exist.
+func (h *History) Refresh(state *schema.State) {
+	if h == nil {
+		return
 	}
-	baseName := base
-	if baseName == "" {
-		baseName = "t0"
+	oldEdge := h.edge
+	h.adj = make(map[string][]string)
+	h.edge = make(map[string]int64)
+	if state == nil || len(state.Tables) == 0 {
+		return
 	}
 	for _, tbl := range state.Tables {
 		h.adj[tbl.Name] = nil
 	}
-	for _, tbl := range state.Tables {
-		if tbl.Name == baseName {
-			continue
+	for i := 0; i < len(state.Tables); i++ {
+		for j := i + 1; j < len(state.Tables); j++ {
+			left := state.Tables[i].Name
+			right := state.Tables[j].Name
+			if !shareCompatibleKeyColumn(state, left, right) {
+				continue
+			}
+			h.addEdge(left, right)
 		}
-		if !shareKeyColumn(state, baseName, tbl.Name) {
-			continue
-		}
-		h.addEdge(baseName, tbl.Name)
 	}
-	return h
+	for left, neighbors := range h.adj {
+		for _, right := range neighbors {
+			key := edgeKey(left, right)
+			if count, ok := oldEdge[key]; ok {
+				h.edge[key] = count
+			}
+		}
+	}
 }
 
 // WalkTables performs a random walk over the history graph.
@@ -205,7 +223,7 @@ func appendIfMissing(list []string, val string) []string {
 	return append(list, val)
 }
 
-func shareKeyColumn(state *schema.State, left, right string) bool {
+func shareCompatibleKeyColumn(state *schema.State, left, right string) bool {
 	lt, ok := state.TableByName(left)
 	if !ok {
 		return false
@@ -214,19 +232,34 @@ func shareKeyColumn(state *schema.State, left, right string) bool {
 	if !ok {
 		return false
 	}
-	leftKeys := map[string]struct{}{}
-	for _, col := range lt.Columns {
-		if strings.HasPrefix(col.Name, "k") {
-			leftKeys[col.Name] = struct{}{}
-		}
-	}
+	leftKeys := keyColumns(lt)
 	if len(leftKeys) == 0 {
 		return false
 	}
-	for _, col := range rt.Columns {
-		if _, ok := leftKeys[col.Name]; ok {
-			return true
+	rightKeys := keyColumns(rt)
+	if len(rightKeys) == 0 {
+		return false
+	}
+	for _, lcol := range leftKeys {
+		for _, rcol := range rightKeys {
+			if compatibleKeyType(lcol.Type, rcol.Type) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func keyColumns(tbl schema.Table) []schema.Column {
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if strings.HasPrefix(col.Name, "k") {
+			cols = append(cols, col)
+		}
+	}
+	return cols
+}
+
+func compatibleKeyType(left, right schema.ColumnType) bool {
+	return generator.TypeCategory(left) == generator.TypeCategory(right)
 }

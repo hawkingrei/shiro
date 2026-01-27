@@ -68,7 +68,7 @@ func Build(cfg config.Config, r *rand.Rand) (BuildResult, error) {
 	dims := make([]schema.Table, 0, dimTables)
 	dimDepTypes := make([][]schema.ColumnType, 0, dimTables)
 	for i := 0; i < dimTables; i++ {
-		dim, depTypes := buildDimTable(r, i, keyTypes[i], depCols)
+		dim, depTypes := buildDimTable(r, i, keyTypes[i], depCols, keyTypes[0])
 		dims = append(dims, dim)
 		dimDepTypes = append(dimDepTypes, depTypes)
 		state.Tables = append(state.Tables, dim)
@@ -99,6 +99,10 @@ func Build(cfg config.Config, r *rand.Rand) (BuildResult, error) {
 			for d := 0; d < depCols; d++ {
 				colType := dimDepTypes[i][d]
 				deps[fmt.Sprintf("d%d", d)] = typedValue{Type: colType, Value: randomValue(r, colType)}
+			}
+			if i > 0 {
+				shared := domains[0][r.Intn(len(domains[0]))]
+				deps["k0"] = shared
 			}
 			depMaps[i][tv.key()] = deps
 		}
@@ -185,10 +189,13 @@ func buildBaseTable(r *rand.Rand, dimTables int, keyTypes []schema.ColumnType, p
 	}, payloadTypes
 }
 
-func buildDimTable(r *rand.Rand, idx int, keyType schema.ColumnType, depCols int) (schema.Table, []schema.ColumnType) {
+func buildDimTable(r *rand.Rand, idx int, keyType schema.ColumnType, depCols int, sharedKeyType schema.ColumnType) (schema.Table, []schema.ColumnType) {
 	cols := []schema.Column{
 		{Name: "id", Type: schema.TypeBigInt, Nullable: false},
 		{Name: fmt.Sprintf("k%d", idx), Type: keyType, Nullable: false},
+	}
+	if idx > 0 {
+		cols = append(cols, schema.Column{Name: "k0", Type: sharedKeyType, Nullable: false})
 	}
 	depTypes := make([]schema.ColumnType, 0, depCols)
 	for i := 0; i < depCols; i++ {

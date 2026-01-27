@@ -19,7 +19,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	if !g.Config.TQS.Enabled {
 		if query := g.generateTemplateQuery(baseTables); query != nil {
 			if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
-				query.OrderBy = g.deterministicOrderBy(baseTables)
+				query.OrderBy = g.ensureDeterministicOrderBy(query, baseTables)
 			}
 			if !g.validateQueryScope(query) {
 				return nil
@@ -96,7 +96,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		}
 	}
 	if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
-		query.OrderBy = g.deterministicOrderBy(queryTables)
+		query.OrderBy = g.ensureDeterministicOrderBy(query, queryTables)
 	}
 
 	if !g.validateQueryScope(query) {
@@ -107,6 +107,18 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
 	g.LastFeatures = &queryFeatures
 	return query
+}
+
+func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []schema.Table) []OrderBy {
+	if query == nil {
+		return nil
+	}
+	if query.Distinct {
+		if ob := g.GenerateOrderByFromItems(query.Items); len(ob) > 0 {
+			return ob
+		}
+	}
+	return g.deterministicOrderBy(tables)
 }
 
 func (g *Generator) positionCTETables(tables []schema.Table, with []CTE) []schema.Table {
