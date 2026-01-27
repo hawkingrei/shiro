@@ -109,6 +109,34 @@ Supported join types:
 
 ---
 
+## 4.5 GroundTruth in Shiro: Bitmap vs Exact Multiplicity
+
+Shiro's GroundTruth currently uses RowID bitmaps, which work best with unique or near-unique join keys.
+In DSG, when join keys are non-unique (e.g., shared keys in dimension tables), bitmap truth undercounts,
+so the oracle must guard and skip, leading to a high `groundtruth:dsg_key_mismatch` rate.
+
+To reduce skips while keeping low false positives, Shiro now includes an exact multiplicity path:
+when DSG join keys do not satisfy the truth guard, it switches to hash-join counting over normalized rows,
+and caps intermediate results to prevent blow-ups (exceeding the cap safely skips).
+
+### Comparison
+
+| Item | RowID bitmap (Current) | Exact multiplicity (Current) |
+| --- | --- | --- |
+| Join key support | Unique / near-unique | Allows 1:N / N:M |
+| Accuracy | May undercount | Exact counts |
+| False-positive risk | Low | Low (with caps) |
+| Cost | Low | Medium (depends on row counts) |
+| DSG compatibility | Requires guard | Covers non-unique keys |
+
+### Implementation Notes (Current)
+
+1) Store normalized row data in the groundtruth structure.
+2) Perform hash joins across the join chain and accumulate multiplicity counts.
+3) Skip when intermediate rows exceed the cap to avoid performance and memory risks.
+
+---
+
 ## 5. Ground-truth computation
 
 ### 5.1 Core idea

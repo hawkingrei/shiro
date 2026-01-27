@@ -1,11 +1,15 @@
 package report
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 
 	"shiro/internal/db"
@@ -86,7 +90,7 @@ func (r *Reporter) WriteSummary(c Case, summary Summary) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
-	return enc.Encode(summary)
+	return encodeSummaryStable(enc, summary)
 }
 
 // WriteSQL writes a SQL file from the provided statements.
@@ -106,7 +110,7 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
-	for _, tbl := range state.Tables {
+	for _, tbl := range sortedTables(state.Tables) {
 		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tbl.Name))
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
 		var name, createSQL string
@@ -123,9 +127,15 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 // DumpData writes data.tsv with capped rows per table.
 func (r *Reporter) DumpData(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
-	for _, tbl := range state.Tables {
+	for _, tbl := range sortedTables(state.Tables) {
 		b.WriteString(fmt.Sprintf("-- %s\n", tbl.Name))
-		rows, err := exec.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT %d", tbl.Name, r.MaxDataDumpRows))
+		orderBy := stableOrderBy(tbl)
+		sql := fmt.Sprintf("SELECT * FROM %s", tbl.Name)
+		if orderBy != "" {
+			sql += " ORDER BY " + orderBy
+		}
+		sql += fmt.Sprintf(" LIMIT %d", r.MaxDataDumpRows)
+		rows, err := exec.QueryContext(ctx, sql)
 		if err != nil {
 			continue
 		}
@@ -154,4 +164,206 @@ func (r *Reporter) DumpData(ctx context.Context, c Case, exec *db.DB, state *sch
 		b.WriteString("\n")
 	}
 	return os.WriteFile(filepath.Join(c.Dir, "data.tsv"), []byte(b.String()), 0o644)
+}
+
+func sortedTables(tables []schema.Table) []schema.Table {
+	if len(tables) < 2 {
+		return tables
+	}
+	out := append([]schema.Table(nil), tables...)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func stableOrderBy(tbl schema.Table) string {
+	if _, ok := tbl.ColumnByName("id"); ok {
+		return "`id`"
+	}
+	if len(tbl.Columns) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "" {
+			continue
+		}
+		names = append(names, col.Name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return fmt.Sprintf("`%s`", names[0])
+}
+
+func encodeSummaryStable(enc *json.Encoder, summary Summary) error {
+	type summaryAlias Summary
+	alias := summaryAlias(summary)
+	rawDetails, err := encodeOrderedValue(alias.Details)
+	if err != nil {
+		return err
+	}
+	alias.Details = nil
+	payload := struct {
+		summaryAlias
+		Details json.RawMessage `json:"details"`
+	}{
+		summaryAlias: alias,
+		Details:      rawDetails,
+	}
+	return enc.Encode(payload)
+}
+
+func encodeOrderedValue(v any) (json.RawMessage, error) {
+	if v == nil {
+		return json.RawMessage("null"), nil
+	}
+	buf := &strings.Builder{}
+	if err := writeOrderedJSON(buf, v); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(buf.String()), nil
+}
+
+func writeOrderedJSON(w io.Writer, v any) error {
+	if v == nil {
+		_, err := io.WriteString(w, "null")
+		return err
+	}
+	if raw, ok := v.(json.RawMessage); ok {
+		_, err := w.Write(raw)
+		return err
+	}
+	switch val := v.(type) {
+	case map[string]any:
+		return writeOrderedMap(w, val)
+	case []any:
+		return writeOrderedSlice(w, val)
+	}
+	rv := reflect.ValueOf(v)
+	if rv.IsValid() {
+		switch rv.Kind() {
+		case reflect.Map:
+			if rv.Type().Key().Kind() == reflect.String {
+				return writeOrderedMapValue(w, rv)
+			}
+		case reflect.Slice, reflect.Array:
+			return writeOrderedSliceValue(w, rv)
+		}
+	}
+	return writeScalarJSON(w, v)
+}
+
+func writeOrderedMap(w io.Writer, m map[string]any) error {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if _, err := io.WriteString(w, "{"); err != nil {
+		return err
+	}
+	for i, k := range keys {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		keyJSON, err := json.Marshal(k)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(keyJSON); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, ":"); err != nil {
+			return err
+		}
+		if err := writeOrderedJSON(w, m[k]); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "}")
+	return err
+}
+
+func writeOrderedMapValue(w io.Writer, rv reflect.Value) error {
+	keys := rv.MapKeys()
+	strKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		strKeys = append(strKeys, k.String())
+	}
+	sort.Strings(strKeys)
+	if _, err := io.WriteString(w, "{"); err != nil {
+		return err
+	}
+	for i, key := range strKeys {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeScalarJSON(w, key); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, ":"); err != nil {
+			return err
+		}
+		val := rv.MapIndex(reflect.ValueOf(key))
+		if err := writeOrderedJSON(w, val.Interface()); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "}")
+	return err
+}
+
+func writeOrderedSlice(w io.Writer, vals []any) error {
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for i, item := range vals {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeOrderedJSON(w, item); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+func writeOrderedSliceValue(w io.Writer, rv reflect.Value) error {
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for i := 0; i < rv.Len(); i++ {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeOrderedJSON(w, rv.Index(i).Interface()); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+func writeScalarJSON(w io.Writer, v any) error {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	data := bytes.TrimRight(buf.Bytes(), "\n")
+	_, err := w.Write(data)
+	return err
 }

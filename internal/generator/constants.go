@@ -49,7 +49,7 @@ const (
 	// CTEExtraProb is the extra chance to allow CTE when multiple tables are present.
 	CTEExtraProb = 50
 	// CTECountMax is the maximum number of CTEs to generate.
-	CTECountMax = 2
+	CTECountMax = 3
 	// CTELimitMax is the maximum LIMIT value for CTE queries.
 	CTELimitMax = 10
 	// SelectListMax is the maximum number of SELECT items for regular queries.
@@ -80,6 +80,12 @@ const (
 	CorrelatedSubqProb = 90
 	// CorrelatedSubqExtraProb is the chance to add an extra correlated predicate.
 	CorrelatedSubqExtraProb = 30
+	// SubqueryNestProb is the chance to allow nested subqueries inside subquery predicates.
+	SubqueryNestProb = 15
+	// SubqueryLimitProb is the chance to add LIMIT to a subquery.
+	SubqueryLimitProb = 25
+	// SubqueryOrderProb is the chance to add ORDER BY when LIMIT is used in a subquery.
+	SubqueryOrderProb = 70
 	// JoinCountToTwoProb is the chance to increase join count from 2 to 3.
 	JoinCountToTwoProb = 60
 	// JoinCountToThreeProb is the chance to increase join count from 3 to 4.

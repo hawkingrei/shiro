@@ -37,23 +37,65 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	}
 	partitionBy := []Expr{}
 	if util.Chance(g.Rand, WindowPartitionProb) {
-		col := g.randomColumn(tables)
-		if col.Table != "" {
+		count := 1
+		if util.Chance(g.Rand, WindowPartitionProb/2) {
+			count = 2
+		}
+		cols := g.pickUniqueColumns(tables, count)
+		for _, col := range cols {
 			partitionBy = append(partitionBy, ColumnExpr{Ref: col})
 		}
 	}
-	orderCol := g.randomColumn(tables)
-	orderExpr := Expr(LiteralExpr{Value: 1})
-	if orderCol.Table != "" {
-		orderExpr = ColumnExpr{Ref: orderCol}
+	orderBy := make([]OrderBy, 0, 2)
+	orderCount := 1
+	if util.Chance(g.Rand, WindowOrderDescProb/2) {
+		orderCount = 2
 	}
-	orderBy := []OrderBy{{Expr: orderExpr, Desc: util.Chance(g.Rand, WindowOrderDescProb)}}
+	for _, col := range g.pickUniqueColumns(tables, orderCount) {
+		orderBy = append(orderBy, OrderBy{Expr: ColumnExpr{Ref: col}, Desc: util.Chance(g.Rand, WindowOrderDescProb)})
+	}
+	if len(orderBy) == 0 {
+		orderBy = []OrderBy{{Expr: LiteralExpr{Value: 1}, Desc: false}}
+	}
 	return WindowExpr{
 		Name:        name,
 		Args:        args,
 		PartitionBy: partitionBy,
 		OrderBy:     orderBy,
 	}
+}
+
+func (g *Generator) pickUniqueColumns(tables []schema.Table, count int) []ColumnRef {
+	cols := g.uniqueColumns(tables)
+	if len(cols) == 0 || count <= 0 {
+		return nil
+	}
+	g.Rand.Shuffle(len(cols), func(i, j int) { cols[i], cols[j] = cols[j], cols[i] })
+	if count > len(cols) {
+		count = len(cols)
+	}
+	return cols[:count]
+}
+
+func (g *Generator) uniqueColumns(tables []schema.Table) []ColumnRef {
+	cols := g.collectColumns(tables)
+	if len(cols) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(cols))
+	out := make([]ColumnRef, 0, len(cols))
+	for _, col := range cols {
+		if col.Table == "" || col.Name == "" {
+			continue
+		}
+		key := col.Table + "." + col.Name
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, col)
+	}
+	return out
 }
 
 // GenerateAggregateSelectList builds a SELECT list with aggregates and group keys.
