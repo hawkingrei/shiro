@@ -35,6 +35,7 @@ func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) 
 					query.Where = BinaryExpr{Left: query.Where, Op: "AND", Right: extra}
 				}
 			}
+			g.applySubqueryOrderLimit(query, inner)
 			return query
 		}
 		outerCol := g.randomColumn(outerTables)
@@ -50,11 +51,14 @@ func (g *Generator) GenerateSubquery(outerTables []schema.Table, subqDepth int) 
 					query.Where = BinaryExpr{Left: query.Where, Op: "AND", Right: extra}
 				}
 			}
+			g.applySubqueryOrderLimit(query, inner)
 			return query
 		}
 	}
 
-	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, false, subqDepth)
+	allowNested := subqDepth > 0 && util.Chance(g.Rand, SubqueryNestProb)
+	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, allowNested, subqDepth)
+	g.applySubqueryOrderLimit(query, inner)
 	return query
 }
 
@@ -92,6 +96,7 @@ func (g *Generator) generateInSubquery(outerTables []schema.Table, leftType sche
 					query.Where = BinaryExpr{Left: query.Where, Op: "AND", Right: extra}
 				}
 			}
+			g.applySubqueryOrderLimit(query, inner)
 			return query
 		}
 		outerCol := g.randomColumn(outerTables)
@@ -107,11 +112,14 @@ func (g *Generator) generateInSubquery(outerTables []schema.Table, leftType sche
 					query.Where = BinaryExpr{Left: query.Where, Op: "AND", Right: extra}
 				}
 			}
+			g.applySubqueryOrderLimit(query, inner)
 			return query
 		}
 	}
 
-	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, false, subqDepth)
+	allowNested := subqDepth > 0 && util.Chance(g.Rand, SubqueryNestProb)
+	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, allowNested, subqDepth)
+	g.applySubqueryOrderLimit(query, inner)
 	return query
 }
 
@@ -153,10 +161,13 @@ func (g *Generator) generateExistsSubquery(outerTables []schema.Table, subqDepth
 					query.Where = BinaryExpr{Left: query.Where, Op: "AND", Right: extra}
 				}
 			}
+			g.applySubqueryOrderLimit(query, inner)
 			return query
 		}
 	}
-	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, false, subqDepth)
+	allowNested := subqDepth > 0 && util.Chance(g.Rand, SubqueryNestProb)
+	query.Where = g.GeneratePredicate([]schema.Table{inner}, 1, allowNested, subqDepth)
+	g.applySubqueryOrderLimit(query, inner)
 	return query
 }
 
@@ -217,6 +228,20 @@ func (g *Generator) pickCompatibleColumn(tbl schema.Table, colType schema.Column
 		return schema.Column{}, false
 	}
 	return candidates[g.Rand.Intn(len(candidates))], true
+}
+
+func (g *Generator) applySubqueryOrderLimit(query *SelectQuery, inner schema.Table) {
+	if query == nil || !g.Config.Features.OrderBy || !g.Config.Features.Limit {
+		return
+	}
+	if !util.Chance(g.Rand, SubqueryLimitProb) {
+		return
+	}
+	limit := g.Rand.Intn(CTELimitMax) + 1
+	query.Limit = &limit
+	if util.Chance(g.Rand, SubqueryOrderProb) {
+		query.OrderBy = g.GenerateOrderBy([]schema.Table{inner})
+	}
 }
 
 func (g *Generator) pickCorrelatedPredicate(outerTables []schema.Table, inner schema.Table) (Expr, bool) {

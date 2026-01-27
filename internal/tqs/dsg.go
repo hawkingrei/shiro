@@ -127,6 +127,7 @@ func Build(cfg config.Config, r *rand.Rand) (BuildResult, error) {
 				for name, v := range deps {
 					dimRow[name] = v
 				}
+				truth.AddRowData(dims[d].Name, toTruthRow(dimRow))
 				dimRows[d][key.key()] = dimRow
 			}
 			addTruthRow(&truth, dims[d].Name, deps, groundtruth.RowID(i))
@@ -137,6 +138,7 @@ func Build(cfg config.Config, r *rand.Rand) (BuildResult, error) {
 			row[fmt.Sprintf("p%d", p)] = typedValue{Type: colType, Value: randomValue(r, colType)}
 		}
 		baseRows = append(baseRows, row)
+		truth.AddRowData(base.Name, toTruthRow(row))
 		addTruthRow(&truth, base.Name, row, groundtruth.RowID(i))
 	}
 
@@ -223,6 +225,24 @@ func addTruthValue(truth *groundtruth.SchemaTruth, table, col string, tv typedVa
 		return
 	}
 	truth.AddColumnValue(table, col, encoded.Type, encoded.Value, id)
+}
+
+func toTruthRow(row map[string]typedValue) map[string]groundtruth.TypedValue {
+	if len(row) == 0 {
+		return nil
+	}
+	out := make(map[string]groundtruth.TypedValue, len(row))
+	for name, tv := range row {
+		encoded, ok := groundtruth.EncodeValue(tv.Type, tv.Value)
+		if !ok {
+			continue
+		}
+		out[name] = encoded
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func buildInsertStatements(tbl schema.Table, rows []map[string]typedValue, chunk int) []string {

@@ -22,6 +22,8 @@ type TableRows struct {
 	Columns map[string]RowIDMap
 	// Rows is a fallback value->RowID bitmap when column granularity is not available.
 	Rows RowIDMap
+	// RowsData stores normalized rows for exact join counting.
+	RowsData []map[string]TypedValue
 }
 
 // SchemaTruth bundles the RowID universe and normalized tables.
@@ -106,6 +108,146 @@ func (e *JoinTruthExecutor) EvalJoinChain(baseTable string, edges []JoinEdge) Bi
 	return result
 }
 
+// EvalJoinChainExact counts join results with multiplicity using normalized rows.
+// It returns ok=false when row data is missing or caps are exceeded.
+func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdge, tableCap int, joinCap int) (count int, ok bool, reason string) {
+	baseRows := e.tableRowsData(baseTable)
+	if len(baseRows) == 0 {
+		return 0, false, "missing_rows"
+	}
+	if tableCap <= 0 {
+		tableCap = 50
+	}
+	if joinCap <= 0 {
+		joinCap = 50
+	}
+	if len(baseRows) > tableCap {
+		return 0, false, "table_rows_exceeded"
+	}
+	composite := make([]map[string]map[string]TypedValue, 0, len(baseRows))
+	for _, row := range baseRows {
+		composite = append(composite, map[string]map[string]TypedValue{baseTable: row})
+	}
+	for _, edge := range edges {
+		rightRows := e.tableRowsData(edge.RightTable)
+		if len(rightRows) == 0 {
+			return 0, false, "missing_rows"
+		}
+		if len(rightRows) > tableCap {
+			return 0, false, "table_rows_exceeded"
+		}
+		var next []map[string]map[string]TypedValue
+		switch edge.JoinType {
+		case JoinCross:
+			next = make([]map[string]map[string]TypedValue, 0, minInt(joinCap, len(composite)*len(rightRows)))
+			for _, leftRow := range composite {
+				for _, rightRow := range rightRows {
+					if joinCap > 0 && len(next) >= joinCap {
+						return 0, false, "join_rows_exceeded"
+					}
+					merged := copyComposite(leftRow)
+					merged[edge.RightTable] = rightRow
+					next = append(next, merged)
+				}
+			}
+		case JoinRight:
+			leftIndex := buildCompositeIndex(composite, edge.LeftTable, edge.LeftKey)
+			next = make([]map[string]map[string]TypedValue, 0, len(rightRows))
+			for _, rightRow := range rightRows {
+				key, ok := rowKey(rightRow, edge.RightKey)
+				if !ok {
+					if joinCap > 0 && len(next) >= joinCap {
+						return 0, false, "join_rows_exceeded"
+					}
+					next = append(next, map[string]map[string]TypedValue{edge.RightTable: rightRow})
+					continue
+				}
+				matches := leftIndex[key]
+				if len(matches) == 0 {
+					if joinCap > 0 && len(next) >= joinCap {
+						return 0, false, "join_rows_exceeded"
+					}
+					next = append(next, map[string]map[string]TypedValue{edge.RightTable: rightRow})
+					continue
+				}
+				for _, leftRow := range matches {
+					if joinCap > 0 && len(next) >= joinCap {
+						return 0, false, "join_rows_exceeded"
+					}
+					merged := copyComposite(leftRow)
+					merged[edge.RightTable] = rightRow
+					next = append(next, merged)
+				}
+			}
+		case JoinLeft, JoinSemi, JoinAnti, JoinInner:
+			index := buildRowIndex(rightRows, edge.RightKey)
+			next = make([]map[string]map[string]TypedValue, 0, len(composite))
+			for _, leftRow := range composite {
+				lrow := leftRow[edge.LeftTable]
+				key, ok := rowKey(lrow, edge.LeftKey)
+				if !ok {
+					if edge.JoinType == JoinLeft || edge.JoinType == JoinAnti {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						next = append(next, copyComposite(leftRow))
+					}
+					continue
+				}
+				matches := index[key]
+				switch edge.JoinType {
+				case JoinInner:
+					for _, rightRow := range matches {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						merged := copyComposite(leftRow)
+						merged[edge.RightTable] = rightRow
+						next = append(next, merged)
+					}
+				case JoinLeft:
+					if len(matches) == 0 {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						next = append(next, copyComposite(leftRow))
+						continue
+					}
+					for _, rightRow := range matches {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						merged := copyComposite(leftRow)
+						merged[edge.RightTable] = rightRow
+						next = append(next, merged)
+					}
+				case JoinSemi:
+					if len(matches) > 0 {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						next = append(next, copyComposite(leftRow))
+					}
+				case JoinAnti:
+					if len(matches) == 0 {
+						if joinCap > 0 && len(next) >= joinCap {
+							return 0, false, "join_rows_exceeded"
+						}
+						next = append(next, copyComposite(leftRow))
+					}
+				}
+			}
+		default:
+			return 0, false, "unsupported_join"
+		}
+		composite = next
+		if len(composite) == 0 {
+			return 0, true, ""
+		}
+	}
+	return len(composite), true, ""
+}
+
 func (e *JoinTruthExecutor) tableAllRows(table string) Bitmap {
 	tbl, ok := e.Truth.Tables[table]
 	if !ok {
@@ -160,6 +302,14 @@ func (e *JoinTruthExecutor) tableColumn(table, col string) RowIDMap {
 	return nil
 }
 
+func (e *JoinTruthExecutor) tableRowsData(table string) []map[string]TypedValue {
+	tbl, ok := e.Truth.Tables[table]
+	if !ok {
+		return nil
+	}
+	return tbl.RowsData
+}
+
 func (t TableRows) allRowBitmaps() []Bitmap {
 	if t.Columns != nil {
 		merged := make([]Bitmap, 0, len(t.Columns))
@@ -175,6 +325,57 @@ func (t TableRows) allRowBitmaps() []Bitmap {
 		merged = append(merged, bm)
 	}
 	return merged
+}
+
+func rowKey(row map[string]TypedValue, col string) (string, bool) {
+	tv, ok := row[col]
+	if !ok {
+		return "", false
+	}
+	if tv.Value == "NULL" || tv.Value == "" {
+		return "", false
+	}
+	return NewKey(tv.Type, tv.Value), true
+}
+
+func buildRowIndex(rows []map[string]TypedValue, col string) map[string][]map[string]TypedValue {
+	index := make(map[string][]map[string]TypedValue, len(rows))
+	for _, row := range rows {
+		key, ok := rowKey(row, col)
+		if !ok {
+			continue
+		}
+		index[key] = append(index[key], row)
+	}
+	return index
+}
+
+func copyComposite(src map[string]map[string]TypedValue) map[string]map[string]TypedValue {
+	out := make(map[string]map[string]TypedValue, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func buildCompositeIndex(rows []map[string]map[string]TypedValue, table, col string) map[string][]map[string]map[string]TypedValue {
+	index := make(map[string][]map[string]map[string]TypedValue, len(rows))
+	for _, row := range rows {
+		tr := row[table]
+		key, ok := rowKey(tr, col)
+		if !ok {
+			continue
+		}
+		index[key] = append(index[key], row)
+	}
+	return index
+}
+
+func minInt(a, b int) int {
+	if a <= b {
+		return a
+	}
+	return b
 }
 
 // NewKey encodes a join key from typed values for RowIDMap lookup.
@@ -204,6 +405,7 @@ func (s *SchemaTruth) AddTable(name string) {
 		TableName: name,
 		Columns:   make(map[string]RowIDMap),
 		Rows:      make(RowIDMap),
+		RowsData:  nil,
 	}
 }
 
@@ -249,6 +451,19 @@ func (s *SchemaTruth) AddRow(table string, id RowID, values map[string]TypedValu
 	for col, tv := range values {
 		s.AddColumnValue(table, col, tv.Type, tv.Value, id)
 	}
+}
+
+// AddRowData appends a normalized row for exact join counting.
+func (s *SchemaTruth) AddRowData(table string, values map[string]TypedValue) {
+	if len(values) == 0 {
+		return
+	}
+	if _, ok := s.Tables[table]; !ok {
+		s.AddTable(table)
+	}
+	tbl := s.Tables[table]
+	tbl.RowsData = append(tbl.RowsData, values)
+	s.Tables[table] = tbl
 }
 
 // TypedValue encodes a scalar value for RowIDMap keys.

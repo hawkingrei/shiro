@@ -57,3 +57,7 @@
 - Errors containing "Can't find column ... in schema Column" should be treated as bugs and reported.
 - When creating PRs via `gh`, use a heredoc or multi-line `--body` to avoid literal `\n` in the description.
 - If Go version is 1.21 or newer, prefer built-in `max`/`min` instead of custom helpers to reduce utility clutter.
+- If fuzzing runs show a sudden spike of errors across multiple oracles, confirm the DB service uptime before diagnosing a code regression.
+- GroundTruth now supports exact multiplicity counting for DSG joins (INNER/LEFT/RIGHT/SEMI/ANTI/CROSS) with per-table and join caps; bitmap path remains INNER-only for non-DSG.
+- Report output is stabilized by sorting table dumps and emitting deterministic `details` JSON in `summary.json`.
+- SQL validity logs now include ratio and invalid counts to reduce ambiguity in interval stats.

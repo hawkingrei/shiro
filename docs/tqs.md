@@ -109,6 +109,34 @@ Supported join types:
 
 ---
 
+## 4.5 GroundTruth in Shiro: bitmap vs exact multiplicity
+
+目前 Shiro 的 GroundTruth 以 RowID bitmap 为核心，适合“唯一键或近似唯一键”的 join。
+在 DSG 场景下，如果 join key 不是唯一（例如维表共享 key），bitmap 会低估 join 行数，
+因此需要 guard 跳过，导致 `groundtruth:dsg_key_mismatch` 比例较高。
+
+为降低 skip 并保持低误报，我们计划新增“精确行组合计数（multiplicity）”路径：
+当 DSG join key 不满足 truth guard 时，改用真实行数据进行 hash join 计数，
+并设置上限防止组合爆炸，超限则安全跳过。
+
+### 对比
+
+| 项目 | RowID bitmap (当前) | Exact multiplicity (计划) |
+| --- | --- | --- |
+| 适用 join key | 唯一 / 近似唯一 | 允许 1:N / N:M |
+| 结果精度 | 可能低估 | 精确计数 |
+| 误报风险 | 低 | 低（带 cap） |
+| 计算成本 | 低 | 中（取决于行数） |
+| DSG 兼容 | 需 guard | 可覆盖非唯一 key |
+
+### 实现要点（计划）
+
+1) 在 groundtruth truth 结构中保存标准化表的行数据（normalized rows）。
+2) 对 join chain 逐步做 hash join，累加行组合数。
+3) 当组合数超过 cap 时直接 skip，避免性能与内存风险。
+
+---
+
 ## 5. Ground-truth computation
 
 ### 5.1 Core idea

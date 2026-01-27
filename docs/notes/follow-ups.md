@@ -7,3 +7,5 @@
 - Add report aggregation views (commit/bug type) and export in the frontend.
 - Add S3/report incremental merging and multi-source aggregation.
 - Centralize tuning knobs for template sampling/weights and QPG template overrides (enable prob, weights, TTLs, thresholds).
+- Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
+- Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.

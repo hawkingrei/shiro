@@ -37,17 +37,45 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	}
 	partitionBy := []Expr{}
 	if util.Chance(g.Rand, WindowPartitionProb) {
-		col := g.randomColumn(tables)
-		if col.Table != "" {
+		count := 1
+		if util.Chance(g.Rand, WindowPartitionProb/2) {
+			count = 2
+		}
+		seen := map[string]struct{}{}
+		for len(partitionBy) < count {
+			col := g.randomColumn(tables)
+			if col.Table == "" {
+				break
+			}
+			key := col.Table + "." + col.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
 			partitionBy = append(partitionBy, ColumnExpr{Ref: col})
 		}
 	}
-	orderCol := g.randomColumn(tables)
-	orderExpr := Expr(LiteralExpr{Value: 1})
-	if orderCol.Table != "" {
-		orderExpr = ColumnExpr{Ref: orderCol}
+	orderBy := make([]OrderBy, 0, 2)
+	orderCount := 1
+	if util.Chance(g.Rand, WindowOrderDescProb/2) {
+		orderCount = 2
 	}
-	orderBy := []OrderBy{{Expr: orderExpr, Desc: util.Chance(g.Rand, WindowOrderDescProb)}}
+	seenOrder := map[string]struct{}{}
+	for len(orderBy) < orderCount {
+		orderCol := g.randomColumn(tables)
+		if orderCol.Table == "" {
+			break
+		}
+		key := orderCol.Table + "." + orderCol.Name
+		if _, ok := seenOrder[key]; ok {
+			continue
+		}
+		seenOrder[key] = struct{}{}
+		orderBy = append(orderBy, OrderBy{Expr: ColumnExpr{Ref: orderCol}, Desc: util.Chance(g.Rand, WindowOrderDescProb)})
+	}
+	if len(orderBy) == 0 {
+		orderBy = []OrderBy{{Expr: LiteralExpr{Value: 1}, Desc: false}}
+	}
 	return WindowExpr{
 		Name:        name,
 		Args:        args,
