@@ -109,31 +109,31 @@ Supported join types:
 
 ---
 
-## 4.5 GroundTruth in Shiro: bitmap vs exact multiplicity
+## 4.5 GroundTruth in Shiro: Bitmap vs Exact Multiplicity
 
-目前 Shiro 的 GroundTruth 以 RowID bitmap 为核心，适合“唯一键或近似唯一键”的 join。
-在 DSG 场景下，如果 join key 不是唯一（例如维表共享 key），bitmap 会低估 join 行数，
-因此需要 guard 跳过，导致 `groundtruth:dsg_key_mismatch` 比例较高。
+Shiro's GroundTruth currently uses RowID bitmaps, which work best with unique or near-unique join keys.
+In DSG, when join keys are non-unique (e.g., shared keys in dimension tables), bitmap truth undercounts,
+so the oracle must guard and skip, leading to a high `groundtruth:dsg_key_mismatch` rate.
 
-为降低 skip 并保持低误报，我们计划新增“精确行组合计数（multiplicity）”路径：
-当 DSG join key 不满足 truth guard 时，改用真实行数据进行 hash join 计数，
-并设置上限防止组合爆炸，超限则安全跳过。
+To reduce skips while keeping low false positives, Shiro now includes an exact multiplicity path:
+when DSG join keys do not satisfy the truth guard, it switches to hash-join counting over normalized rows,
+and caps intermediate results to prevent blow-ups (exceeding the cap safely skips).
 
-### 对比
+### Comparison
 
-| 项目 | RowID bitmap (当前) | Exact multiplicity (计划) |
+| Item | RowID bitmap (Current) | Exact multiplicity (Current) |
 | --- | --- | --- |
-| 适用 join key | 唯一 / 近似唯一 | 允许 1:N / N:M |
-| 结果精度 | 可能低估 | 精确计数 |
-| 误报风险 | 低 | 低（带 cap） |
-| 计算成本 | 低 | 中（取决于行数） |
-| DSG 兼容 | 需 guard | 可覆盖非唯一 key |
+| Join key support | Unique / near-unique | Allows 1:N / N:M |
+| Accuracy | May undercount | Exact counts |
+| False-positive risk | Low | Low (with caps) |
+| Cost | Low | Medium (depends on row counts) |
+| DSG compatibility | Requires guard | Covers non-unique keys |
 
-### 实现要点（计划）
+### Implementation Notes (Current)
 
-1) 在 groundtruth truth 结构中保存标准化表的行数据（normalized rows）。
-2) 对 join chain 逐步做 hash join，累加行组合数。
-3) 当组合数超过 cap 时直接 skip，避免性能与内存风险。
+1) Store normalized row data in the groundtruth structure.
+2) Perform hash joins across the join chain and accumulate multiplicity counts.
+3) Skip when intermediate rows exceed the cap to avoid performance and memory risks.
 
 ---
 

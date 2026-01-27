@@ -54,9 +54,9 @@ func (h *History) Refresh(state *schema.State) {
 		for j := i + 1; j < len(state.Tables); j++ {
 			left := state.Tables[i].Name
 			right := state.Tables[j].Name
-			if !shareCompatibleKeyColumn(state, left, right) {
-				continue
-			}
+		if !haveCompatibleKeyColumns(state, left, right) {
+			continue
+		}
 			h.addEdge(left, right)
 		}
 	}
@@ -223,7 +223,7 @@ func appendIfMissing(list []string, val string) []string {
 	return append(list, val)
 }
 
-func shareCompatibleKeyColumn(state *schema.State, left, right string) bool {
+func haveCompatibleKeyColumns(state *schema.State, left, right string) bool {
 	lt, ok := state.TableByName(left)
 	if !ok {
 		return false

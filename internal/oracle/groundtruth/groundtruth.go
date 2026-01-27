@@ -108,7 +108,13 @@ func (e *JoinTruthExecutor) EvalJoinChain(baseTable string, edges []JoinEdge) Bi
 	return result
 }
 
+const (
+	defaultTableCap = 50
+	defaultJoinCap  = 50
+)
+
 // EvalJoinChainExact counts join results with multiplicity using normalized rows.
+// tableCap limits the number of rows per table; joinCap limits intermediate join rows.
 // It returns ok=false when row data is missing or caps are exceeded.
 func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdge, tableCap int, joinCap int) (count int, ok bool, reason string) {
 	baseRows := e.tableRowsData(baseTable)
@@ -116,12 +122,13 @@ func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdg
 		return 0, false, "missing_rows"
 	}
 	if tableCap <= 0 {
-		tableCap = 50
+		tableCap = defaultTableCap
 	}
 	if joinCap <= 0 {
-		joinCap = 50
+		joinCap = defaultJoinCap
 	}
 	if len(baseRows) > tableCap {
+		// Skip oversized tables to preserve exactness.
 		return 0, false, "table_rows_exceeded"
 	}
 	composite := make([]map[string]map[string]TypedValue, 0, len(baseRows))
@@ -139,7 +146,11 @@ func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdg
 		var next []map[string]map[string]TypedValue
 		switch edge.JoinType {
 		case JoinCross:
-			next = make([]map[string]map[string]TypedValue, 0, minInt(joinCap, len(composite)*len(rightRows)))
+			estimate := len(composite) * len(rightRows)
+			if joinCap > 0 && estimate > joinCap {
+				estimate = joinCap
+			}
+			next = make([]map[string]map[string]TypedValue, 0, estimate)
 			for _, leftRow := range composite {
 				for _, rightRow := range rightRows {
 					if joinCap > 0 && len(next) >= joinCap {
@@ -332,7 +343,7 @@ func rowKey(row map[string]TypedValue, col string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if tv.Value == "NULL" || tv.Value == "" {
+	if tv.Value == "NULL" {
 		return "", false
 	}
 	return NewKey(tv.Type, tv.Value), true

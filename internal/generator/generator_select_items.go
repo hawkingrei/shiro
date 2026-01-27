@@ -41,17 +41,8 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 		if util.Chance(g.Rand, WindowPartitionProb/2) {
 			count = 2
 		}
-		seen := map[string]struct{}{}
-		for len(partitionBy) < count {
-			col := g.randomColumn(tables)
-			if col.Table == "" {
-				break
-			}
-			key := col.Table + "." + col.Name
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
+		cols := g.pickUniqueColumns(tables, count)
+		for _, col := range cols {
 			partitionBy = append(partitionBy, ColumnExpr{Ref: col})
 		}
 	}
@@ -60,18 +51,8 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	if util.Chance(g.Rand, WindowOrderDescProb/2) {
 		orderCount = 2
 	}
-	seenOrder := map[string]struct{}{}
-	for len(orderBy) < orderCount {
-		orderCol := g.randomColumn(tables)
-		if orderCol.Table == "" {
-			break
-		}
-		key := orderCol.Table + "." + orderCol.Name
-		if _, ok := seenOrder[key]; ok {
-			continue
-		}
-		seenOrder[key] = struct{}{}
-		orderBy = append(orderBy, OrderBy{Expr: ColumnExpr{Ref: orderCol}, Desc: util.Chance(g.Rand, WindowOrderDescProb)})
+	for _, col := range g.pickUniqueColumns(tables, orderCount) {
+		orderBy = append(orderBy, OrderBy{Expr: ColumnExpr{Ref: col}, Desc: util.Chance(g.Rand, WindowOrderDescProb)})
 	}
 	if len(orderBy) == 0 {
 		orderBy = []OrderBy{{Expr: LiteralExpr{Value: 1}, Desc: false}}
@@ -82,6 +63,39 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 		PartitionBy: partitionBy,
 		OrderBy:     orderBy,
 	}
+}
+
+func (g *Generator) pickUniqueColumns(tables []schema.Table, count int) []ColumnRef {
+	cols := g.uniqueColumns(tables)
+	if len(cols) == 0 || count <= 0 {
+		return nil
+	}
+	g.Rand.Shuffle(len(cols), func(i, j int) { cols[i], cols[j] = cols[j], cols[i] })
+	if count > len(cols) {
+		count = len(cols)
+	}
+	return cols[:count]
+}
+
+func (g *Generator) uniqueColumns(tables []schema.Table) []ColumnRef {
+	cols := g.collectColumns(tables)
+	if len(cols) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(cols))
+	out := make([]ColumnRef, 0, len(cols))
+	for _, col := range cols {
+		if col.Table == "" || col.Name == "" {
+			continue
+		}
+		key := col.Table + "." + col.Name
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, col)
+	}
+	return out
 }
 
 // GenerateAggregateSelectList builds a SELECT list with aggregates and group keys.

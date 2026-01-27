@@ -1,12 +1,14 @@
 package report
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -182,7 +184,18 @@ func stableOrderBy(tbl schema.Table) string {
 	if len(tbl.Columns) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("`%s`", tbl.Columns[0].Name)
+	names := make([]string, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if col.Name == "" {
+			continue
+		}
+		names = append(names, col.Name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	sort.Strings(names)
+	return fmt.Sprintf("`%s`", names[0])
 }
 
 func encodeSummaryStable(enc *json.Encoder, summary Summary) error {
@@ -215,51 +228,32 @@ func encodeOrderedValue(v any) (json.RawMessage, error) {
 }
 
 func writeOrderedJSON(w io.Writer, v any) error {
+	if v == nil {
+		_, err := io.WriteString(w, "null")
+		return err
+	}
+	if raw, ok := v.(json.RawMessage); ok {
+		_, err := w.Write(raw)
+		return err
+	}
 	switch val := v.(type) {
 	case map[string]any:
 		return writeOrderedMap(w, val)
-	case map[string]string:
-		tmp := make(map[string]any, len(val))
-		for k, v := range val {
-			tmp[k] = v
-		}
-		return writeOrderedMap(w, tmp)
-	case map[string]int:
-		tmp := make(map[string]any, len(val))
-		for k, v := range val {
-			tmp[k] = v
-		}
-		return writeOrderedMap(w, tmp)
-	case map[string]bool:
-		tmp := make(map[string]any, len(val))
-		for k, v := range val {
-			tmp[k] = v
-		}
-		return writeOrderedMap(w, tmp)
 	case []any:
-		if _, err := io.WriteString(w, "["); err != nil {
-			return err
-		}
-		for i, item := range val {
-			if i > 0 {
-				if _, err := io.WriteString(w, ","); err != nil {
-					return err
-				}
-			}
-			if err := writeOrderedJSON(w, item); err != nil {
-				return err
-			}
-		}
-		_, err := io.WriteString(w, "]")
-		return err
-	default:
-		data, err := json.Marshal(val)
-		if err != nil {
-			return err
-		}
-		_, err = w.Write(data)
-		return err
+		return writeOrderedSlice(w, val)
 	}
+	rv := reflect.ValueOf(v)
+	if rv.IsValid() {
+		switch rv.Kind() {
+		case reflect.Map:
+			if rv.Type().Key().Kind() == reflect.String {
+				return writeOrderedMapValue(w, rv)
+			}
+		case reflect.Slice, reflect.Array:
+			return writeOrderedSliceValue(w, rv)
+		}
+	}
+	return writeScalarJSON(w, v)
 }
 
 func writeOrderedMap(w io.Writer, m map[string]any) error {
@@ -292,5 +286,84 @@ func writeOrderedMap(w io.Writer, m map[string]any) error {
 		}
 	}
 	_, err := io.WriteString(w, "}")
+	return err
+}
+
+func writeOrderedMapValue(w io.Writer, rv reflect.Value) error {
+	keys := rv.MapKeys()
+	strKeys := make([]string, 0, len(keys))
+	for _, k := range keys {
+		strKeys = append(strKeys, k.String())
+	}
+	sort.Strings(strKeys)
+	if _, err := io.WriteString(w, "{"); err != nil {
+		return err
+	}
+	for i, key := range strKeys {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeScalarJSON(w, key); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(w, ":"); err != nil {
+			return err
+		}
+		val := rv.MapIndex(reflect.ValueOf(key))
+		if err := writeOrderedJSON(w, val.Interface()); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "}")
+	return err
+}
+
+func writeOrderedSlice(w io.Writer, vals []any) error {
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for i, item := range vals {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeOrderedJSON(w, item); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+func writeOrderedSliceValue(w io.Writer, rv reflect.Value) error {
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for i := 0; i < rv.Len(); i++ {
+		if i > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if err := writeOrderedJSON(w, rv.Index(i).Interface()); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+func writeScalarJSON(w io.Writer, v any) error {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	data := bytes.TrimRight(buf.Bytes(), "\n")
+	_, err := w.Write(data)
 	return err
 }
