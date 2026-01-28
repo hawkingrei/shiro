@@ -240,7 +240,7 @@ func (g *Generator) applySubqueryOrderLimit(query *SelectQuery, inner schema.Tab
 	limit := g.Rand.Intn(CTELimitMax) + 1
 	query.Limit = &limit
 	if util.Chance(g.Rand, SubqueryOrderProb) {
-		query.OrderBy = g.GenerateOrderBy([]schema.Table{inner})
+		query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
 	}
 }
 

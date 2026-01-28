@@ -110,11 +110,26 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
-	for _, tbl := range sortedTables(state.Tables) {
+	tables, views := splitTables(state.Tables)
+	for _, view := range sortedTables(views) {
+		b.WriteString(fmt.Sprintf("DROP VIEW IF EXISTS %s;\n", view.Name))
+	}
+	for _, tbl := range sortedTables(tables) {
 		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tbl.Name))
+	}
+	for _, tbl := range sortedTables(tables) {
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
 		var name, createSQL string
 		if err := row.Scan(&name, &createSQL); err != nil {
+			continue
+		}
+		b.WriteString(createSQL)
+		b.WriteString(";\n\n")
+	}
+	for _, view := range sortedTables(views) {
+		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE VIEW %s", view.Name))
+		var name, createSQL, charset, collation string
+		if err := row.Scan(&name, &createSQL, &charset, &collation); err != nil {
 			continue
 		}
 		b.WriteString(createSQL)
@@ -175,6 +190,19 @@ func sortedTables(tables []schema.Table) []schema.Table {
 		return out[i].Name < out[j].Name
 	})
 	return out
+}
+
+func splitTables(tables []schema.Table) ([]schema.Table, []schema.Table) {
+	base := make([]schema.Table, 0, len(tables))
+	views := make([]schema.Table, 0, len(tables))
+	for _, tbl := range tables {
+		if tbl.IsView {
+			views = append(views, tbl)
+		} else {
+			base = append(base, tbl)
+		}
+	}
+	return base, views
 }
 
 func stableOrderBy(tbl schema.Table) string {

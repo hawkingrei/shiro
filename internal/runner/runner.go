@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"shiro/internal/config"
@@ -54,6 +55,8 @@ type Runner struct {
 	joinCounts          map[int]int64
 	joinTypeSeqs        map[string]int64
 	joinGraphSigs       map[string]int64
+	viewQueries         int64
+	viewTableRefs       int64
 	predicatePairsTotal int64
 	predicatePairsJoin  int64
 	truthMismatches     int64
@@ -72,6 +75,22 @@ type Runner struct {
 	featureBandit   *featureBandits
 	lastFeatureArms featureArms
 }
+
+func (r *Runner) baseTables() []*schema.Table {
+	if r == nil || r.state == nil {
+		return nil
+	}
+	out := make([]*schema.Table, 0, len(r.state.Tables))
+	for i := range r.state.Tables {
+		if r.state.Tables[i].IsView {
+			continue
+		}
+		out = append(out, &r.state.Tables[i])
+	}
+	return out
+}
+
+const viewDDLBoostProb = 70
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -247,26 +266,42 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 
 func (r *Runner) runDDL(ctx context.Context) {
 	actions := make([]string, 0, 5)
-	if len(r.state.Tables) < r.cfg.MaxTables {
-		actions = append(actions, "create_table")
-	}
-	if r.cfg.Features.Indexes && len(r.state.Tables) > 0 {
-		actions = append(actions, "create_index")
-	}
-	if r.cfg.Features.Views && len(r.state.Tables) > 0 {
-		actions = append(actions, "create_view")
-	}
-	if r.cfg.Features.ForeignKeys && len(r.state.Tables) > 1 {
-		actions = append(actions, "add_fk")
-	}
-	if r.cfg.Features.CheckConstraints && len(r.state.Tables) > 0 {
-		actions = append(actions, "add_check")
+	baseTables := r.baseTables()
+	if r.cfg.TQS.Enabled {
+		if r.cfg.Features.Views && len(r.state.Tables) > 0 {
+			actions = append(actions, "create_view")
+		}
+	} else {
+		if len(r.state.Tables) < r.cfg.MaxTables {
+			actions = append(actions, "create_table")
+		}
+		if r.cfg.Features.Indexes && len(baseTables) > 0 {
+			actions = append(actions, "create_index")
+		}
+		if r.cfg.Features.Views && len(r.state.Tables) > 0 {
+			actions = append(actions, "create_view")
+		}
+		if r.cfg.Features.ForeignKeys && len(baseTables) > 1 {
+			actions = append(actions, "add_fk")
+		}
+		if r.cfg.Features.CheckConstraints && len(baseTables) > 0 {
+			actions = append(actions, "add_check")
+		}
 	}
 	if len(actions) == 0 {
 		return
 	}
 
+	if r.cfg.Features.Views && hasAction(actions, "create_view") && util.Chance(r.gen.Rand, viewDDLBoostProb) {
+		action := "create_view"
+		r.runDDLAction(ctx, action, baseTables)
+		return
+	}
 	action := actions[r.gen.Rand.Intn(len(actions))]
+	r.runDDLAction(ctx, action, baseTables)
+}
+
+func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*schema.Table) {
 	switch action {
 	case "create_table":
 		tbl := r.gen.GenerateTable()
@@ -281,8 +316,11 @@ func (r *Runner) runDDL(ctx context.Context) {
 			r.tqsHistory.Refresh(r.state)
 		}
 	case "create_index":
-		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
-		tablePtr := &r.state.Tables[tableIdx]
+		if len(baseTables) == 0 {
+			return
+		}
+		tableIdx := r.gen.Rand.Intn(len(baseTables))
+		tablePtr := baseTables[tableIdx]
 		tableCopy := *tablePtr
 		sql, ok := r.gen.CreateIndexSQL(&tableCopy)
 		if !ok {
@@ -293,43 +331,63 @@ func (r *Runner) runDDL(ctx context.Context) {
 		}
 		*tablePtr = tableCopy
 	case "create_view":
-		sql := r.gen.CreateViewSQL()
+		sql, view := r.gen.CreateViewSQL()
 		if sql == "" {
 			return
 		}
-		_ = r.execSQL(ctx, sql)
+		if err := r.execSQL(ctx, sql); err != nil {
+			return
+		}
+		if view != nil {
+			r.state.Tables = append(r.state.Tables, *view)
+		}
 	case "add_fk":
-		sql := r.gen.AddForeignKeySQL(r.state)
+		tableSnapshot := make([]schema.Table, 0, len(baseTables))
+		for _, tbl := range baseTables {
+			tableSnapshot = append(tableSnapshot, *tbl)
+		}
+		sql := r.gen.AddForeignKeySQL(&schema.State{Tables: tableSnapshot})
 		if sql == "" {
 			return
 		}
 		_ = r.execSQL(ctx, sql)
 	case "add_check":
-		tbl := r.state.Tables[r.gen.Rand.Intn(len(r.state.Tables))]
-		sql := r.gen.AddCheckConstraintSQL(tbl)
+		if len(baseTables) == 0 {
+			return
+		}
+		tbl := baseTables[r.gen.Rand.Intn(len(baseTables))]
+		sql := r.gen.AddCheckConstraintSQL(*tbl)
 		_ = r.execSQL(ctx, sql)
 	}
 }
 
+func hasAction(actions []string, target string) bool {
+	for _, action := range actions {
+		if action == target {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runner) runDML(ctx context.Context) {
-	if len(r.state.Tables) == 0 {
+	baseTables := r.baseTables()
+	if len(baseTables) == 0 {
 		return
 	}
 	choice := r.pickDML()
 	var reward float64
-	tbl := r.state.Tables[r.gen.Rand.Intn(len(r.state.Tables))]
+	tbl := baseTables[r.gen.Rand.Intn(len(baseTables))]
 	switch choice {
 	case 0:
-		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
-		tablePtr := &r.state.Tables[tableIdx]
-		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
+		_ = r.execSQL(ctx, r.gen.InsertSQL(tbl))
 	case 1:
-		updateSQL, _, _, _ := r.gen.UpdateSQL(tbl)
+		updateSQL, _, _, _ := r.gen.UpdateSQL(*tbl)
 		if updateSQL != "" {
 			_ = r.execSQL(ctx, updateSQL)
 		}
 	case 2:
-		deleteSQL, _ := r.gen.DeleteSQL(tbl)
+		deleteSQL, _ := r.gen.DeleteSQL(*tbl)
 		if deleteSQL != "" {
 			_ = r.execSQL(ctx, deleteSQL)
 		}
@@ -370,12 +428,31 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	if result.Err != nil {
+		if tbl, ok := missingTableName(result.Err); ok && r.removeViewFromState(tbl) {
+			if result.Details == nil {
+				result.Details = map[string]any{}
+			}
+			result.Details["skip_reason"] = "missing_view"
+			result.OK = true
+			result.Err = nil
+		}
+	}
 	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
 		if result.Details == nil {
 			result.Details = map[string]any{}
 		}
 		if _, ok := result.Details["error_reason"]; !ok {
 			result.Details["error_reason"] = "unknown_column"
+		}
+		result.OK = false
+	}
+	if result.Err != nil && oracle.IsSchemaColumnMissingErr(result.Err) {
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "missing_column"
 		}
 		result.OK = false
 	}
@@ -409,4 +486,43 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	r.tickQPG()
 	r.tickKQELite()
 	return true
+}
+
+func missingTableName(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	msg := err.Error()
+	const prefix = "Table '"
+	const suffix = "' doesn't exist"
+	start := strings.Index(msg, prefix)
+	if start < 0 {
+		return "", false
+	}
+	start += len(prefix)
+	end := strings.Index(msg[start:], suffix)
+	if end < 0 {
+		return "", false
+	}
+	name := msg[start : start+end]
+	if name == "" {
+		return "", false
+	}
+	if dot := strings.LastIndex(name, "."); dot >= 0 && dot+1 < len(name) {
+		name = name[dot+1:]
+	}
+	return name, true
+}
+
+func (r *Runner) removeViewFromState(name string) bool {
+	if r == nil || r.state == nil || name == "" {
+		return false
+	}
+	for i, tbl := range r.state.Tables {
+		if tbl.Name == name && tbl.IsView {
+			r.state.Tables = append(r.state.Tables[:i], r.state.Tables[i+1:]...)
+			return true
+		}
+	}
+	return false
 }

@@ -200,6 +200,7 @@ type MinimizeConfig struct {
 type Adaptive struct {
 	Enabled        bool    `yaml:"enabled"`
 	UCBExploration float64 `yaml:"ucb_exploration"`
+	WindowSize     int     `yaml:"window_size"`
 	AdaptActions   bool    `yaml:"adapt_actions"`
 	AdaptOracles   bool    `yaml:"adapt_oracles"`
 	AdaptDML       bool    `yaml:"adapt_dml"`
@@ -256,12 +257,17 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.TQS.Enabled {
 		cfg.Features.DSG = true
-		cfg.Weights.Actions.DDL = 0
 		cfg.Weights.Actions.DML = 0
 		if cfg.Weights.Actions.Query <= 0 {
 			cfg.Weights.Actions.Query = 1
 		}
-		cfg.Weights.Oracles.DQE = 0
+		if cfg.Features.Views {
+			if cfg.Weights.Actions.DDL <= 0 {
+				cfg.Weights.Actions.DDL = 1
+			}
+		} else {
+			cfg.Weights.Actions.DDL = 0
+		}
 	}
 }
 
@@ -342,6 +348,7 @@ func defaultConfig() Config {
 		MaxInsertStatements: 200,
 		StatementTimeoutMs:  15000,
 		Features: Features{
+			Views:                true,
 			PartitionTables:      true,
 			NonPreparedPlanCache: true,
 			NotExists:            true,
@@ -381,7 +388,7 @@ func defaultConfig() Config {
 			},
 		},
 		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 20, GroundTruthMaxRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
-		Adaptive: Adaptive{UCBExploration: 1.5},
+		Adaptive: Adaptive{Enabled: true, UCBExploration: 1.5, WindowSize: 50000},
 		QPG: QPGConfig{
 			Enabled:             false,
 			ExplainFormat:       "brief",

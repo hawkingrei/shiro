@@ -146,8 +146,9 @@ minimize:
   merge_inserts: true
 
 adaptive:
-  enabled: false
+  enabled: true
   ucb_exploration: 1.5
+  window_size: 50000
   adapt_actions: false
   adapt_oracles: true
   adapt_dml: false

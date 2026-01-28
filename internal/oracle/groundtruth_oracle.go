@@ -65,7 +65,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	}
 	leftRows, leftSQL, err := fetchRows(ctx, exec, query.From.BaseTable, columnsByTable[query.From.BaseTable], maxRows)
 	if err != nil {
-		if isSchemaColumnMissingErr(err) {
+		if IsSchemaColumnMissingErr(err) {
 			return Result{OK: false, Oracle: o.Name(), SQL: []string{leftSQL}, Err: err}
 		}
 		return Result{OK: true, Oracle: o.Name(), Err: err}
@@ -77,7 +77,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 		rightCols := columnsByTable[join.Table]
 		rightRows, rightSQL, err := fetchRows(ctx, exec, join.Table, rightCols, maxRows)
 		if err != nil {
-			if isSchemaColumnMissingErr(err) {
+			if IsSchemaColumnMissingErr(err) {
 				return Result{OK: false, Oracle: o.Name(), SQL: []string{rightSQL}, Err: err}
 			}
 			return Result{OK: true, Oracle: o.Name(), Err: err}
@@ -95,7 +95,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", sqlText)
 	actual, err := exec.QueryCount(ctx, countSQL)
 	if err != nil {
-		if isSchemaColumnMissingErr(err) {
+		if IsSchemaColumnMissingErr(err) {
 			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
 		}
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
@@ -165,7 +165,7 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", sqlText)
 	actual, err := exec.QueryCount(ctx, countSQL)
 	if err != nil {
-		if isSchemaColumnMissingErr(err) {
+		if IsSchemaColumnMissingErr(err) {
 			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
 		}
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}

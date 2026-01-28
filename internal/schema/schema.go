@@ -45,6 +45,7 @@ type Table struct {
 	NextID         int64
 	Partitioned    bool
 	PartitionCount int
+	IsView         bool
 }
 
 // State tracks the current schema state.
