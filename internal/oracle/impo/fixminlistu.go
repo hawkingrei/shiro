@@ -1,6 +1,8 @@
 package impo
 
 import (
+	"math"
+
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/pkg/errors"
@@ -60,13 +62,29 @@ func buildExpandedLiteral(list []ast.ExprNode) ast.ExprNode {
 		d := val.Datum
 		switch d.Kind() {
 		case test_driver.KindInt64:
-			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(d.GetInt64() + 1)}
+			cur := d.GetInt64()
+			if cur == math.MaxInt64 {
+				continue
+			}
+			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(cur + 1)}
 		case test_driver.KindUint64:
-			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(d.GetUint64() + 1)}
+			cur := d.GetUint64()
+			if cur == math.MaxUint64 {
+				continue
+			}
+			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(cur + 1)}
 		case test_driver.KindFloat64:
-			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(d.GetFloat64() + 1)}
+			cur := d.GetFloat64() + 1
+			if math.IsInf(cur, 0) {
+				continue
+			}
+			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(cur)}
 		case test_driver.KindFloat32:
-			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(d.GetFloat32() + 1)}
+			cur := d.GetFloat32() + 1
+			if math.IsInf(float64(cur), 0) {
+				continue
+			}
+			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(cur)}
 		case test_driver.KindString:
 			return &test_driver.ValueExpr{Datum: test_driver.NewDatum(d.GetString() + "_x")}
 		}
