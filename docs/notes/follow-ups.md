@@ -10,3 +10,4 @@
 - Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 - Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
 - Consider making `CTECountMax` configurable if needed for resource-sensitive runs.
+- Consider restricting Impo seed generation to non-aggregate queries instead of generate-and-skip. (done)

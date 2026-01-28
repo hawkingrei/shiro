@@ -81,6 +81,7 @@ type Candidate struct {
 type MutateVisitor struct {
 	Root       ast.Node
 	Candidates map[string][]*Candidate // mutation name : slice of *Candidate
+	subqDepth  int
 }
 
 func (v *MutateVisitor) visit(in ast.Node, flag int) {
@@ -128,15 +129,24 @@ func (v *MutateVisitor) visitWithClause(in *ast.WithClause, flag int) {
 		return
 	}
 	for _, cte := range in.CTEs {
-		v.visitSubqueryExpr(cte.Query, flag)
+		v.visitSubqueryExprWithContext(cte.Query, flag, false)
 	}
 }
 
 func (v *MutateVisitor) visitSubqueryExpr(in *ast.SubqueryExpr, flag int) {
+	v.visitSubqueryExprWithContext(in, flag, false)
+}
+
+func (v *MutateVisitor) visitSubqueryExprWithContext(in *ast.SubqueryExpr, flag int, allowDistinct bool) {
 	if in == nil {
 		return
 	}
+	if allowDistinct {
+		v.maybeAddDistinctNested(in, flag)
+	}
+	v.subqDepth++
 	v.visitResultSetNode(in.Query, flag)
+	v.subqDepth--
 }
 
 // visitResultSetNode: important bridge, include
@@ -229,10 +239,8 @@ func (v *MutateVisitor) visitExprNode(in ast.ExprNode, flag int) {
 		return
 	}
 	switch in := in.(type) {
-	//case ast.FuncNode:
-	//case ast.ValueExpr:
 	case *ast.BetweenExpr:
-		// type conversion, discard!
+		v.visitBetweenExpr(in, flag)
 	case *ast.BinaryOperationExpr:
 		v.visitBinaryOperationExpr(in, flag)
 	case *ast.CaseExpr:
@@ -294,6 +302,16 @@ func (v *MutateVisitor) visitExprNode(in ast.ExprNode, flag int) {
 	case *ast.GetFormatSelectorExpr:
 		// skip
 	}
+}
+
+func (v *MutateVisitor) visitBetweenExpr(in *ast.BetweenExpr, flag int) {
+	if in == nil {
+		return
+	}
+	if in.Not {
+		flag = flag ^ 1
+	}
+	v.miningBetweenExpr(in, flag)
 }
 
 // visitBinaryOperationExpr: important bridge, miningBinaryOperationExpr
@@ -373,7 +391,9 @@ func (v *MutateVisitor) visitCompareSubqueryExpr(in *ast.CompareSubqueryExpr, fl
 		flag = flag ^ 1
 	}
 	if subq, ok := (in.R).(*ast.SubqueryExpr); ok {
-		v.visitSubqueryExpr(subq, flag)
+		v.visitSubqueryExprWithContext(subq, flag, true)
+		v.maybeAddOrderByRemoval(subq, flag)
+		v.maybeAddLimitExpansion(subq, flag)
 	}
 }
 
@@ -384,8 +404,11 @@ func (v *MutateVisitor) visitExistsSubqueryExpr(in *ast.ExistsSubqueryExpr, flag
 	if in.Not {
 		flag = flag ^ 1
 	}
+	v.miningExistsSubqueryExpr(in, flag)
 	if subq, ok := (in.Sel).(*ast.SubqueryExpr); ok {
-		v.visitSubqueryExpr(subq, flag)
+		v.visitSubqueryExprWithContext(subq, flag, true)
+		v.maybeAddOrderByRemoval(subq, flag)
+		v.maybeAddLimitExpansion(subq, flag)
 	}
 }
 
@@ -400,7 +423,10 @@ func (v *MutateVisitor) visitPatternInExpr(in *ast.PatternInExpr, flag int) {
 	// IN (XXX,XXX,XXX) OR IN (SUBQUERY)?
 	switch (in.Sel).(type) {
 	case *ast.SubqueryExpr:
-		v.visitSubqueryExpr((in.Sel).(*ast.SubqueryExpr), flag)
+		subq := (in.Sel).(*ast.SubqueryExpr)
+		v.visitSubqueryExprWithContext(subq, flag, true)
+		v.maybeAddOrderByRemoval(subq, flag)
+		v.maybeAddLimitExpansion(subq, flag)
 	default:
 		// after in.Not
 		v.miningPatternInExpr(in, flag)
@@ -506,13 +532,17 @@ func (v *MutateVisitor) visitTrimDirectionExpr(in *ast.TrimDirectionExpr, _ int)
 func (v *MutateVisitor) miningSetOprSelectList(in *ast.SetOprSelectList, flag int) {
 	// FixMRmUnionAllL
 	v.addFixMRmUnionAllL(in, flag)
+	// FixMRmUnionL
+	v.addFixMRmUnionL(in, flag)
 }
 
 func (v *MutateVisitor) miningSelectStmt(in *ast.SelectStmt, flag int) {
-	// FixMDistinctU
-	v.addFixMDistinctU(in, flag)
-	// FixMDistinctL
-	v.addFixMDistinctL(in, flag)
+	if v.subqDepth == 0 {
+		// FixMDistinctU
+		v.addFixMDistinctU(in, flag)
+		// FixMDistinctL
+		v.addFixMDistinctL(in, flag)
+	}
 	// FixMUnionAllU
 	v.addFixMUnionAllU(in, flag)
 	// FixMUnionAllL
@@ -525,6 +555,74 @@ func (v *MutateVisitor) miningSelectStmt(in *ast.SelectStmt, flag int) {
 	v.addFixMHaving1U(in, flag)
 	// FixMHaving0L
 	v.addFixMHaving0L(in, flag)
+}
+
+func (v *MutateVisitor) maybeAddDistinctNested(in *ast.SubqueryExpr, flag int) {
+	if in == nil {
+		return
+	}
+	sel, ok := in.Query.(*ast.SelectStmt)
+	if !ok {
+		return
+	}
+	if !isSafeDistinctSubquery(sel) {
+		return
+	}
+	if sel.Distinct {
+		v.addCandidate(FixMDistinctU, 1, sel, flag)
+		return
+	}
+	v.addCandidate(FixMDistinctL, 0, sel, flag)
+}
+
+func (v *MutateVisitor) maybeAddOrderByRemoval(in *ast.SubqueryExpr, flag int) {
+	if in == nil {
+		return
+	}
+	sel, ok := in.Query.(*ast.SelectStmt)
+	if !ok {
+		return
+	}
+	if !isSafeOrderByRemovalSubquery(sel) {
+		return
+	}
+	v.addCandidate(FixMRmOrderByL, 0, sel, flag)
+}
+
+func (v *MutateVisitor) maybeAddLimitExpansion(in *ast.SubqueryExpr, flag int) {
+	if in == nil {
+		return
+	}
+	sel, ok := in.Query.(*ast.SelectStmt)
+	if !ok {
+		return
+	}
+	if !isSafeLimitExpansionSubquery(sel) {
+		return
+	}
+	v.addCandidate(FixMLimitU, 1, sel, flag)
+}
+
+func isSafeDistinctSubquery(sel *ast.SelectStmt) bool {
+	if sel == nil {
+		return false
+	}
+	if sel.With != nil {
+		return false
+	}
+	if sel.OrderBy != nil || sel.Limit != nil {
+		return false
+	}
+	if sel.GroupBy != nil || sel.Having != nil {
+		return false
+	}
+	if len(sel.WindowSpecs) > 0 {
+		return false
+	}
+	if sel.AfterSetOperator != nil {
+		return false
+	}
+	return true
 }
 
 func (v *MutateVisitor) miningJoin(in *ast.Join, flag int) {
@@ -546,11 +644,28 @@ func (v *MutateVisitor) miningCompareSubqueryExpr(in *ast.CompareSubqueryExpr, f
 	v.addFixMCmpOpU(in, flag)
 	// FixMCmpOpL
 	v.addFixMCmpOpL(in, flag)
+	// FixMAnyAllU / FixMAnyAllL
+	v.addFixMAnyAll(in, flag)
 }
 
 func (v *MutateVisitor) miningPatternInExpr(in *ast.PatternInExpr, flag int) {
 	// FixMInNullU
 	v.addFixMInNullU(in, flag)
+	// FixMInListU / FixMInListL
+	v.addFixMInListU(in, flag)
+	v.addFixMInListL(in, flag)
+}
+
+func (v *MutateVisitor) miningBetweenExpr(in *ast.BetweenExpr, flag int) {
+	// FixMBetweenU / FixMBetweenL
+	v.addFixMBetweenU(in, flag)
+	v.addFixMBetweenL(in, flag)
+}
+
+func (v *MutateVisitor) miningExistsSubqueryExpr(in *ast.ExistsSubqueryExpr, flag int) {
+	// FixMExistsU / FixMExistsL
+	v.addFixMExistsU(in, flag)
+	v.addFixMExistsL(in, flag)
 }
 
 func (v *MutateVisitor) miningPatternLikeOrIlikeExpr(in *ast.PatternLikeOrIlikeExpr, flag int) {

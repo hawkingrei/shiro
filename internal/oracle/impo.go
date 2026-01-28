@@ -11,6 +11,7 @@ import (
 	"shiro/internal/generator"
 	"shiro/internal/oracle/impo"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -28,6 +29,11 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if !state.HasTables() {
 		return impoSkip(o.Name(), metrics, "no_tables")
 	}
+	origAggregates := gen.Config.Features.Aggregates
+	gen.Config.Features.Aggregates = false
+	defer func() {
+		gen.Config.Features.Aggregates = origAggregates
+	}()
 	seedQuery := gen.GenerateSelectQuery()
 	if seedQuery == nil {
 		return impoSkip(o.Name(), metrics, "empty_query")
@@ -35,8 +41,18 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if !queryDeterministic(seedQuery) {
 		return impoSkip(o.Name(), metrics, "nondeterministic")
 	}
+	if hasAggregate(seedQuery) {
+		util.Warnf("impo seed has aggregates with aggregates disabled")
+		return impoSkip(o.Name(), metrics, "aggregate_query")
+	}
 	if len(seedQuery.With) > 0 {
 		return impoSkip(o.Name(), metrics, "with_clause")
+	}
+	seedQuery = seedQuery.Clone()
+	rewriteUsingToOn(seedQuery, state)
+	seedSQL := seedQuery.SQLString()
+	if hasPlanCacheHintsOrVars(seedSQL) {
+		return impoSkip(o.Name(), metrics, "plan_cache_hint")
 	}
 	if containsScalarSubquery(seedQuery) {
 		return impoSkip(o.Name(), metrics, "scalar_subquery")
@@ -47,10 +63,10 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if ok, _ := queryColumnsValid(seedQuery, state, nil); !ok {
 		return impoSkip(o.Name(), metrics, "invalid_columns")
 	}
-	seedQuery = seedQuery.Clone()
-	rewriteUsingToOn(seedQuery, state)
-	seedSQL := seedQuery.SQLString()
-	initSQL, err := impo.Init(seedSQL)
+	initSQL, err := impo.InitWithOptions(seedSQL, impo.InitOptions{
+		DisableStage1: gen.Config.Oracles.ImpoDisableStage1,
+		KeepLRJoin:    gen.Config.Oracles.ImpoKeepLRJoin,
+	})
 	if err != nil {
 		if errors.Is(err, impo.ErrWithClause) {
 			return impoSkip(o.Name(), metrics, "with_clause")
@@ -379,6 +395,35 @@ func isTidbRowidErr(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "_tidb_rowid")
+}
+
+func hasPlanCacheHintsOrVars(sql string) bool {
+	upper := strings.ToUpper(sql)
+	if strings.Contains(upper, "/*+") {
+		return true
+	}
+	if strings.Contains(upper, "SET_VAR(") {
+		return true
+	}
+	if strings.Contains(upper, "SET @@") {
+		return true
+	}
+	return false
+}
+
+func hasAggregate(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	if len(query.GroupBy) > 0 || query.Having != nil {
+		return true
+	}
+	for _, item := range query.Items {
+		if generator.ExprHasAggregate(item.Expr) {
+			return true
+		}
+	}
+	return false
 }
 
 func exprHasScalarSubquery(expr generator.Expr) bool {

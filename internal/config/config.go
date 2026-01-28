@@ -163,6 +163,8 @@ type OracleConfig struct {
 	ImpoMaxRows        int     `yaml:"impo_max_rows"`
 	ImpoMaxMutations   int     `yaml:"impo_max_mutations"`
 	ImpoTimeoutMs      int     `yaml:"impo_timeout_ms"`
+	ImpoDisableStage1  bool    `yaml:"impo_disable_stage1"`
+	ImpoKeepLRJoin     bool    `yaml:"impo_keep_lr_join"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -366,7 +368,7 @@ func defaultConfig() Config {
 		Weights: Weights{
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
-			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 0},
+			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CERT: 1, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
 			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
 		},
 		Logging: Logging{

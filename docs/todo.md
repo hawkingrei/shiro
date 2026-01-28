@@ -7,6 +7,10 @@ This file tracks current tasks and should stay aligned with `docs/notes/follow-u
 1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
 2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
 3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics.
+4. Consider making `CTECountMax` configurable for resource-sensitive runs.
+5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
+6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
+7. Consider restricting Impo seed generation to non-aggregate queries instead of generate-and-skip. (done)
 
 ## Reporting / Aggregation
 

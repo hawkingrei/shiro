@@ -11,7 +11,18 @@ const (
 	FixMCmpOpU = "FixMCmpOpU"
 	FixMCmpOpL = "FixMCmpOpL"
 
+	FixMAnyAllU = "FixMAnyAllU"
+	FixMAnyAllL = "FixMAnyAllL"
+
 	FixMInNullU = "FixMInNullU"
+	FixMInListU = "FixMInListU"
+	FixMInListL = "FixMInListL"
+
+	FixMBetweenU = "FixMBetweenU"
+	FixMBetweenL = "FixMBetweenL"
+
+	FixMExistsU = "FixMExistsU"
+	FixMExistsL = "FixMExistsL"
 
 	FixMWhere1U = "FixMWhere1U"
 	FixMWhere0L = "FixMWhere0L"
@@ -23,6 +34,9 @@ const (
 	FixMOn0L = "FixMOn0L"
 
 	FixMRmUnionAllL = "FixMRmUnionAllL"
+	FixMRmUnionL    = "FixMRmUnionL"
+	FixMRmOrderByL  = "FixMRmOrderByL"
+	FixMLimitU      = "FixMLimitU"
 
 	RdMLikeU = "RdMLikeU"
 	RdMLikeL = "RdMLikeL"

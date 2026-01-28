@@ -41,16 +41,32 @@ func Mutate(rootNode ast.Node, candidate *Candidate, seed int64) (string, error)
 		sql, err = doFixMCmpOpU(rootNode, candidate.Node)
 	case FixMCmpOpL:
 		sql, err = doFixMCmpOpL(rootNode, candidate.Node)
+	case FixMAnyAllU:
+		sql, err = doFixMAnyAllU(rootNode, candidate.Node)
+	case FixMAnyAllL:
+		sql, err = doFixMAnyAllL(rootNode, candidate.Node)
 	case FixMUnionAllU:
 		sql, err = doFixMUnionAllU(rootNode, candidate.Node)
 	case FixMUnionAllL:
 		sql, err = doFixMUnionAllL(rootNode, candidate.Node)
 	case FixMInNullU:
 		sql, err = doFixMInNullU(rootNode, candidate.Node)
+	case FixMInListU:
+		sql, err = doFixMInListU(rootNode, candidate.Node)
+	case FixMInListL:
+		sql, err = doFixMInListL(rootNode, candidate.Node)
+	case FixMBetweenU:
+		sql, err = doFixMBetweenU(rootNode, candidate.Node)
+	case FixMBetweenL:
+		sql, err = doFixMBetweenL(rootNode, candidate.Node)
 	case FixMWhere1U:
 		sql, err = doFixMWhere1U(rootNode, candidate.Node)
 	case FixMWhere0L:
 		sql, err = doFixMWhere0L(rootNode, candidate.Node)
+	case FixMExistsU:
+		sql, err = doFixMExistsU(rootNode, candidate.Node)
+	case FixMExistsL:
+		sql, err = doFixMExistsL(rootNode, candidate.Node)
 	case FixMHaving1U:
 		sql, err = doFixMHaving1U(rootNode, candidate.Node)
 	case FixMHaving0L:
@@ -61,6 +77,12 @@ func Mutate(rootNode ast.Node, candidate *Candidate, seed int64) (string, error)
 		sql, err = doFixMOn0L(rootNode, candidate.Node)
 	case FixMRmUnionAllL:
 		sql, err = doFixMRmUnionAllL(rootNode, candidate.Node)
+	case FixMRmUnionL:
+		sql, err = doFixMRmUnionL(rootNode, candidate.Node)
+	case FixMRmOrderByL:
+		sql, err = doFixMRmOrderByL(rootNode, candidate.Node)
+	case FixMLimitU:
+		sql, err = doFixMLimitU(rootNode, candidate.Node)
 	case RdMLikeU:
 		sql, err = doRdMLikeU(rootNode, candidate.Node, seed)
 	case RdMLikeL:
