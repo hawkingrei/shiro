@@ -7,17 +7,6 @@ import (
 	"reflect"
 )
 
-// addFixMRmOrderByL: FixMRmOrderByL, *ast.SelectStmt: remove ORDER BY in safe subquery.
-func (v *MutateVisitor) addFixMRmOrderByL(in *ast.SelectStmt, flag int) {
-	if in == nil {
-		return
-	}
-	if !isSafeOrderByRemovalSubquery(in) {
-		return
-	}
-	v.addCandidate(FixMRmOrderByL, 0, in, flag)
-}
-
 // doFixMRmOrderByL: FixMRmOrderByL, *ast.SelectStmt: ORDER BY -> nil.
 func doFixMRmOrderByL(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	switch in := in.(type) {

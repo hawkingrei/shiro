@@ -10,17 +10,6 @@ import (
 
 const limitExpandMax = int64(2147483647)
 
-// addFixMLimitU: FixMLimitU, *ast.SelectStmt: expand LIMIT in safe subquery.
-func (v *MutateVisitor) addFixMLimitU(in *ast.SelectStmt, flag int) {
-	if in == nil {
-		return
-	}
-	if !isSafeLimitExpansionSubquery(in) {
-		return
-	}
-	v.addCandidate(FixMLimitU, 1, in, flag)
-}
-
 // doFixMLimitU: FixMLimitU, *ast.SelectStmt: LIMIT n -> LIMIT n+1 (capped).
 func doFixMLimitU(rootNode ast.Node, in ast.Node) ([]byte, error) {
 	switch in := in.(type) {

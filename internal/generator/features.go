@@ -91,6 +91,7 @@ func joinGraphSignature(query *SelectQuery) string {
 	return strings.Join(parts, "->")
 }
 
+// ExprHasAggregate reports whether the expression tree contains aggregates.
 func ExprHasAggregate(expr Expr) bool {
 	switch e := expr.(type) {
 	case FuncExpr:
