@@ -11,6 +11,7 @@ import (
 	"shiro/internal/generator"
 	"shiro/internal/oracle/impo"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -41,6 +42,7 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		return impoSkip(o.Name(), metrics, "nondeterministic")
 	}
 	if hasAggregate(seedQuery) {
+		util.Warnf("impo seed has aggregates with aggregates disabled")
 		return impoSkip(o.Name(), metrics, "aggregate_query")
 	}
 	if len(seedQuery.With) > 0 {
