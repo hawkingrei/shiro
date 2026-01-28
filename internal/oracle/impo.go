@@ -28,12 +28,20 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if !state.HasTables() {
 		return impoSkip(o.Name(), metrics, "no_tables")
 	}
+	origAggregates := gen.Config.Features.Aggregates
+	gen.Config.Features.Aggregates = false
+	defer func() {
+		gen.Config.Features.Aggregates = origAggregates
+	}()
 	seedQuery := gen.GenerateSelectQuery()
 	if seedQuery == nil {
 		return impoSkip(o.Name(), metrics, "empty_query")
 	}
 	if !queryDeterministic(seedQuery) {
 		return impoSkip(o.Name(), metrics, "nondeterministic")
+	}
+	if hasAggregate(seedQuery) {
+		return impoSkip(o.Name(), metrics, "aggregate_query")
 	}
 	if len(seedQuery.With) > 0 {
 		return impoSkip(o.Name(), metrics, "with_clause")
@@ -397,6 +405,21 @@ func hasPlanCacheHintsOrVars(sql string) bool {
 	}
 	if strings.Contains(upper, "SET @@") {
 		return true
+	}
+	return false
+}
+
+func hasAggregate(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	if len(query.GroupBy) > 0 || query.Having != nil {
+		return true
+	}
+	for _, item := range query.Items {
+		if generator.ExprHasAggregate(item.Expr) {
+			return true
+		}
 	}
 	return false
 }

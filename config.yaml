@@ -74,11 +74,11 @@ weights:
     norec: 5
     tlp: 5
     dqp: 5
-    cert: 2
+    cert: 1
     coddtest: 2
     dqe: 5
     impo: 5
-    groundtruth: 6
+    groundtruth: 5
   features:
     join_count: 5
     cte_count: 20

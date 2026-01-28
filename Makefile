@@ -31,6 +31,6 @@ report:
 	go run ./cmd/shiro-report -output web/public
 
 web:
-	cd web && npm install && npm run build
+	cd web && npm install && npm run dev
 
 report-web: report web

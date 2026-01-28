@@ -32,7 +32,7 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		JoinGraphSig: joinGraphSignature(query),
 	}
 	for _, item := range query.Items {
-		if exprHasAggregate(item.Expr) {
+		if ExprHasAggregate(item.Expr) {
 			features.HasAggregate = true
 		}
 		if exprHasSubquery(item.Expr) {
@@ -91,38 +91,38 @@ func joinGraphSignature(query *SelectQuery) string {
 	return strings.Join(parts, "->")
 }
 
-func exprHasAggregate(expr Expr) bool {
+func ExprHasAggregate(expr Expr) bool {
 	switch e := expr.(type) {
 	case FuncExpr:
 		if isAggregateFunc(e.Name) {
 			return true
 		}
 		for _, arg := range e.Args {
-			if exprHasAggregate(arg) {
+			if ExprHasAggregate(arg) {
 				return true
 			}
 		}
 		return false
 	case UnaryExpr:
-		return exprHasAggregate(e.Expr)
+		return ExprHasAggregate(e.Expr)
 	case BinaryExpr:
-		return exprHasAggregate(e.Left) || exprHasAggregate(e.Right)
+		return ExprHasAggregate(e.Left) || ExprHasAggregate(e.Right)
 	case CaseExpr:
 		for _, w := range e.Whens {
-			if exprHasAggregate(w.When) || exprHasAggregate(w.Then) {
+			if ExprHasAggregate(w.When) || ExprHasAggregate(w.Then) {
 				return true
 			}
 		}
 		if e.Else != nil {
-			return exprHasAggregate(e.Else)
+			return ExprHasAggregate(e.Else)
 		}
 		return false
 	case InExpr:
-		if exprHasAggregate(e.Left) {
+		if ExprHasAggregate(e.Left) {
 			return true
 		}
 		for _, item := range e.List {
-			if exprHasAggregate(item) {
+			if ExprHasAggregate(item) {
 				return true
 			}
 		}
@@ -141,7 +141,7 @@ func exprHasAggregateQuery(query *SelectQuery) bool {
 		return false
 	}
 	for _, item := range query.Items {
-		if exprHasAggregate(item.Expr) {
+		if ExprHasAggregate(item.Expr) {
 			return true
 		}
 	}
