@@ -16,6 +16,17 @@ var ErrWithClause = errors.New("impo init with clause")
 // Init removes unsupported constructs to make the query mutation-friendly.
 // It only supports SELECT or set-operation statements.
 func Init(sql string) (string, error) {
+	return InitWithOptions(sql, InitOptions{})
+}
+
+// InitOptions controls stage1 rewrites.
+type InitOptions struct {
+	DisableStage1 bool
+	KeepLRJoin    bool
+}
+
+// InitWithOptions removes unsupported constructs with optional rewrites.
+func InitWithOptions(sql string, opts InitOptions) (string, error) {
 	p := parser.New()
 	stmtNodes, _, err := p.Parse(sql, "", "")
 	if err != nil {
@@ -41,7 +52,7 @@ func Init(sql string) (string, error) {
 		}
 	}
 
-	v := &InitVisitor{}
+	v := &InitVisitor{DisableStage1: opts.DisableStage1, KeepLRJoin: opts.KeepLRJoin}
 	(*rootNode).Accept(v)
 
 	buf := new(bytes.Buffer)

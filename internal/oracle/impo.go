@@ -38,6 +38,12 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if len(seedQuery.With) > 0 {
 		return impoSkip(o.Name(), metrics, "with_clause")
 	}
+	seedQuery = seedQuery.Clone()
+	rewriteUsingToOn(seedQuery, state)
+	seedSQL := seedQuery.SQLString()
+	if hasPlanCacheHintsOrVars(seedSQL) {
+		return impoSkip(o.Name(), metrics, "plan_cache_hint")
+	}
 	if containsScalarSubquery(seedQuery) {
 		return impoSkip(o.Name(), metrics, "scalar_subquery")
 	}
@@ -47,10 +53,10 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if ok, _ := queryColumnsValid(seedQuery, state, nil); !ok {
 		return impoSkip(o.Name(), metrics, "invalid_columns")
 	}
-	seedQuery = seedQuery.Clone()
-	rewriteUsingToOn(seedQuery, state)
-	seedSQL := seedQuery.SQLString()
-	initSQL, err := impo.Init(seedSQL)
+	initSQL, err := impo.InitWithOptions(seedSQL, impo.InitOptions{
+		DisableStage1: gen.Config.Oracles.ImpoDisableStage1,
+		KeepLRJoin:    gen.Config.Oracles.ImpoKeepLRJoin,
+	})
 	if err != nil {
 		if errors.Is(err, impo.ErrWithClause) {
 			return impoSkip(o.Name(), metrics, "with_clause")
@@ -379,6 +385,20 @@ func isTidbRowidErr(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "_tidb_rowid")
+}
+
+func hasPlanCacheHintsOrVars(sql string) bool {
+	upper := strings.ToUpper(sql)
+	if strings.Contains(upper, "/*+") {
+		return true
+	}
+	if strings.Contains(upper, "SET_VAR(") {
+		return true
+	}
+	if strings.Contains(upper, "SET @@") {
+		return true
+	}
+	return false
 }
 
 func exprHasScalarSubquery(expr generator.Expr) bool {

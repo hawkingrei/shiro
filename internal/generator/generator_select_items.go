@@ -190,3 +190,10 @@ func (g *Generator) deterministicOrderBy(tables []schema.Table) []OrderBy {
 		Desc: false,
 	}}
 }
+
+func (g *Generator) deterministicOrderByFromItems(items []SelectItem, tables []schema.Table) []OrderBy {
+	if len(items) > 0 {
+		return []OrderBy{{Expr: items[0].Expr, Desc: false}}
+	}
+	return g.deterministicOrderBy(tables)
+}

@@ -163,6 +163,8 @@ type OracleConfig struct {
 	ImpoMaxRows        int     `yaml:"impo_max_rows"`
 	ImpoMaxMutations   int     `yaml:"impo_max_mutations"`
 	ImpoTimeoutMs      int     `yaml:"impo_timeout_ms"`
+	ImpoDisableStage1  bool    `yaml:"impo_disable_stage1"`
+	ImpoKeepLRJoin     bool    `yaml:"impo_keep_lr_join"`
 }
 
 // QPGConfig configures query plan guidance.
