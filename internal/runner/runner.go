@@ -274,7 +274,7 @@ func (r *Runner) runDDL(ctx context.Context) {
 			actions = append(actions, "create_view")
 		}
 	} else {
-		if len(r.state.Tables) < r.cfg.MaxTables {
+		if len(baseTables) < r.cfg.MaxTables {
 			actions = append(actions, "create_table")
 		}
 		if r.cfg.Features.Indexes && len(baseTables) > 0 {
