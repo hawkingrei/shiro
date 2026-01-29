@@ -236,18 +236,16 @@ func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasS
 	candidates = append(candidates,
 		toggleHints(SetVarFixControl44830On, SetVarFixControl44830Off)...,
 	)
-	candidates = append(candidates,
-		toggleHints(SetVarFixControl44855On, SetVarFixControl44855Off)...,
-		SetVarFixControl45132Zero,
-	)
+	candidates = append(candidates, toggleHints(SetVarFixControl44855On, SetVarFixControl44855Off)...)
+	candidates = append(candidates, SetVarFixControl45132Zero)
 	if len(candidates) == 0 {
 		return nil
 	}
-	max := 0
+	limit := 0
 	if gen != nil {
-		max = gen.Rand.Intn(3)
+		limit = gen.Rand.Intn(3)
 	}
-	return pickHintsWithBandit(gen, candidates, max)
+	return pickHintsWithBandit(gen, candidates, limit)
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {
