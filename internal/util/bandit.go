@@ -17,8 +17,10 @@ type Bandit struct {
 	window      int
 	histArms    []int
 	histRewards []float64
+	histCounts  []int
 	histPos     int
 	histSize    int
+	histTotal   int
 }
 
 // NewBandit creates a bandit with the given number of arms.
@@ -43,6 +45,7 @@ func NewBanditWithWindow(arms int, exploration float64, window int) *Bandit {
 	if window > 0 {
 		b.histArms = make([]int, window)
 		b.histRewards = make([]float64, window)
+		b.histCounts = make([]int, window)
 	}
 	return b
 }
@@ -80,35 +83,11 @@ func (b *Bandit) Pick(r *rand.Rand, enabled []bool) int {
 func (b *Bandit) Update(arm int, reward float64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.updateOne(arm, reward)
+	b.updateBatchLocked(arm, reward, 1)
 }
 
 func (b *Bandit) updateOne(arm int, reward float64) {
-	if arm < 0 || arm >= len(b.counts) {
-		return
-	}
-	if b.window > 0 {
-		if b.histSize == b.window {
-			oldArm := b.histArms[b.histPos]
-			oldReward := b.histRewards[b.histPos]
-			if oldArm >= 0 && oldArm < len(b.counts) {
-				b.counts[oldArm]--
-				b.rewards[oldArm] -= oldReward
-				b.total--
-			}
-		} else {
-			b.histSize++
-		}
-		b.histArms[b.histPos] = arm
-		b.histRewards[b.histPos] = reward
-		b.histPos++
-		if b.histPos >= b.window {
-			b.histPos = 0
-		}
-	}
-	b.counts[arm]++
-	b.rewards[arm] += reward
-	b.total++
+	b.updateBatchLocked(arm, reward, 1)
 }
 
 // UpdateBatch records rewards for multiple runs of the same arm.
@@ -118,22 +97,102 @@ func (b *Bandit) UpdateBatch(arm int, rewardPerRun float64, runs int) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.updateBatchLocked(arm, rewardPerRun, runs)
+}
+
+func (b *Bandit) updateBatchLocked(arm int, rewardPerRun float64, runs int) {
+	if runs <= 0 {
+		return
+	}
 	if arm < 0 || arm >= len(b.counts) {
 		return
 	}
+	rewardTotal := rewardPerRun * float64(runs)
 	if b.window == 0 {
 		b.counts[arm] += runs
-		b.rewards[arm] += rewardPerRun * float64(runs)
+		b.rewards[arm] += rewardTotal
 		b.total += runs
 		return
 	}
-	samples := runs
-	if samples > b.window {
-		samples = b.window
+	b.appendHistory(arm, runs, rewardTotal)
+	b.trimHistory()
+}
+
+func (b *Bandit) appendHistory(arm int, runs int, rewardTotal float64) {
+	if b.window <= 0 {
+		return
 	}
-	for i := 0; i < samples; i++ {
-		b.updateOne(arm, rewardPerRun)
+	if b.histSize == b.window {
+		b.evictAt(b.histPos, b.histCounts[b.histPos])
+		b.histPos = (b.histPos + 1) % b.window
+		b.histSize--
 	}
+	tail := (b.histPos + b.histSize) % b.window
+	b.histArms[tail] = arm
+	b.histCounts[tail] = runs
+	b.histRewards[tail] = rewardTotal
+	b.histSize++
+	b.counts[arm] += runs
+	b.rewards[arm] += rewardTotal
+	b.total += runs
+	b.histTotal += runs
+}
+
+func (b *Bandit) trimHistory() {
+	if b.window <= 0 {
+		return
+	}
+	for b.histSize > 0 && b.histTotal > b.window {
+		excess := b.histTotal - b.window
+		idx := b.histPos
+		entryCount := b.histCounts[idx]
+		if entryCount <= 0 {
+			b.histPos = (b.histPos + 1) % b.window
+			b.histSize--
+			continue
+		}
+		if entryCount <= excess {
+			b.evictAt(idx, entryCount)
+			b.histPos = (b.histPos + 1) % b.window
+			b.histSize--
+			continue
+		}
+		b.evictAt(idx, excess)
+		break
+	}
+}
+
+func (b *Bandit) evictAt(idx int, removeCount int) {
+	if removeCount <= 0 {
+		return
+	}
+	entryCount := b.histCounts[idx]
+	if entryCount <= 0 {
+		return
+	}
+	arm := b.histArms[idx]
+	entryReward := b.histRewards[idx]
+	if removeCount >= entryCount {
+		if arm >= 0 && arm < len(b.counts) {
+			b.counts[arm] -= entryCount
+			b.rewards[arm] -= entryReward
+			b.total -= entryCount
+		}
+		b.histTotal -= entryCount
+		b.histCounts[idx] = 0
+		b.histRewards[idx] = 0
+		b.histArms[idx] = 0
+		return
+	}
+	perRun := entryReward / float64(entryCount)
+	if arm >= 0 && arm < len(b.counts) {
+		b.counts[arm] -= removeCount
+		b.rewards[arm] -= perRun * float64(removeCount)
+		b.total -= removeCount
+	}
+	b.histCounts[idx] -= removeCount
+	b.histRewards[idx] -= perRun * float64(removeCount)
+	b.histTotal -= removeCount
 }
 
 // Snapshot returns a copy of the bandit state.
