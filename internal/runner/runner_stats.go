@@ -212,17 +212,11 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 			}
 		}
 		if counts, ok := result.Details["impo_mutation_counts"].(map[string]int64); ok {
-			if r.impoMutationCounts == nil {
-				r.impoMutationCounts = make(map[string]int64)
-			}
 			for name, val := range counts {
 				r.impoMutationCounts[name] += val
 			}
 		}
 		if counts, ok := result.Details["impo_mutation_exec_counts"].(map[string]int64); ok {
-			if r.impoMutationExecCounts == nil {
-				r.impoMutationExecCounts = make(map[string]int64)
-			}
 			for name, val := range counts {
 				r.impoMutationExecCounts[name] += val
 			}

@@ -1,6 +1,9 @@
 package impo
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestInitWithClause(t *testing.T) {
 	sql := "WITH cte AS (SELECT 1 AS c) SELECT c FROM cte"
@@ -18,5 +21,8 @@ func TestInitWithRecursiveClause(t *testing.T) {
 	_, err := InitWithOptions(sql, InitOptions{})
 	if err == nil {
 		t.Fatalf("expected recursive with clause rejected")
+	}
+	if !errors.Is(err, ErrWithClause) {
+		t.Fatalf("expected ErrWithClause, got %v", err)
 	}
 }

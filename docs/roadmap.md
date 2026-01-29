@@ -1,5 +1,7 @@
 # Shiro Roadmap: 100-Step Plan
 
+Completed items are tracked in `docs/notes/summary.md`; this roadmap lists active and upcoming tasks only.
+
 ## Stability milestones
 
 1. **Metrics baseline**: log sql_valid_ratio, impo_invalid_columns_ratio, impo_base_exec_failed_ratio every interval.
