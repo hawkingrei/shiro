@@ -1,4 +1,4 @@
-.PHONY: help build test fmt lint tidy report web report-web
+.PHONY: help build test fmt lint tidy report web report-web show report-show
 
 help:
 	@echo "Targets:"

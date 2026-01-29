@@ -74,7 +74,11 @@ func (r *Runner) rotateDatabaseWithRetry(ctx context.Context) error {
 			return nil
 		}
 		if i+1 < attempts {
-			time.Sleep(backoff)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
 			backoff *= 2
 		}
 	}
