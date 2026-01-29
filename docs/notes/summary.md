@@ -32,6 +32,7 @@
 - Prepared plan cache miss handling checks `SHOW WARNINGS`; a miss with no warnings is treated as an error and reported (non-prepared misses may be normal).
 - On bug, rotate to a fresh database (`<database>_rN`) and reinitialize schema/data to avoid cross-case contamination.
 - TQS and DQE are mutually exclusive at runtime; enabling DQE disables TQS, while TQS forces DQE off and DML weight to zero (also re-applied after database rotation).
+- When both TQS and DQE are enabled, the runner alternates per database rotation (even seq: TQS; odd seq: DQE), reapplying mode-specific toggles after rotation.
 - Default config now lives in code (`defaultConfig`) and is printed at startup; `oracles.strict_predicates` is true by default with a config toggle to loosen it.
 - CODDTest only runs when the referenced columns have no NULLs; NULL creates unknown truth values and breaks the CASE mapping.
 - Generated/computed columns are avoided for now to reduce TiDB master feature skew.
