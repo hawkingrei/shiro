@@ -113,6 +113,8 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	return query
 }
 
+// (constraints-based builder is implemented in select_query_builder.go)
+
 func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []schema.Table) []OrderBy {
 	if query == nil {
 		return nil

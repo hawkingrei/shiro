@@ -63,3 +63,8 @@
 - Report output is stabilized by sorting table dumps and emitting deterministic `details` JSON in `summary.json`.
 - SQL validity logs now include ratio and invalid counts to reduce ambiguity in interval stats.
 - `dynamic_state.json` is reserved for runtime parameter reuse across restarts; avoid observability-only fields there.
+- "Can't find column ... in schema Column" in NoREC reports indicates an engine bug and should be recorded as a case.
+- Centralized oracle query constraints via SelectQueryBuilder and surfaced builder failure reasons in skip metrics.
+- DSG join alignment: prefer k0 or k{idx} keys with same-name joins to reduce ground-truth key mismatches.
+- GroundTruth edge extraction now tolerates AND-wrapped join conditions and USING with multiple columns (first key only).
+- CERT now retries generation to satisfy min base rows and can fall back to a base query without WHERE when needed.

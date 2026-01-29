@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
+	absConfigPath, absErr := filepath.Abs(*configPath)
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
@@ -33,6 +35,16 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	util.Infof("starting shiro with %d worker(s)", cfg.Workers)
+	if absErr != nil {
+		util.Infof("config path: %s", *configPath)
+	} else {
+		util.Infof("config path: %s (abs: %s)", *configPath, absConfigPath)
+		if info, statErr := os.Stat(absConfigPath); statErr == nil {
+			util.Infof("config file: size=%d mtime=%s", info.Size(), info.ModTime().Format(time.RFC3339))
+		} else {
+			util.Infof("config file: stat failed: %v", statErr)
+		}
+	}
 	if data, err := yaml.Marshal(&cfg); err == nil {
 		util.Detailf("config:\n%s", string(data))
 	}

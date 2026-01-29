@@ -281,25 +281,37 @@ func (g *Generator) AddCheckConstraintSQL(tbl schema.Table) string {
 }
 
 // AddForeignKeySQL emits a FOREIGN KEY constraint when possible.
-func (g *Generator) AddForeignKeySQL(state *schema.State) string {
+func (g *Generator) AddForeignKeySQL(state *schema.State) (string, *schema.ForeignKey) {
 	if state == nil || len(state.Tables) < 2 {
-		return ""
+		return "", nil
 	}
 	child := state.Tables[g.Rand.Intn(len(state.Tables))]
 	parent := state.Tables[g.Rand.Intn(len(state.Tables))]
 	if child.Name == parent.Name {
-		return ""
+		return "", nil
 	}
 	if child.Partitioned || parent.Partitioned {
-		return ""
+		return "", nil
 	}
 	childCol, parentCol := g.pickForeignKeyColumns(child, parent)
 	if childCol.Name == "" || parentCol.Name == "" {
-		return ""
+		return "", nil
+	}
+	for _, fk := range child.ForeignKeys {
+		if fk.Column == childCol.Name && fk.RefTable == parent.Name && fk.RefColumn == parentCol.Name {
+			return "", nil
+		}
 	}
 	name := g.NextConstraintName("fk")
+	fk := schema.ForeignKey{
+		Name:      name,
+		Table:     child.Name,
+		Column:    childCol.Name,
+		RefTable:  parent.Name,
+		RefColumn: parentCol.Name,
+	}
 	return fmt.Sprintf(
 		"ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s(%s)",
 		child.Name, name, childCol.Name, parent.Name, parentCol.Name,
-	)
+	), &fk
 }

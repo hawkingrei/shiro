@@ -40,13 +40,45 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	if !state.HasTables() {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:no_tables"}}
 	}
-	tbl := state.Tables[gen.Rand.Intn(len(state.Tables))]
-	phi := gen.GeneratePredicate([]schema.Table{tbl}, 2, false, 0)
-	if !phi.Deterministic() || exprHasSubquery(phi) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
+	baseTables := state.BaseTables()
+	if len(baseTables) == 0 {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:no_base_tables"}}
+	}
+	baseNames := make(map[string]struct{}, len(baseTables))
+	for _, tbl := range baseTables {
+		baseNames[tbl.Name] = struct{}{}
 	}
 	policy := predicatePolicyFor(gen)
 	policy.allowIsNull = false
+	builder := generator.NewSelectQueryBuilder(gen).
+		RequireWhere().
+		PredicateMode(generator.PredicateModeSimple).
+		RequireDeterministic().
+		DisallowSubquery().
+		DisallowAggregate().
+		MaxJoinCount(0).
+		QueryGuard(func(query *generator.SelectQuery) bool {
+			if query == nil {
+				return false
+			}
+			_, ok := baseNames[query.From.BaseTable]
+			return ok
+		}).
+		PredicateGuard(func(expr generator.Expr) bool {
+			return predicateMatches(expr, policy)
+		})
+	query, reason, attempts := builder.BuildWithReason()
+	if query == nil || query.Where == nil {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("coddtest", reason), "builder_reason": reason, "builder_attempts": attempts}}
+	}
+	tbl, ok := state.TableByName(query.From.BaseTable)
+	if !ok {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:table_missing"}}
+	}
+	phi := query.Where
+	if !phi.Deterministic() || exprHasSubquery(phi) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
+	}
 	if !predicateMatches(phi, policy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
 	}

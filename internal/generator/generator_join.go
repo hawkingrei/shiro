@@ -2,6 +2,7 @@ package generator
 
 import (
 	"math/rand"
+	"strconv"
 	"strings"
 
 	"shiro/internal/schema"
@@ -75,11 +76,19 @@ func (g *Generator) collectJoinPairs(left schema.Table, right schema.Table, requ
 	if len(leftCols) == 0 || len(rightCols) == 0 {
 		return nil
 	}
+	if g.Config.Features.DSG {
+		requireSameName = true
+	}
 	pairs := make([]columnPair, 0, 8)
 	for _, l := range leftCols {
 		for _, r := range rightCols {
 			if requireSameName && l.Name != r.Name {
 				continue
+			}
+			if g.Config.Features.DSG {
+				if !dsgAllowedJoinKey(left.Name, l.Name) || !dsgAllowedJoinKey(right.Name, r.Name) {
+					continue
+				}
 			}
 			if !compatibleColumnType(l.Type, r.Type) {
 				continue
@@ -99,6 +108,30 @@ func tablesJoinable(left schema.Table, right schema.Table) bool {
 		}
 	}
 	return false
+}
+
+func dsgAllowedJoinKey(tableName, colName string) bool {
+	if tableName == "t0" {
+		return strings.HasPrefix(colName, "k")
+	}
+	if !strings.HasPrefix(tableName, "t") || len(tableName) < 2 {
+		return false
+	}
+	idx := 0
+	for i := 1; i < len(tableName); i++ {
+		ch := tableName[i]
+		if ch < '0' || ch > '9' {
+			return false
+		}
+		idx = idx*10 + int(ch-'0')
+	}
+	if idx <= 0 {
+		return false
+	}
+	if colName == "k0" {
+		return true
+	}
+	return colName == "k"+strconv.Itoa(idx)
 }
 
 func hasJoinEdges(adj [][]int) bool {

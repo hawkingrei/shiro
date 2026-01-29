@@ -34,9 +34,16 @@ func (o DQP) Name() string { return "DQP" }
 //
 // If the signatures differ, the plan choice affected correctness.
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
-	query := gen.GenerateSelectQuery()
+	policy := predicatePolicyFor(gen)
+	builder := generator.NewSelectQueryBuilder(gen).
+		PredicateMode(generator.PredicateModeSimple).
+		RequireDeterministic().
+		PredicateGuard(func(expr generator.Expr) bool {
+			return predicateMatches(expr, policy)
+		})
+	query, reason, attempts := builder.BuildWithReason()
 	if query == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:empty_query"}}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("dqp", reason), "builder_reason": reason, "builder_attempts": attempts}}
 	}
 	if query.Limit != nil || queryHasWindow(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:limit_or_window"}}
@@ -44,11 +51,8 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:nondeterministic"}}
 	}
-	if query.Where != nil {
-		policy := predicatePolicyFor(gen)
-		if !predicateMatches(query.Where, policy) {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:predicate_guard"}}
-		}
+	if query.Where != nil && !predicateMatches(query.Where, policy) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:predicate_guard"}}
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}

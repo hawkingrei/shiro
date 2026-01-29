@@ -143,6 +143,13 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.GroundTruth{},
 		},
 	}
+	util.Infof("runner config loaded tqs.enabled=%v base_tqs_enabled=%v dqe_weight=%d dsg_enabled=%v db=%s",
+		cfg.TQS.Enabled,
+		r.baseTQSEnabled,
+		r.baseDQEWeight,
+		r.baseDSGEnabled,
+		cfg.Database,
+	)
 	if cfg.QPG.Enabled {
 		r.qpgState = newQPGState(cfg.QPG)
 	}
@@ -364,11 +371,19 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		for _, tbl := range baseTables {
 			tableSnapshot = append(tableSnapshot, *tbl)
 		}
-		sql := r.gen.AddForeignKeySQL(&schema.State{Tables: tableSnapshot})
+		sql, fk := r.gen.AddForeignKeySQL(&schema.State{Tables: tableSnapshot})
 		if sql == "" {
 			return
 		}
-		_ = r.execSQL(ctx, sql)
+		if err := r.execSQL(ctx, sql); err != nil {
+			return
+		}
+		for i := range r.state.Tables {
+			if r.state.Tables[i].Name == fk.Table {
+				r.state.Tables[i].ForeignKeys = append(r.state.Tables[i].ForeignKeys, *fk)
+				break
+			}
+		}
 	case "add_check":
 		if len(baseTables) == 0 {
 			return

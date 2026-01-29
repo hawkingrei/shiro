@@ -40,12 +40,13 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 					RightKey:   name,
 					JoinType:   joinType,
 				})
+				break
 			}
 			leftTables = append(leftTables, join.Table)
 			continue
 		}
 		if join.On != nil {
-			l, r, ok := extractColumnEquality(join.On)
+			l, r, ok := extractJoinKey(join.On, join.Table)
 			if ok {
 				left := l
 				right := r
@@ -59,6 +60,13 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 					RightKey:   right.Name,
 					JoinType:   joinType,
 				})
+			} else {
+				leftTable := pickUsingLeftTable(state, leftTables, "")
+				edges = append(edges, JoinEdge{
+					LeftTable:  leftTable,
+					RightTable: join.Table,
+					JoinType:   joinType,
+				})
 			}
 		}
 		leftTables = append(leftTables, join.Table)
@@ -66,20 +74,33 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 	return edges
 }
 
-func extractColumnEquality(expr generator.Expr) (left generator.ColumnRef, right generator.ColumnRef, ok bool) {
+func extractJoinKey(expr generator.Expr, joinTable string) (left generator.ColumnRef, right generator.ColumnRef, ok bool) {
 	bin, ok := expr.(generator.BinaryExpr)
-	if !ok || bin.Op != "=" {
+	if !ok {
 		return generator.ColumnRef{}, generator.ColumnRef{}, false
 	}
-	leftExpr, okLeft := bin.Left.(generator.ColumnExpr)
-	rightExpr, okRight := bin.Right.(generator.ColumnExpr)
-	if !okLeft || !okRight {
+	switch bin.Op {
+	case "AND":
+		if l, r, ok := extractJoinKey(bin.Left, joinTable); ok {
+			return l, r, ok
+		}
+		return extractJoinKey(bin.Right, joinTable)
+	case "=":
+		leftExpr, okLeft := bin.Left.(generator.ColumnExpr)
+		rightExpr, okRight := bin.Right.(generator.ColumnExpr)
+		if !okLeft || !okRight {
+			return generator.ColumnRef{}, generator.ColumnRef{}, false
+		}
+		if leftExpr.Ref.Table == "" || rightExpr.Ref.Table == "" {
+			return generator.ColumnRef{}, generator.ColumnRef{}, false
+		}
+		if joinTable != "" && leftExpr.Ref.Table != joinTable && rightExpr.Ref.Table != joinTable {
+			return generator.ColumnRef{}, generator.ColumnRef{}, false
+		}
+		return leftExpr.Ref, rightExpr.Ref, true
+	default:
 		return generator.ColumnRef{}, generator.ColumnRef{}, false
 	}
-	if leftExpr.Ref.Table == "" || rightExpr.Ref.Table == "" {
-		return generator.ColumnRef{}, generator.ColumnRef{}, false
-	}
-	return leftExpr.Ref, rightExpr.Ref, true
 }
 
 func pickUsingLeftTable(state *schema.State, tables []string, col string) string {

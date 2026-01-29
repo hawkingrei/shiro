@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"shiro/internal/util"
 )
 
 // Config captures all runtime options for the fuzz runner.
@@ -260,10 +258,6 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Features.ViewMax <= 0 {
 		cfg.Features.ViewMax = 5
-	}
-	if cfg.Weights.Oracles.DQE > 0 && cfg.TQS.Enabled {
-		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
-		cfg.TQS.Enabled = false
 	}
 	if cfg.TQS.Enabled {
 		if cfg.Weights.Actions.Query <= 0 {

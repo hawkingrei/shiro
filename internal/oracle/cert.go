@@ -38,88 +38,142 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if o.Tolerance == 0 {
 		o.Tolerance = 0.1
 	}
-	query := gen.GenerateSelectQuery()
-	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:no_where"}}
-	}
-	tables := tablesForQuery(query, state)
-	if len(tables) == 0 && state != nil {
-		tables = state.Tables
-	}
-	baseTables := certBaseTables(tables, state)
-	if len(baseTables) == 0 {
-		baseTables = tables
-	}
-
-	base := query.Clone()
-	base.OrderBy = nil
-	base.Limit = nil
-	base.Having = nil
-	base.GroupBy = nil
-	base.Distinct = false
-	base.Items = gen.GenerateSelectList(baseTables)
-	var cteTable *schema.Table
-	if len(base.With) > 0 {
-		for _, tbl := range gen.TablesForQueryScope(base) {
-			if state == nil {
+	builder := generator.NewSelectQueryBuilder(gen).
+		RequireWhere().
+		PredicateMode(generator.PredicateModeSimple).
+		RequireDeterministic().
+		MaxTries(10)
+	var query *generator.SelectQuery
+	var restrictPred generator.Expr
+	lastReason := ""
+	lastAttempts := 0
+	var base *generator.SelectQuery
+	var baseRows float64
+	for i := 0; i < 5; i++ {
+		query, lastReason, lastAttempts = builder.BuildWithReason()
+		if query == nil || query.Where == nil {
+			continue
+		}
+		scopeTables := gen.TablesForQueryScope(query)
+		restrictPred = nil
+		for j := 0; j < 8; j++ {
+			pred := gen.GenerateSimpleColumnLiteralPredicate(scopeTables)
+			if pred == nil {
 				continue
 			}
-			if _, ok := state.TableByName(tbl.Name); ok {
+			if !gen.ValidateExprInQueryScope(pred, query) {
 				continue
 			}
-			cteTable = &tbl
+			restrictPred = pred
 			break
 		}
-	}
-	if cteTable != nil {
-		if util.Chance(gen.Rand, 50) {
-			base.From = buildCTEBaseFromClause(*cteTable, baseTables)
-			if !fromHasTable(base.From, cteTable.Name) {
+		if restrictPred == nil || !isSimplePredicate(restrictPred) {
+			restrictPred = nil
+			lastReason = "constraint:restrict_predicate"
+			continue
+		}
+		tables := tablesForQuery(query, state)
+		if len(tables) == 0 && state != nil {
+			tables = state.Tables
+		}
+		baseTables := certBaseTables(tables, state)
+		if len(baseTables) == 0 {
+			baseTables = tables
+		}
+
+		base = query.Clone()
+		base.OrderBy = nil
+		base.Limit = nil
+		base.Having = nil
+		base.GroupBy = nil
+		base.Distinct = false
+		base.Items = gen.GenerateSelectList(baseTables)
+		var cteTable *schema.Table
+		if len(base.With) > 0 {
+			for _, tbl := range gen.TablesForQueryScope(base) {
+				if state == nil {
+					continue
+				}
+				if _, ok := state.TableByName(tbl.Name); ok {
+					continue
+				}
+				cteTable = &tbl
+				break
+			}
+		}
+		if cteTable != nil {
+			if util.Chance(gen.Rand, 50) {
+				base.From = buildCTEBaseFromClause(*cteTable, baseTables)
+				if !fromHasTable(base.From, cteTable.Name) {
+					base.From = buildBaseFromClause(baseTables, cteTable)
+				}
+			} else {
 				base.From = buildBaseFromClause(baseTables, cteTable)
+				if !fromHasTable(base.From, cteTable.Name) {
+					base.From = buildCTEBaseFromClause(*cteTable, baseTables)
+				}
 			}
 		} else {
-			base.From = buildBaseFromClause(baseTables, cteTable)
-			if !fromHasTable(base.From, cteTable.Name) {
-				base.From = buildCTEBaseFromClause(*cteTable, baseTables)
+			base.From = buildBaseFromClause(baseTables, nil)
+		}
+		ensureFromHasPredicateTables(base, state)
+
+		baseExplain := "EXPLAIN " + base.SQLString()
+		rows, err := exec.QueryPlanRows(ctx, baseExplain)
+		if err != nil {
+			return Result{
+				OK:     true,
+				Oracle: o.Name(),
+				SQL:    []string{baseExplain},
+				Err:    err,
+				Details: map[string]any{
+					"error_reason": "cert:base_explain_error",
+				},
 			}
 		}
-	} else {
-		base.From = buildBaseFromClause(baseTables, nil)
-	}
-	ensureFromHasPredicateTables(base, state)
-
-	baseExplain := "EXPLAIN " + base.SQLString()
-	baseRows, err := exec.QueryPlanRows(ctx, baseExplain)
-	if err != nil {
-		return Result{
-			OK:     true,
-			Oracle: o.Name(),
-			SQL:    []string{baseExplain},
-			Err:    err,
-			Details: map[string]any{
-				"error_reason": "cert:base_explain_error",
-			},
+		baseRows = rows
+		if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
+			baseNoWhere := base.Clone()
+			baseNoWhere.Where = nil
+			baseNoWhereExplain := "EXPLAIN " + baseNoWhere.SQLString()
+			rows, err := exec.QueryPlanRows(ctx, baseNoWhereExplain)
+			if err != nil {
+				return Result{
+					OK:     true,
+					Oracle: o.Name(),
+					SQL:    []string{baseNoWhereExplain},
+					Err:    err,
+					Details: map[string]any{
+						"error_reason": "cert:base_explain_error",
+					},
+				}
+			}
+			if rows >= o.MinBaseRows {
+				base = baseNoWhere
+				baseRows = rows
+				break
+			}
+			lastReason = "constraint:base_rows_low"
+			continue
 		}
+		break
+	}
+	if query == nil || query.Where == nil {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("cert", lastReason), "builder_reason": lastReason, "builder_attempts": lastAttempts}}
+	}
+	if restrictPred == nil {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("cert", lastReason), "builder_reason": lastReason, "builder_attempts": lastAttempts}}
+	}
+	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("cert", lastReason), "builder_reason": lastReason, "builder_attempts": lastAttempts}}
 	}
 
 	restricted := base.Clone()
-	scopeTables := gen.TablesForQueryScope(base)
-	var restrictPred generator.Expr
-	for i := 0; i < 8; i++ {
-		pred := gen.GenerateSimpleColumnLiteralPredicate(scopeTables)
-		if pred == nil {
-			continue
-		}
-		if !gen.ValidateExprInQueryScope(pred, base) {
-			continue
-		}
-		restrictPred = pred
-		break
+	if base.Where == nil {
+		restricted.Where = restrictPred
+	} else {
+		restricted.Where = generator.BinaryExpr{Left: base.Where, Op: "AND", Right: restrictPred}
 	}
-	if restrictPred == nil || !isSimplePredicate(restrictPred) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:restrict_predicate"}}
-	}
-	restricted.Where = generator.BinaryExpr{Left: base.Where, Op: "AND", Right: restrictPred}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
 	}

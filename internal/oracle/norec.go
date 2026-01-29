@@ -34,9 +34,13 @@ func (o NoREC) Name() string { return "NoREC" }
 //
 // If the counts differ, the optimizer likely changed semantics.
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
-	query := gen.GenerateSelectQuery()
+	builder := generator.NewSelectQueryBuilder(gen).
+		RequireWhere().
+		PredicateMode(generator.PredicateModeSimple).
+		RequireDeterministic()
+	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "norec:no_where"}}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("norec", reason), "builder_reason": reason, "builder_attempts": attempts}}
 	}
 	if shouldSkipNoREC(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "norec:guardrail"}}

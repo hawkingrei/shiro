@@ -72,18 +72,18 @@ weights:
     update: 1
     delete: 1
   oracles:
-    norec: 5
-    tlp: 5
-    dqp: 5
+    norec: 10
+    tlp: 10
+    dqp: 10
     cert: 1
     coddtest: 2
-    dqe: 5
-    impo: 5
-    groundtruth: 5
+    dqe: 10
+    impo: 10
+    groundtruth: 10
   features:
     join_count: 5
-    cte_count: 20
-    subquery_count: 3
+    cte_count: 3
+    subquery_count: 8
     aggregate_prob: 50
     decimal_agg_prob: 70
     group_by_prob: 30
@@ -93,8 +93,8 @@ weights:
     distinct_prob: 20
     window_prob: 20
     partition_prob: 30
-    not_exists_prob: 40
-    not_in_prob: 40
+    not_exists_prob: 70
+    not_in_prob: 70
 
 logging:
   verbose: true
@@ -108,7 +108,7 @@ logging:
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
-  cert_min_base_rows: 20
+  cert_min_base_rows: 30
   groundtruth_max_rows: 50
   impo_max_rows: 200
   impo_max_mutations: 64
