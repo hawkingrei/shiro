@@ -49,6 +49,13 @@ const (
 	PredicateModeSimpleColumns
 )
 
+// SelectQueryConstraints defines generator-time constraints for SELECT queries.
+type SelectQueryConstraints struct {
+	RequireWhere  bool
+	PredicateMode PredicateMode
+	MaxTries      int
+}
+
 // PreparedQuery holds a prepared statement and args.
 type PreparedQuery struct {
 	SQL      string

@@ -34,7 +34,9 @@ func (o DQP) Name() string { return "DQP" }
 //
 // If the signatures differ, the plan choice affected correctness.
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
-	query := gen.GenerateSelectQuery()
+	query := gen.GenerateSelectQueryWithConstraints(generator.SelectQueryConstraints{
+		PredicateMode: generator.PredicateModeSimple,
+	})
 	if query == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:empty_query"}}
 	}

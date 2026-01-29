@@ -41,7 +41,7 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:no_tables"}}
 	}
 	tbl := state.Tables[gen.Rand.Intn(len(state.Tables))]
-	phi := gen.GeneratePredicate([]schema.Table{tbl}, 2, false, 0)
+	phi := gen.GenerateSimplePredicate([]schema.Table{tbl}, 2)
 	if !phi.Deterministic() || exprHasSubquery(phi) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
 	}

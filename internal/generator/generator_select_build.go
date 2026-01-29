@@ -113,6 +113,31 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	return query
 }
 
+// GenerateSelectQueryWithConstraints retries selection with generator-time constraints.
+func (g *Generator) GenerateSelectQueryWithConstraints(c SelectQueryConstraints) *SelectQuery {
+	maxTries := c.MaxTries
+	if maxTries <= 0 {
+		maxTries = 5
+	}
+	originalMode := g.PredicateMode()
+	if c.PredicateMode != PredicateModeDefault {
+		g.SetPredicateMode(c.PredicateMode)
+	}
+	defer g.SetPredicateMode(originalMode)
+
+	for i := 0; i < maxTries; i++ {
+		query := g.GenerateSelectQuery()
+		if query == nil {
+			continue
+		}
+		if c.RequireWhere && query.Where == nil {
+			continue
+		}
+		return query
+	}
+	return nil
+}
+
 func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []schema.Table) []OrderBy {
 	if query == nil {
 		return nil

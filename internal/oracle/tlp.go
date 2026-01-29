@@ -37,7 +37,10 @@ func (o TLP) Name() string { return "TLP" }
 //
 // The signatures of Q and Q_tlp (the UNION ALL of all three partitions) must match.
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
-	query := gen.GenerateSelectQuery()
+	query := gen.GenerateSelectQueryWithConstraints(generator.SelectQueryConstraints{
+		RequireWhere:  true,
+		PredicateMode: generator.PredicateModeSimple,
+	})
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:no_where"}}
 	}
