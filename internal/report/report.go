@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -134,11 +135,18 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 			b.WriteString(fmt.Sprintf("-- failed to dump view %s: %v\n\n", view.Name, err))
 			continue
 		}
-		b.WriteString(createSQL)
+		b.WriteString(normalizeCreateView(createSQL))
 		b.WriteString(";\n\n")
 	}
 	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
 	return os.WriteFile(filepath.Join(c.Dir, "schema.sql"), []byte(b.String()), 0o644)
+}
+
+func normalizeCreateView(sql string) string {
+	definerRe := regexp.MustCompile(`(?i)\s+DEFINER=\S+`)
+	out := definerRe.ReplaceAllString(sql, "")
+	out = strings.ReplaceAll(out, "SQL SECURITY DEFINER", "SQL SECURITY INVOKER")
+	return strings.TrimSpace(out)
 }
 
 // DumpData writes data.tsv with capped rows per table.

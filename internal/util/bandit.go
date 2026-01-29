@@ -86,10 +86,6 @@ func (b *Bandit) Update(arm int, reward float64) {
 	b.updateBatchLocked(arm, reward, 1)
 }
 
-func (b *Bandit) updateOne(arm int, reward float64) {
-	b.updateBatchLocked(arm, reward, 1)
-}
-
 // UpdateBatch records rewards for multiple runs of the same arm.
 func (b *Bandit) UpdateBatch(arm int, rewardPerRun float64, runs int) {
 	if runs <= 0 {

@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"shiro/internal/util"
 )
 
 // Config captures all runtime options for the fuzz runner.
