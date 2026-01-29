@@ -45,11 +45,48 @@ type Table struct {
 	NextID         int64
 	Partitioned    bool
 	PartitionCount int
+	IsView         bool
 }
 
 // State tracks the current schema state.
 type State struct {
 	Tables []Table
+}
+
+// SplitTablesByView separates base tables from views.
+func SplitTablesByView(tables []Table) (base []Table, views []Table) {
+	base = make([]Table, 0, len(tables))
+	views = make([]Table, 0, len(tables))
+	for _, tbl := range tables {
+		if tbl.IsView {
+			views = append(views, tbl)
+		} else {
+			base = append(base, tbl)
+		}
+	}
+	return base, views
+}
+
+// BaseTables returns non-view tables in creation order.
+func (s State) BaseTables() []Table {
+	out := make([]Table, 0, len(s.Tables))
+	for _, tbl := range s.Tables {
+		if tbl.IsView {
+			continue
+		}
+		out = append(out, tbl)
+	}
+	return out
+}
+
+// HasBaseTables reports whether any non-view tables exist.
+func (s State) HasBaseTables() bool {
+	for _, tbl := range s.Tables {
+		if !tbl.IsView {
+			return true
+		}
+	}
+	return false
 }
 
 // SQLType returns the SQL type string for this column.

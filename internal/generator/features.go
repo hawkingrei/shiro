@@ -17,6 +17,7 @@ type QueryFeatures struct {
 	JoinGraphSig  string
 	HasSubquery   bool
 	HasAggregate  bool
+	ViewCount     int
 	PredicatePairsTotal int64
 	PredicatePairsJoin  int64
 }

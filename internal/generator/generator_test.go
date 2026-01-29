@@ -79,11 +79,11 @@ func TestGeneratorQueryConstraints(t *testing.T) {
 				t.Fatalf("having uses non-group column: %s", q.SQLString())
 			}
 		}
-		if q.Distinct && len(q.OrderBy) > 0 {
+		if len(q.OrderBy) > 0 && gen.queryRequiresSelectOrder(q) {
 			items := exprSet(selectItemExprs(q.Items))
 			for _, ob := range q.OrderBy {
 				if !items[exprString(ob.Expr)] {
-					t.Fatalf("distinct order by not in select list: %s", q.SQLString())
+					t.Fatalf("order by not in select list: %s", q.SQLString())
 				}
 			}
 		}

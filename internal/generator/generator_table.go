@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"math/rand"
+
 	"shiro/internal/schema"
 	"shiro/internal/util"
 )
@@ -9,6 +11,7 @@ func (g *Generator) pickTables() []schema.Table {
 	if len(g.State.Tables) == 0 {
 		return nil
 	}
+	_, viewTables := schema.SplitTablesByView(g.State.Tables)
 	maxTables := len(g.State.Tables)
 	count := 1
 	if g.Config.Features.Joins && maxTables > 1 {
@@ -47,8 +50,14 @@ func (g *Generator) pickTables() []schema.Table {
 	}
 	if count > 1 && g.Config.Features.Joins {
 		if picked := g.pickJoinTables(count); len(picked) == count {
+			if !g.Config.Features.DSG && len(viewTables) > 0 && util.Chance(g.Rand, ViewJoinReplaceProb) {
+				return replaceWithJoinableView(g.Rand, picked, viewTables)
+			}
 			return picked
 		}
+	}
+	if count == 1 && len(viewTables) > 0 && util.Chance(g.Rand, ViewPickProb) {
+		return []schema.Table{viewTables[g.Rand.Intn(len(viewTables))]}
 	}
 	idxs := g.Rand.Perm(maxTables)[:count]
 	picked := make([]schema.Table, 0, count)
@@ -128,6 +137,9 @@ func (g *Generator) pickDSGJoinTables(count int) []schema.Table {
 	baseOK := false
 	dims := make([]schema.Table, 0, len(g.State.Tables)-1)
 	for _, tbl := range g.State.Tables {
+		if tbl.IsView {
+			continue
+		}
 		if tbl.Name == "t0" {
 			base = tbl
 			baseOK = true
@@ -165,6 +177,50 @@ func (g *Generator) pickDSGJoinTables(count int) []schema.Table {
 		picked = append(picked, dims[perm[i]])
 	}
 	return picked
+}
+
+func replaceWithJoinableView(r *rand.Rand, picked []schema.Table, views []schema.Table) []schema.Table {
+	if len(picked) == 0 || len(views) == 0 {
+		return picked
+	}
+	viewIdxs := randPerm(r, len(views))
+	for _, vIdx := range viewIdxs {
+		view := views[vIdx]
+		for i := range picked {
+			if view.Name == picked[i].Name {
+				continue
+			}
+			if !joinableWithAny(view, picked, i) {
+				continue
+			}
+			out := append([]schema.Table{}, picked...)
+			out[i] = view
+			return out
+		}
+	}
+	return picked
+}
+
+func joinableWithAny(tbl schema.Table, picked []schema.Table, skip int) bool {
+	for i := range picked {
+		if i == skip {
+			continue
+		}
+		if tablesJoinable(tbl, picked[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func randPerm(r *rand.Rand, n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	if n == 1 {
+		return []int{0}
+	}
+	return r.Perm(n)
 }
 
 func mapTablesByName(tables []schema.Table, names []string) []schema.Table {

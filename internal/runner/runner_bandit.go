@@ -11,7 +11,7 @@ func (r *Runner) initBandits() {
 		return
 	}
 	if r.cfg.Adaptive.AdaptActions {
-		r.actionBandit = util.NewBandit(3, r.cfg.Adaptive.UCBExploration)
+		r.actionBandit = util.NewBanditWithWindow(3, r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
 		r.actionEnabled = []bool{
 			r.cfg.Weights.Actions.DDL > 0,
 			r.cfg.Weights.Actions.DML > 0,
@@ -19,11 +19,11 @@ func (r *Runner) initBandits() {
 		}
 	}
 	if r.cfg.Adaptive.AdaptOracles {
-		r.oracleBandit = util.NewBandit(len(r.oracles), r.cfg.Adaptive.UCBExploration)
+		r.oracleBandit = util.NewBanditWithWindow(len(r.oracles), r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
 		r.refreshOracleEnabled()
 	}
 	if r.cfg.Adaptive.AdaptDML {
-		r.dmlBandit = util.NewBandit(3, r.cfg.Adaptive.UCBExploration)
+		r.dmlBandit = util.NewBanditWithWindow(3, r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
 		r.dmlEnabled = []bool{
 			r.cfg.Weights.DML.Insert > 0,
 			r.cfg.Weights.DML.Update > 0,
@@ -161,10 +161,10 @@ func newFeatureBandits(cfg config.Config) *featureBandits {
 	aggArms := makeProbArms(cfg.Weights.Features.AggProb)
 	indexPrefixArms := makeProbArms(cfg.Weights.Features.IndexPrefixProb)
 	return &featureBandits{
-		joinBandit:        util.NewBandit(len(joinArms), cfg.Adaptive.UCBExploration),
-		subqBandit:        util.NewBandit(len(subqArms), cfg.Adaptive.UCBExploration),
-		aggBandit:         util.NewBandit(len(aggArms), cfg.Adaptive.UCBExploration),
-		indexPrefixBandit: util.NewBandit(len(indexPrefixArms), cfg.Adaptive.UCBExploration),
+		joinBandit:        util.NewBanditWithWindow(len(joinArms), cfg.Adaptive.UCBExploration, cfg.Adaptive.WindowSize),
+		subqBandit:        util.NewBanditWithWindow(len(subqArms), cfg.Adaptive.UCBExploration, cfg.Adaptive.WindowSize),
+		aggBandit:         util.NewBanditWithWindow(len(aggArms), cfg.Adaptive.UCBExploration, cfg.Adaptive.WindowSize),
+		indexPrefixBandit: util.NewBanditWithWindow(len(indexPrefixArms), cfg.Adaptive.UCBExploration, cfg.Adaptive.WindowSize),
 		joinArms:          joinArms,
 		subqArms:          subqArms,
 		aggArms:           aggArms,

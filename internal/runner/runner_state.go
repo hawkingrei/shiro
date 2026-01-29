@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"shiro/internal/config"
 	"shiro/internal/db"
@@ -32,6 +33,7 @@ func (r *Runner) rotateDatabase(ctx context.Context) error {
 	if err := db.EnsureDatabase(ctx, r.cfg.DSN, r.cfg.Database); err != nil {
 		return err
 	}
+	r.applyRuntimeToggles()
 	r.cfg.DSN = config.UpdateDatabaseInDSN(r.cfg.DSN, r.cfg.Database)
 	util.CloseWithErr(r.exec, "db exec")
 	exec, err := db.Open(r.cfg.DSN)
@@ -55,4 +57,45 @@ func (r *Runner) rotateDatabase(ctx context.Context) error {
 		return err
 	}
 	return r.initState(ctx)
+}
+
+func (r *Runner) rotateDatabaseWithRetry(ctx context.Context) error {
+	rotateTimeout := time.Duration(r.cfg.StatementTimeoutMs) * time.Millisecond
+	if rotateTimeout < 60*time.Second {
+		rotateTimeout = 60 * time.Second
+	}
+	attempts := 2
+	backoff := 500 * time.Millisecond
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		rctx, cancel := context.WithTimeout(ctx, rotateTimeout)
+		lastErr = r.rotateDatabase(rctx)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+		if i+1 < attempts {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+	}
+	return lastErr
+}
+
+func (r *Runner) applyRuntimeToggles() {
+	if r.cfg.Weights.Oracles.DQE > 0 && r.cfg.TQS.Enabled {
+		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
+		r.cfg.TQS.Enabled = false
+	}
+	if r.cfg.TQS.Enabled {
+		r.cfg.Weights.Actions.DML = 0
+		if r.cfg.Weights.Oracles.DQE > 0 {
+			util.Detailf("tqs config adjusted: disable DQE oracle")
+		}
+		r.cfg.Weights.Oracles.DQE = 0
+	}
 }

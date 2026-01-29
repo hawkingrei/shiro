@@ -222,11 +222,11 @@ func tableHasCompositeIndex(tbl *schema.Table, key string) bool {
 	return false
 }
 
-// CreateViewSQL emits a CREATE VIEW statement from a generated query.
-func (g *Generator) CreateViewSQL() string {
+// CreateViewSQL emits a CREATE VIEW statement and returns the view table info.
+func (g *Generator) CreateViewSQL() (string, *schema.Table) {
 	query := g.GenerateSelectQuery()
 	if query == nil {
-		return ""
+		return "", nil
 	}
 	if len(query.With) > 0 {
 		cteEnabled := g.Config.Features.CTE
@@ -234,13 +234,18 @@ func (g *Generator) CreateViewSQL() string {
 		query = g.GenerateSelectQuery()
 		g.Config.Features.CTE = cteEnabled
 		if query == nil {
-			return ""
+			return "", nil
 		}
 	}
 	query = query.Clone()
 	query.Items = ensureUniqueAliases(query.Items)
 	viewName := g.NextViewName()
-	return fmt.Sprintf("CREATE VIEW %s AS %s", viewName, query.SQLString())
+	cols := g.columnsFromSelectItems(query.Items)
+	if len(cols) == 0 {
+		return "", nil
+	}
+	view := &schema.Table{Name: viewName, Columns: cols, IsView: true}
+	return fmt.Sprintf("CREATE VIEW %s AS %s", viewName, query.SQLString()), view
 }
 
 func ensureUniqueAliases(items []SelectItem) []SelectItem {

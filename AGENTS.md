@@ -10,3 +10,7 @@ Links:
 - [Oracles](docs/oracles/README.md)
 - [Glossary](docs/glossary.md)
 - [Architecture Decisions](docs/decisions/README.md)
+
+## Workflow guardrails
+
+- After each task completes, review and update `AGENTS.md` and `docs/todo.md`, removing completed items and syncing current progress.
