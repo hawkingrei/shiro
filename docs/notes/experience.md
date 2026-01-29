@@ -63,3 +63,4 @@
 - Report output is stabilized by sorting table dumps and emitting deterministic `details` JSON in `summary.json`.
 - SQL validity logs now include ratio and invalid counts to reduce ambiguity in interval stats.
 - `dynamic_state.json` is reserved for runtime parameter reuse across restarts; avoid observability-only fields there.
+- "Can't find column ... in schema Column" in NoREC reports indicates an engine bug and should be recorded as a case.

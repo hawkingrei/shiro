@@ -266,8 +266,8 @@ func validDSGTruthKey(base, table, key string) bool {
 		return false
 	}
 	// For DSG dimension tables (t{idx}, idx > 0), allow the shared key k0
-	// or the chain key k{idx-1}.
-	return key == "k0" || key == fmt.Sprintf("k%d", idx-1)
+	// or the table key k{idx}.
+	return key == "k0" || key == fmt.Sprintf("k%d", idx)
 }
 
 func parseTableIndex(name string) (int, bool) {

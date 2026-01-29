@@ -37,18 +37,22 @@ func (o TLP) Name() string { return "TLP" }
 //
 // The signatures of Q and Q_tlp (the UNION ALL of all three partitions) must match.
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
-	query := gen.GenerateSelectQueryWithConstraints(generator.SelectQueryConstraints{
-		RequireWhere:  true,
-		PredicateMode: generator.PredicateModeSimple,
-	})
+	policy := predicatePolicyFor(gen)
+	policy.allowIsNull = false
+	builder := generator.NewSelectQueryBuilder(gen).
+		RequireWhere().
+		PredicateMode(generator.PredicateModeSimple).
+		RequireDeterministic().
+		PredicateGuard(func(expr generator.Expr) bool {
+			return predicateMatches(expr, policy)
+		})
+	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:no_where"}}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("tlp", reason), "builder_reason": reason, "builder_attempts": attempts}}
 	}
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:nondeterministic"}}
 	}
-	policy := predicatePolicyFor(gen)
-	policy.allowIsNull = false
 	if !predicateMatches(query.Where, policy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "tlp:predicate_guard"}}
 	}
