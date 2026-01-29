@@ -214,7 +214,10 @@ func joinableWithAny(tbl schema.Table, picked []schema.Table, skip int) bool {
 }
 
 func randPerm(r *rand.Rand, n int) []int {
-	if n <= 1 {
+	if n <= 0 {
+		return nil
+	}
+	if n == 1 {
 		return []int{0}
 	}
 	return r.Perm(n)

@@ -34,7 +34,7 @@ report:
 web:
 	cd web && npm install && npm run build
 
-show: 
+show:
 	cd web && npm install && npm run dev
 
 report-web: report web

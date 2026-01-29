@@ -262,6 +262,7 @@ func normalizeConfig(cfg *Config) {
 	if cfg.TQS.Enabled {
 		cfg.Features.DSG = true
 		cfg.Weights.Actions.DML = 0
+		cfg.Weights.Oracles.DQE = 0
 		if cfg.Weights.Actions.Query <= 0 {
 			cfg.Weights.Actions.Query = 1
 		}
