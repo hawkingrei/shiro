@@ -10,7 +10,6 @@ This file tracks current tasks and should stay aligned with `docs/notes/follow-u
 4. Consider making `CTECountMax` configurable for resource-sensitive runs.
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
-7. Consider restricting Impo seed generation to non-aggregate queries instead of generate-and-skip. (done)
 
 ## Reporting / Aggregation
 

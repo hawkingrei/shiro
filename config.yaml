@@ -53,6 +53,7 @@ features:
   window_funcs: false
   correlated_subqueries: true
   views: true
+  view_max: 5
   indexes: true
   foreign_keys: true
   check_constraints: true
@@ -146,8 +147,9 @@ minimize:
   merge_inserts: true
 
 adaptive:
-  enabled: false
+  enabled: true
   ucb_exploration: 1.5
+  window_size: 50000
   adapt_actions: false
   adapt_oracles: true
   adapt_dml: false

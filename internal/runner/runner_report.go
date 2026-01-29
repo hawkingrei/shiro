@@ -187,7 +187,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	} else {
 		util.Warnf("case captured oracle=%s dir=%s", result.Oracle, caseData.Dir)
 	}
-	if err := r.rotateDatabase(ctx); err != nil {
+	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
 		util.Errorf("rotate database after bug failed: %v", err)
 	}
 }

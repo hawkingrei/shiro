@@ -88,7 +88,7 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 	baseRows, baseTruncated, err := queryRowSet(ctx, exec, initSQL, maxRows)
 	if err != nil {
-		if isSchemaColumnMissingErr(err) {
+		if IsSchemaColumnMissingErr(err) {
 			details := map[string]any{
 				"impo_seed_sql":      seedSQL,
 				"impo_init_sql":      initSQL,
@@ -176,7 +176,7 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		}
 		mutRows, mutTruncated, err := queryRowSet(ctx, exec, unit.SQL, maxRows)
 		if err != nil {
-			if isSchemaColumnMissingErr(err) {
+			if IsSchemaColumnMissingErr(err) {
 				return Result{
 					OK:       false,
 					Oracle:   o.Name(),

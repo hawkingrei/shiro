@@ -48,12 +48,22 @@ func (h *History) Refresh(state *schema.State) {
 		return
 	}
 	for _, tbl := range state.Tables {
+		if tbl.IsView {
+			continue
+		}
 		h.adj[tbl.Name] = nil
 	}
-	for i := 0; i < len(state.Tables); i++ {
-		for j := i + 1; j < len(state.Tables); j++ {
-			left := state.Tables[i].Name
-			right := state.Tables[j].Name
+	baseTables := make([]schema.Table, 0, len(state.Tables))
+	for _, tbl := range state.Tables {
+		if tbl.IsView {
+			continue
+		}
+		baseTables = append(baseTables, tbl)
+	}
+	for i := 0; i < len(baseTables); i++ {
+		for j := i + 1; j < len(baseTables); j++ {
+			left := baseTables[i].Name
+			right := baseTables[j].Name
 			if !haveCompatibleKeyColumns(state, left, right) {
 				continue
 			}

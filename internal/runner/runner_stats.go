@@ -84,6 +84,10 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures) {
 	if features.JoinGraphSig != "" {
 		r.joinGraphSigs[features.JoinGraphSig]++
 	}
+	if features.ViewCount > 0 {
+		r.viewQueries++
+		r.viewTableRefs += int64(features.ViewCount)
+	}
 	if features.PredicatePairsTotal > 0 {
 		r.predicatePairsTotal += features.PredicatePairsTotal
 		r.predicatePairsJoin += features.PredicatePairsJoin
@@ -229,6 +233,8 @@ func (r *Runner) startStatsLogger() func() {
 		var lastImpoTotal int64
 		var lastImpoSkips int64
 		var lastImpoTrunc int64
+		var lastViewQueries int64
+		var lastViewTableRefs int64
 		var lastPlans int
 		var lastShapes int
 		var lastOps int
@@ -262,6 +268,8 @@ func (r *Runner) startStatsLogger() func() {
 				impoTotal := r.impoTotal
 				impoSkips := r.impoSkips
 				impoTrunc := r.impoTrunc
+				viewQueries := r.viewQueries
+				viewTableRefs := r.viewTableRefs
 				truthMismatches := r.truthMismatches
 				joinCounts := make(map[int]int64, len(r.joinCounts))
 				for k, v := range r.joinCounts {
@@ -324,6 +332,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaImpoTotal := impoTotal - lastImpoTotal
 				deltaImpoSkips := impoSkips - lastImpoSkips
 				deltaImpoTrunc := impoTrunc - lastImpoTrunc
+				deltaViewQueries := viewQueries - lastViewQueries
+				deltaViewTableRefs := viewTableRefs - lastViewTableRefs
 				deltaTruthMismatches := truthMismatches - lastTruthMismatches
 				deltaPredicatePairsTotal := predicatePairsTotal - lastPredicatePairsTotal
 				deltaPredicatePairsJoin := predicatePairsJoin - lastPredicatePairsJoin
@@ -362,6 +372,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastImpoTotal = impoTotal
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
+				lastViewQueries = viewQueries
+				lastViewTableRefs = viewTableRefs
 				lastTruthMismatches = truthMismatches
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
@@ -439,6 +451,13 @@ func (r *Runner) startStatsLogger() func() {
 							topJoinSigN,
 							len(deltaJoinGraphSigs),
 							formatTopJoinSigs(deltaJoinGraphSigs, topJoinSigN),
+						)
+					}
+					if deltaViewQueries > 0 || deltaViewTableRefs > 0 {
+						util.Infof(
+							"view usage last interval: queries=%d tables=%d",
+							deltaViewQueries,
+							deltaViewTableRefs,
 						)
 					}
 					if len(oracleStats) > 0 {
@@ -549,6 +568,13 @@ func (r *Runner) startStatsLogger() func() {
 							impoBaseExecRatio,
 							thresholds.ImpoBaseExecFailedMaxRatio,
 						)
+						if r.impoLastFailSQL != "" {
+							if r.impoLastFailErr != "" {
+								util.Warnf("impo base_exec_failed example: %s err=%s", compactSQL(r.impoLastFailSQL, 2000), r.impoLastFailErr)
+							} else {
+								util.Warnf("impo base_exec_failed example: %s", compactSQL(r.impoLastFailSQL, 2000))
+							}
+						}
 					}
 					if deltaImpoTotal > 0 || deltaImpoSkips > 0 || deltaImpoTrunc > 0 {
 						util.Detailf(

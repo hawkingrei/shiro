@@ -25,6 +25,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 				return nil
 			}
 			queryFeatures := AnalyzeQueryFeatures(query)
+			queryFeatures.ViewCount = g.countViewsInQuery(query)
 			queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
 			queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
 			g.LastFeatures = &queryFeatures
@@ -91,11 +92,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 
 	// Only emit LIMIT when paired with ORDER BY to keep top-N semantics.
 	if g.Config.Features.OrderBy && util.Chance(g.Rand, g.Config.Weights.Features.OrderByProb) {
-		if query.Distinct {
-			query.OrderBy = g.GenerateOrderByFromItems(query.Items)
-		} else {
-			query.OrderBy = g.GenerateOrderBy(queryTables)
-		}
+		query.OrderBy = g.orderByForQuery(query, queryTables)
 		if g.Config.Features.Limit && util.Chance(g.Rand, g.Config.Weights.Features.LimitProb) {
 			limit := g.Rand.Intn(LimitMax) + 1
 			query.Limit = &limit
@@ -109,6 +106,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		return nil
 	}
 	queryFeatures := AnalyzeQueryFeatures(query)
+	queryFeatures.ViewCount = g.countViewsInQuery(query)
 	queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
 	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
 	g.LastFeatures = &queryFeatures
@@ -119,12 +117,57 @@ func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []sche
 	if query == nil {
 		return nil
 	}
-	if query.Distinct {
+	if g.queryRequiresSelectOrder(query) {
 		if ob := g.GenerateOrderByFromItems(query.Items); len(ob) > 0 {
 			return ob
 		}
 	}
 	return g.deterministicOrderBy(tables)
+}
+
+func (g *Generator) orderByForQuery(query *SelectQuery, tables []schema.Table) []OrderBy {
+	if query == nil {
+		return nil
+	}
+	if g.queryRequiresSelectOrder(query) {
+		return g.GenerateOrderByFromItems(query.Items)
+	}
+	return g.GenerateOrderBy(tables)
+}
+
+func (g *Generator) queryRequiresSelectOrder(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	if query.Distinct || len(query.GroupBy) > 0 {
+		return true
+	}
+	for _, item := range query.Items {
+		if ExprHasAggregate(item.Expr) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *Generator) countViewsInQuery(query *SelectQuery) int {
+	if g == nil || g.State == nil || query == nil {
+		return 0
+	}
+	names := []string{query.From.BaseTable}
+	for _, join := range query.From.Joins {
+		names = append(names, join.Table)
+	}
+	count := 0
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if tbl, ok := g.State.TableByName(name); ok && tbl.IsView {
+			count++
+		}
+	}
+	return count
 }
 
 func (g *Generator) positionCTETables(tables []schema.Table, with []CTE) []schema.Table {

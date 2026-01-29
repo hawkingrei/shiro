@@ -30,10 +30,11 @@ func (o DQE) Name() string { return "DQE" }
 //
 // If rows affected != count, execution semantics are wrong.
 func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
-	if !state.HasTables() {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:no_tables"}}
+	if !state.HasBaseTables() {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:no_base_tables"}}
 	}
-	tbl := state.Tables[gen.Rand.Intn(len(state.Tables))]
+	baseTables := state.BaseTables()
+	tbl := baseTables[gen.Rand.Intn(len(baseTables))]
 	choice := gen.Rand.Intn(2)
 
 	if choice == 0 {

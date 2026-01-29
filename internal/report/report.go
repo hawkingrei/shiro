@@ -110,11 +110,28 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
-	for _, tbl := range sortedTables(state.Tables) {
-		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tbl.Name))
+	tables, views := schema.SplitTablesByView(state.Tables)
+	for i := len(views) - 1; i >= 0; i-- {
+		b.WriteString(fmt.Sprintf("DROP VIEW IF EXISTS %s;\n", views[i].Name))
+	}
+	for i := len(tables) - 1; i >= 0; i-- {
+		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tables[i].Name))
+	}
+	for _, tbl := range tables {
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
 		var name, createSQL string
 		if err := row.Scan(&name, &createSQL); err != nil {
+			continue
+		}
+		b.WriteString(createSQL)
+		b.WriteString(";\n\n")
+	}
+	for _, view := range views {
+		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE VIEW %s", view.Name))
+		var name, createSQL, charset, collation string
+		if err := row.Scan(&name, &createSQL, &charset, &collation); err != nil {
+			util.Warnf("dump view failed view=%s err=%v", view.Name, err)
+			b.WriteString(fmt.Sprintf("-- failed to dump view %s: %v\n\n", view.Name, err))
 			continue
 		}
 		b.WriteString(createSQL)
