@@ -211,6 +211,22 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 				}
 			}
 		}
+		if counts, ok := result.Details["impo_mutation_counts"].(map[string]int64); ok {
+			if r.impoMutationCounts == nil {
+				r.impoMutationCounts = make(map[string]int64)
+			}
+			for name, val := range counts {
+				r.impoMutationCounts[name] += val
+			}
+		}
+		if counts, ok := result.Details["impo_mutation_exec_counts"].(map[string]int64); ok {
+			if r.impoMutationExecCounts == nil {
+				r.impoMutationExecCounts = make(map[string]int64)
+			}
+			for name, val := range counts {
+				r.impoMutationExecCounts[name] += val
+			}
+		}
 	}
 	if result.Truth != nil && result.Truth.Enabled && result.Truth.Mismatch {
 		r.truthMismatches++
@@ -255,6 +271,8 @@ func (r *Runner) startStatsLogger() func() {
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
 		lastImpoReasonTotals := make(map[string]int64)
+		lastImpoMutationCounts := make(map[string]int64)
+		lastImpoMutationExecCounts := make(map[string]int64)
 		lastOracleStats := make(map[string]oracleFunnel)
 		for {
 			select {
@@ -293,6 +311,14 @@ func (r *Runner) startStatsLogger() func() {
 				impoSkipErrCodes := make(map[string]int64, len(r.impoSkipErrCodes))
 				for k, v := range r.impoSkipErrCodes {
 					impoSkipErrCodes[k] = v
+				}
+				impoMutationCounts := make(map[string]int64, len(r.impoMutationCounts))
+				for k, v := range r.impoMutationCounts {
+					impoMutationCounts[k] = v
+				}
+				impoMutationExecCounts := make(map[string]int64, len(r.impoMutationExecCounts))
+				for k, v := range r.impoMutationExecCounts {
+					impoMutationExecCounts[k] = v
 				}
 				oracleStats := make(map[string]oracleFunnel, len(r.oracleStats))
 				for name, stat := range r.oracleStats {
@@ -362,6 +388,22 @@ func (r *Runner) startStatsLogger() func() {
 					}
 				}
 				lastJoinGraphSigs = joinGraphSigs
+				deltaImpoMutationCounts := make(map[string]int64, len(impoMutationCounts))
+				for k, v := range impoMutationCounts {
+					prev := lastImpoMutationCounts[k]
+					if v-prev > 0 {
+						deltaImpoMutationCounts[k] = v - prev
+					}
+				}
+				lastImpoMutationCounts = impoMutationCounts
+				deltaImpoMutationExecCounts := make(map[string]int64, len(impoMutationExecCounts))
+				for k, v := range impoMutationExecCounts {
+					prev := lastImpoMutationExecCounts[k]
+					if v-prev > 0 {
+						deltaImpoMutationExecCounts[k] = v - prev
+					}
+				}
+				lastImpoMutationExecCounts = impoMutationExecCounts
 				lastPredicatePairsTotal = predicatePairsTotal
 				lastPredicatePairsJoin = predicatePairsJoin
 				lastTotal = total
@@ -452,6 +494,22 @@ func (r *Runner) startStatsLogger() func() {
 							topJoinSigN,
 							len(deltaJoinGraphSigs),
 							formatTopJoinSigs(deltaJoinGraphSigs, topJoinSigN),
+						)
+					}
+					if len(deltaImpoMutationCounts) > 0 {
+						util.Detailf(
+							"impo_mutations last interval top=%d total=%d: %s",
+							topOracleReasonsN,
+							len(deltaImpoMutationCounts),
+							formatTopJoinSigs(deltaImpoMutationCounts, topOracleReasonsN),
+						)
+					}
+					if len(deltaImpoMutationExecCounts) > 0 {
+						util.Detailf(
+							"impo_mutations_exec last interval top=%d total=%d: %s",
+							topOracleReasonsN,
+							len(deltaImpoMutationExecCounts),
+							formatTopJoinSigs(deltaImpoMutationExecCounts, topOracleReasonsN),
 						)
 					}
 					if deltaViewQueries > 0 || deltaViewTableRefs > 0 {

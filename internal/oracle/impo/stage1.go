@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// ErrWithClause indicates the statement uses a WITH clause.
+// ErrWithClause indicates the statement uses an unsupported WITH clause.
 var ErrWithClause = errors.New("impo init with clause")
 
 // Init removes unsupported constructs to make the query mutation-friendly.
@@ -43,11 +43,11 @@ func InitWithOptions(sql string, opts InitOptions) (string, error) {
 	}
 	switch stmt := (*rootNode).(type) {
 	case *ast.SelectStmt:
-		if stmt.With != nil {
+		if stmt.With != nil && stmt.With.IsRecursive {
 			return "", ErrWithClause
 		}
 	case *ast.SetOprStmt:
-		if stmt.With != nil {
+		if stmt.With != nil && stmt.With.IsRecursive {
 			return "", ErrWithClause
 		}
 	}

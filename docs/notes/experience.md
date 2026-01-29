@@ -68,3 +68,4 @@
 - DSG join alignment: prefer k0 or k{idx} keys with same-name joins to reduce ground-truth key mismatches.
 - GroundTruth edge extraction now tolerates AND-wrapped join conditions and USING with multiple columns (first key only).
 - CERT now retries generation to satisfy min base rows and can fall back to a base query without WHERE when needed.
+- Impo now accepts non-recursive WITH clauses during init and tracks mutation coverage counts per mutation type.

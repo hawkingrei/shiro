@@ -46,7 +46,7 @@
 36. Add Impo configurable mutation selector (random subset vs. exhaustive).
 37. Add Impo mutation weights tuned for optimizer coverage.
 38. Add Impo skip if query uses window functions after stage1.
-39. Restrict Impo seed generation to non-aggregate queries to avoid generate-and-skip. (done)
+39. Restrict Impo seed generation to non-aggregate queries to avoid generate-and-skip.
 40. Add Impo skip for recursive CTEs.
 41. Add Impo support for CTE-aware mutation and restoration.
 42. Add Impo with plan-guided mutation selection (tie into QPG signals).

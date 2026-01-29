@@ -45,9 +45,6 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		util.Warnf("impo seed has aggregates with aggregates disabled")
 		return impoSkip(o.Name(), metrics, "aggregate_query")
 	}
-	if len(seedQuery.With) > 0 {
-		return impoSkip(o.Name(), metrics, "with_clause")
-	}
 	seedQuery = seedQuery.Clone()
 	rewriteUsingToOn(seedQuery, state)
 	seedSQL := seedQuery.SQLString()
@@ -146,6 +143,14 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if len(mutations.MutateUnits) == 0 {
 		return impoSkip(o.Name(), metrics, "no_mutations")
 	}
+	impoMutationCounts := make(map[string]int64)
+	impoMutationExecCounts := make(map[string]int64)
+	for _, unit := range mutations.MutateUnits {
+		if unit == nil || unit.Name == "" {
+			continue
+		}
+		impoMutationCounts[unit.Name]++
+	}
 	units := mutations.MutateUnits
 	maxMutations := gen.Config.Oracles.ImpoMaxMutations
 	if maxMutations > 0 && len(units) > maxMutations {
@@ -166,6 +171,7 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		if unit.Err != nil || unit.SQL == "" {
 			continue
 		}
+		impoMutationExecCounts[unit.Name]++
 		if shouldPrecheckRows(unit.SQL) {
 			countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) AS impo_mut", unit.SQL)
 			count, err := exec.QueryCount(ctx, countSQL)
@@ -233,7 +239,10 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 			Metrics: metrics,
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), Metrics: metrics}
+	return Result{OK: true, Oracle: o.Name(), Metrics: metrics, Details: map[string]any{
+		"impo_mutation_counts":      impoMutationCounts,
+		"impo_mutation_exec_counts": impoMutationExecCounts,
+	}}
 }
 
 func implicationOK(isUpper bool, cmp int) bool {

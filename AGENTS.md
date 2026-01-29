@@ -20,3 +20,4 @@ Links:
 - Added a constraints-based SelectQueryBuilder to centralize oracle query requirements and expose builder skip reasons.
 - Tightened DSG join key alignment (k0 or k{idx}) and adjusted GroundTruth join extraction to reduce edge mismatch.
 - Improved CERT generation by retrying base rows and allowing base-without-where fallback.
+- Enabled Impo init for non-recursive WITH clauses and added mutation coverage counters.
