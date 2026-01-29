@@ -143,6 +143,13 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.GroundTruth{},
 		},
 	}
+	util.Infof("runner config loaded tqs.enabled=%v base_tqs_enabled=%v dqe_weight=%d dsg_enabled=%v db=%s",
+		cfg.TQS.Enabled,
+		r.baseTQSEnabled,
+		r.baseDQEWeight,
+		r.baseDSGEnabled,
+		cfg.Database,
+	)
 	if cfg.QPG.Enabled {
 		r.qpgState = newQPGState(cfg.QPG)
 	}
