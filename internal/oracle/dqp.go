@@ -3,7 +3,6 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"strings"
 
 	"shiro/internal/db"
@@ -71,13 +70,16 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	hasCTE := len(query.With) > 0
 	hasPartition := queryHasPartitionedTable(query, state)
-	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition)
+	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
 	for _, variant := range variants {
 		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
 		if err != nil {
 			continue
 		}
+		reward := 1.0
 		if variantSig != baseSig {
+			reward = 0
+			updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
 			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
 			details := map[string]any{
@@ -99,6 +101,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Details:  details,
 			}
 		}
+		updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}}
 }
@@ -109,7 +112,7 @@ type dqpVariant struct {
 	hint         string
 }
 
-func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool) []dqpVariant {
+func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) []dqpVariant {
 	tables := make([]string, 0, 1+len(query.From.Joins))
 	tables = append(tables, query.From.BaseTable)
 	for _, join := range query.From.Joins {
@@ -125,7 +128,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		HintStreamAgg:       {},
 		HintAggToCop:        {},
 	}
-	baseHints := dqpHintsForQuery(tables, hasJoin, hasSemi, hasCorr, hasAgg, noArgHints)
+	baseHints := dqpHintsForQuery(gen, tables, hasJoin, hasSemi, hasCorr, hasAgg, noArgHints)
 	variants := make([]dqpVariant, 0, len(baseHints)+1)
 
 	for _, hintSQL := range baseHints {
@@ -134,7 +137,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 
-	setVarHints := dqpSetVarHints(len(tables), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition)
+	setVarHints := dqpSetVarHints(gen, len(tables), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition)
 	for _, hintSQL := range setVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
@@ -158,7 +161,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 				fmt.Sprintf(HintUseIndexFmt, table.Name),
 				fmt.Sprintf(HintUseIndexMergeFmt, table.Name),
 			}
-			for _, hint := range hints {
+			for _, hint := range pickHintsWithBandit(gen, hints, len(hints)) {
 				variantSQL := injectHint(query, hint)
 				variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 				variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hint})
@@ -169,7 +172,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	return variants
 }
 
-func dqpHintsForQuery(tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}) []string {
+func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}) []string {
 	var candidates []string
 	if hasJoin {
 		joinHints := []string{
@@ -184,11 +187,15 @@ func dqpHintsForQuery(tables []string, hasJoin bool, hasSemi bool, hasCorr bool,
 			HintLeading,
 			HintStraightJoin,
 		}
-		candidates = append(candidates, buildHintSQL(chooseOne(joinHints), tables, noArgHints))
+		for _, hint := range joinHints {
+			candidates = append(candidates, buildHintSQL(hint, tables, noArgHints))
+		}
 	}
 	if hasAgg {
 		aggHints := []string{HintHashAgg, HintStreamAgg, HintAggToCop}
-		candidates = append(candidates, buildHintSQL(chooseOne(aggHints), tables, noArgHints))
+		for _, hint := range aggHints {
+			candidates = append(candidates, buildHintSQL(hint, tables, noArgHints))
+		}
 	}
 	if hasSemi {
 		candidates = append(candidates, buildHintSQL(HintSemiJoinRewrite, tables, noArgHints))
@@ -196,40 +203,51 @@ func dqpHintsForQuery(tables []string, hasJoin bool, hasSemi bool, hasCorr bool,
 	if hasCorr {
 		candidates = append(candidates, buildHintSQL(HintNoDecorrelate, tables, noArgHints))
 	}
-	return pickHints(candidates, 2)
+	return pickHintsWithBandit(gen, candidates, 2)
 }
 
-func dqpSetVarHints(tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool) []string {
+func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool) []string {
 	var candidates []string
 	if hasJoin {
-		candidates = append(candidates, chooseToggleHint(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff))
+		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
 	}
 	if hasSubquery {
-		candidates = append(candidates, chooseToggleHint(SetVarEnableNonEvalScalarSubqueryOn, SetVarEnableNonEvalScalarSubqueryOff))
+		candidates = append(candidates, toggleHints(SetVarEnableNonEvalScalarSubqueryOn, SetVarEnableNonEvalScalarSubqueryOff)...)
 	}
 	if hasSemi {
-		candidates = append(candidates, chooseToggleHint(SetVarEnableSemiJoinRewriteOn, SetVarEnableSemiJoinRewriteOff))
+		candidates = append(candidates, toggleHints(SetVarEnableSemiJoinRewriteOn, SetVarEnableSemiJoinRewriteOff)...)
 	}
 	if hasCorr {
-		candidates = append(candidates, chooseToggleHint(SetVarEnableNoDecorrelateOn, SetVarEnableNoDecorrelateOff))
+		candidates = append(candidates, toggleHints(SetVarEnableNoDecorrelateOn, SetVarEnableNoDecorrelateOff)...)
+	}
+	if hasJoin {
+		candidates = append(candidates, toggleHints(SetVarEnableTojaOn, SetVarEnableTojaOff)...)
 	}
 	if hasCTE {
-		candidates = append(candidates, chooseToggleHint(SetVarForceInlineCTEOn, SetVarForceInlineCTEOff))
+		candidates = append(candidates, toggleHints(SetVarForceInlineCTEOn, SetVarForceInlineCTEOff)...)
 	}
-	candidates = append(candidates, joinReorderThresholdHints(tableCount)...)
+	candidates = append(candidates, joinReorderThresholdHints(gen, tableCount)...)
 	if hasPartition {
-		candidates = append(candidates, chooseToggleHint(SetVarPartitionPruneDynamic, SetVarPartitionPruneStatic))
+		candidates = append(candidates, toggleHints(SetVarPartitionPruneDynamic, SetVarPartitionPruneStatic)...)
 	}
 	candidates = append(candidates,
-		chooseToggleHint(SetVarFixControl33031On, SetVarFixControl33031Off),
-		chooseToggleHint(SetVarFixControl44830On, SetVarFixControl44830Off),
-		chooseToggleHint(SetVarFixControl44855On, SetVarFixControl44855Off),
+		toggleHints(SetVarFixControl33031On, SetVarFixControl33031Off)...,
+	)
+	candidates = append(candidates,
+		toggleHints(SetVarFixControl44830On, SetVarFixControl44830Off)...,
+	)
+	candidates = append(candidates,
+		toggleHints(SetVarFixControl44855On, SetVarFixControl44855Off)...,
 		SetVarFixControl45132Zero,
 	)
 	if len(candidates) == 0 {
 		return nil
 	}
-	return pickHints(candidates, rand.Intn(3))
+	max := 0
+	if gen != nil {
+		max = gen.Rand.Intn(3)
+	}
+	return pickHintsWithBandit(gen, candidates, max)
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {
@@ -250,14 +268,14 @@ func cteHasUnstableLimit(query *generator.SelectQuery) bool {
 	return false
 }
 
-func chooseToggleHint(on, off string) string {
-	if rand.Intn(2) == 0 {
-		return on
+func toggleHints(on, off string) []string {
+	if strings.TrimSpace(on) == "" || strings.TrimSpace(off) == "" {
+		return nil
 	}
-	return off
+	return []string{on, off}
 }
 
-func joinReorderThresholdHints(tableCount int) []string {
+func joinReorderThresholdHints(gen *generator.Generator, tableCount int) []string {
 	if tableCount <= 1 {
 		return nil
 	}
@@ -273,8 +291,8 @@ func joinReorderThresholdHints(tableCount int) []string {
 		return nil
 	}
 	value := lower
-	if upper > lower {
-		value = lower + rand.Intn(upper-lower+1)
+	if upper > lower && gen != nil {
+		value = lower + gen.Rand.Intn(upper-lower+1)
 	}
 	return []string{fmt.Sprintf(SetVarJoinReorderThresholdFmt, value)}
 }
@@ -359,23 +377,30 @@ func buildCombinedHints(setVarHints []string, baseHints []string, limit int) []s
 	return out
 }
 
-func pickHints(candidates []string, limit int) []string {
+func pickHintsWithBandit(gen *generator.Generator, candidates []string, limit int) []string {
 	if limit <= 0 || len(candidates) == 0 {
 		return nil
 	}
 	if limit > len(candidates) {
 		limit = len(candidates)
 	}
-	shuffled := append([]string{}, candidates...)
-	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
-	return shuffled[:limit]
-}
-
-func chooseOne(candidates []string) string {
-	if len(candidates) == 0 {
-		return ""
+	if gen == nil {
+		return candidates[:limit]
 	}
-	return candidates[rand.Intn(len(candidates))]
+	picked := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for len(picked) < limit {
+		hint := pickHintBandit(gen.Rand, candidates, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
+		if hint == "" {
+			break
+		}
+		if _, ok := seen[hint]; ok {
+			break
+		}
+		seen[hint] = struct{}{}
+		picked = append(picked, hint)
+	}
+	return picked
 }
 
 func injectHint(query *generator.SelectQuery, hint string) string {

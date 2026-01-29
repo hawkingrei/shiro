@@ -33,6 +33,8 @@ const (
 	SetVarEnableSemiJoinRewriteOff       = "SET_VAR(tidb_opt_enable_semi_join_rewrite=OFF)"
 	SetVarEnableNoDecorrelateOn          = "SET_VAR(tidb_opt_enable_no_decorrelate_in_select=ON)"
 	SetVarEnableNoDecorrelateOff         = "SET_VAR(tidb_opt_enable_no_decorrelate_in_select=OFF)"
+	SetVarEnableTojaOn                   = "SET_VAR(tidb_opt_use_toja=ON)"
+	SetVarEnableTojaOff                  = "SET_VAR(tidb_opt_use_toja=OFF)"
 	SetVarForceInlineCTEOn               = "SET_VAR(tidb_opt_force_inline_cte=ON)"
 	SetVarForceInlineCTEOff              = "SET_VAR(tidb_opt_force_inline_cte=OFF)"
 	SetVarPartitionPruneDynamic          = "SET_VAR(tidb_partition_prune_mode='dynamic')"
