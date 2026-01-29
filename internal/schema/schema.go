@@ -53,6 +53,20 @@ type State struct {
 	Tables []Table
 }
 
+// SplitTablesByView separates base tables from views.
+func SplitTablesByView(tables []Table) (base []Table, views []Table) {
+	base = make([]Table, 0, len(tables))
+	views = make([]Table, 0, len(tables))
+	for _, tbl := range tables {
+		if tbl.IsView {
+			views = append(views, tbl)
+		} else {
+			base = append(base, tbl)
+		}
+	}
+	return base, views
+}
+
 // SQLType returns the SQL type string for this column.
 func (c Column) SQLType() string {
 	switch c.Type {

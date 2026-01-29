@@ -121,9 +121,16 @@ func (b *Bandit) UpdateBatch(arm int, rewardPerRun float64, runs int) {
 	if arm < 0 || arm >= len(b.counts) {
 		return
 	}
-	for i := 0; i < runs; i++ {
-		b.updateOne(arm, rewardPerRun)
+	if b.window == 0 {
+		b.counts[arm] += runs
+		b.rewards[arm] += rewardPerRun * float64(runs)
+		b.total += runs
+		return
 	}
+	// Avoid O(runs) updates and window distortion when batch order is unknown.
+	b.counts[arm] += runs
+	b.rewards[arm] += rewardPerRun * float64(runs)
+	b.total += runs
 }
 
 // Snapshot returns a copy of the bandit state.

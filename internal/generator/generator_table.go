@@ -11,7 +11,7 @@ func (g *Generator) pickTables() []schema.Table {
 	if len(g.State.Tables) == 0 {
 		return nil
 	}
-	_, viewTables := splitViewTables(g.State.Tables)
+	_, viewTables := schema.SplitTablesByView(g.State.Tables)
 	maxTables := len(g.State.Tables)
 	count := 1
 	if g.Config.Features.Joins && maxTables > 1 {
@@ -51,7 +51,7 @@ func (g *Generator) pickTables() []schema.Table {
 	if count > 1 && g.Config.Features.Joins {
 		if picked := g.pickJoinTables(count); len(picked) == count {
 			if !g.Config.Features.DSG && len(viewTables) > 0 && util.Chance(g.Rand, ViewJoinReplaceProb) {
-				return replaceWithJoinableView(picked, viewTables)
+				return replaceWithJoinableView(g.Rand, picked, viewTables)
 			}
 			return picked
 		}
@@ -179,24 +179,11 @@ func (g *Generator) pickDSGJoinTables(count int) []schema.Table {
 	return picked
 }
 
-func splitViewTables(tables []schema.Table) ([]schema.Table, []schema.Table) {
-	base := make([]schema.Table, 0, len(tables))
-	views := make([]schema.Table, 0, len(tables))
-	for _, tbl := range tables {
-		if tbl.IsView {
-			views = append(views, tbl)
-		} else {
-			base = append(base, tbl)
-		}
-	}
-	return base, views
-}
-
-func replaceWithJoinableView(picked []schema.Table, views []schema.Table) []schema.Table {
+func replaceWithJoinableView(r *rand.Rand, picked []schema.Table, views []schema.Table) []schema.Table {
 	if len(picked) == 0 || len(views) == 0 {
 		return picked
 	}
-	viewIdxs := randPerm(len(views))
+	viewIdxs := randPerm(r, len(views))
 	for _, vIdx := range viewIdxs {
 		view := views[vIdx]
 		for i := range picked {
@@ -226,11 +213,11 @@ func joinableWithAny(tbl schema.Table, picked []schema.Table, skip int) bool {
 	return false
 }
 
-func randPerm(n int) []int {
+func randPerm(r *rand.Rand, n int) []int {
 	if n <= 1 {
 		return []int{0}
 	}
-	return rand.Perm(n)
+	return r.Perm(n)
 }
 
 func mapTablesByName(tables []schema.Table, names []string) []schema.Table {

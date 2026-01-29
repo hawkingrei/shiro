@@ -110,7 +110,7 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder
 	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
-	tables, views := splitTables(state.Tables)
+	tables, views := schema.SplitTablesByView(state.Tables)
 	for _, view := range sortedTables(views) {
 		b.WriteString(fmt.Sprintf("DROP VIEW IF EXISTS %s;\n", view.Name))
 	}
@@ -130,6 +130,8 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE VIEW %s", view.Name))
 		var name, createSQL, charset, collation string
 		if err := row.Scan(&name, &createSQL, &charset, &collation); err != nil {
+			util.Warnf("dump view failed view=%s err=%v", view.Name, err)
+			b.WriteString(fmt.Sprintf("-- failed to dump view %s: %v\n\n", view.Name, err))
 			continue
 		}
 		b.WriteString(createSQL)
@@ -190,19 +192,6 @@ func sortedTables(tables []schema.Table) []schema.Table {
 		return out[i].Name < out[j].Name
 	})
 	return out
-}
-
-func splitTables(tables []schema.Table) ([]schema.Table, []schema.Table) {
-	base := make([]schema.Table, 0, len(tables))
-	views := make([]schema.Table, 0, len(tables))
-	for _, tbl := range tables {
-		if tbl.IsView {
-			views = append(views, tbl)
-		} else {
-			base = append(base, tbl)
-		}
-	}
-	return base, views
 }
 
 func stableOrderBy(tbl schema.Table) string {
