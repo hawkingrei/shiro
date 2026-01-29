@@ -76,10 +76,13 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		if err != nil {
 			continue
 		}
+		mismatch := variantSig != baseSig
 		reward := 1.0
-		if variantSig != baseSig {
+		if mismatch {
 			reward = 0
-			updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
+		}
+		updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
+		if mismatch {
 			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
 			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
 			details := map[string]any{
@@ -101,7 +104,6 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Details:  details,
 			}
 		}
-		updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}}
 }
@@ -376,29 +378,10 @@ func buildCombinedHints(setVarHints []string, baseHints []string, limit int) []s
 }
 
 func pickHintsWithBandit(gen *generator.Generator, candidates []string, limit int) []string {
-	if limit <= 0 || len(candidates) == 0 {
-		return nil
-	}
-	if limit > len(candidates) {
-		limit = len(candidates)
-	}
 	if gen == nil {
-		return candidates[:limit]
+		return pickHintsBandit(nil, candidates, limit, 0, 0)
 	}
-	picked := make([]string, 0, limit)
-	seen := make(map[string]struct{}, limit)
-	for len(picked) < limit {
-		hint := pickHintBandit(gen.Rand, candidates, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
-		if hint == "" {
-			break
-		}
-		if _, ok := seen[hint]; ok {
-			break
-		}
-		seen[hint] = struct{}{}
-		picked = append(picked, hint)
-	}
-	return picked
+	return pickHintsBandit(gen.Rand, candidates, limit, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 }
 
 func injectHint(query *generator.SelectQuery, hint string) string {
