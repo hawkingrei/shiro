@@ -267,8 +267,10 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 func (r *Runner) runDDL(ctx context.Context) {
 	actions := make([]string, 0, 5)
 	baseTables := r.baseTables()
+	viewCount := r.viewCount()
+	viewMax := r.viewMax()
 	if r.cfg.TQS.Enabled {
-		if r.cfg.Features.Views && len(r.state.Tables) > 0 {
+		if r.cfg.Features.Views && len(r.state.Tables) > 0 && viewCount < viewMax {
 			actions = append(actions, "create_view")
 		}
 	} else {
@@ -278,7 +280,7 @@ func (r *Runner) runDDL(ctx context.Context) {
 		if r.cfg.Features.Indexes && len(baseTables) > 0 {
 			actions = append(actions, "create_index")
 		}
-		if r.cfg.Features.Views && len(r.state.Tables) > 0 {
+		if r.cfg.Features.Views && len(r.state.Tables) > 0 && viewCount < viewMax {
 			actions = append(actions, "create_view")
 		}
 		if r.cfg.Features.ForeignKeys && len(baseTables) > 1 {
@@ -331,6 +333,9 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		}
 		*tablePtr = tableCopy
 	case "create_view":
+		if r.viewCount() >= r.viewMax() {
+			return
+		}
 		sql, view := r.gen.CreateViewSQL()
 		if sql == "" {
 			return
@@ -359,6 +364,29 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		sql := r.gen.AddCheckConstraintSQL(*tbl)
 		_ = r.execSQL(ctx, sql)
 	}
+}
+
+func (r *Runner) viewCount() int {
+	if r == nil || r.state == nil {
+		return 0
+	}
+	count := 0
+	for _, tbl := range r.state.Tables {
+		if tbl.IsView {
+			count++
+		}
+	}
+	return count
+}
+
+func (r *Runner) viewMax() int {
+	if r == nil {
+		return 0
+	}
+	if r.cfg.Features.ViewMax > 0 {
+		return r.cfg.Features.ViewMax
+	}
+	return 5
 }
 
 func hasAction(actions []string, target string) bool {
@@ -453,6 +481,15 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		}
 		if _, ok := result.Details["error_reason"]; !ok {
 			result.Details["error_reason"] = "missing_column"
+		}
+		result.OK = false
+	}
+	if result.Err != nil && oracle.IsPlanRefMissingErr(result.Err) {
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "planner_ref_missing"
 		}
 		result.OK = false
 	}

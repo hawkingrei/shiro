@@ -63,6 +63,7 @@ type Features struct {
 	WindowFuncs          bool `yaml:"window_funcs"`
 	CorrelatedSubq       bool `yaml:"correlated_subqueries"`
 	Views                bool `yaml:"views"`
+	ViewMax              int  `yaml:"view_max"`
 	Indexes              bool `yaml:"indexes"`
 	ForeignKeys          bool `yaml:"foreign_keys"`
 	CheckConstraints     bool `yaml:"check_constraints"`
@@ -255,6 +256,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Database != "" {
 		cfg.DSN = ensureDatabaseInDSN(cfg.DSN, cfg.Database)
 	}
+	if cfg.Features.ViewMax <= 0 {
+		cfg.Features.ViewMax = 5
+	}
 	if cfg.TQS.Enabled {
 		cfg.Features.DSG = true
 		cfg.Weights.Actions.DML = 0
@@ -349,6 +353,7 @@ func defaultConfig() Config {
 		StatementTimeoutMs:  15000,
 		Features: Features{
 			Views:                true,
+			ViewMax:              5,
 			PartitionTables:      true,
 			NonPreparedPlanCache: true,
 			NotExists:            true,

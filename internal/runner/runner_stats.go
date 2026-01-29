@@ -568,6 +568,13 @@ func (r *Runner) startStatsLogger() func() {
 							impoBaseExecRatio,
 							thresholds.ImpoBaseExecFailedMaxRatio,
 						)
+						if r.impoLastFailSQL != "" {
+							if r.impoLastFailErr != "" {
+								util.Warnf("impo base_exec_failed example: %s err=%s", compactSQL(r.impoLastFailSQL, 2000), r.impoLastFailErr)
+							} else {
+								util.Warnf("impo base_exec_failed example: %s", compactSQL(r.impoLastFailSQL, 2000))
+							}
+						}
 					}
 					if deltaImpoTotal > 0 || deltaImpoSkips > 0 || deltaImpoTrunc > 0 {
 						util.Detailf(

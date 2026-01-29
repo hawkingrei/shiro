@@ -53,6 +53,7 @@ features:
   window_funcs: false
   correlated_subqueries: true
   views: true
+  view_max: 5
   indexes: true
   foreign_keys: true
   check_constraints: true
