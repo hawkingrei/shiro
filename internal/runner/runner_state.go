@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"shiro/internal/config"
 	"shiro/internal/db"
@@ -55,4 +56,27 @@ func (r *Runner) rotateDatabase(ctx context.Context) error {
 		return err
 	}
 	return r.initState(ctx)
+}
+
+func (r *Runner) rotateDatabaseWithRetry(ctx context.Context) error {
+	rotateTimeout := time.Duration(r.cfg.StatementTimeoutMs) * time.Millisecond
+	if rotateTimeout < 60*time.Second {
+		rotateTimeout = 60 * time.Second
+	}
+	attempts := 2
+	backoff := 500 * time.Millisecond
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		rctx, cancel := context.WithTimeout(ctx, rotateTimeout)
+		lastErr = r.rotateDatabase(rctx)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+		if i+1 < attempts {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
+	}
+	return lastErr
 }
