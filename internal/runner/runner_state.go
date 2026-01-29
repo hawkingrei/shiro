@@ -29,6 +29,7 @@ func (r *Runner) recordInsert(sql string) {
 
 func (r *Runner) rotateDatabase(ctx context.Context) error {
 	seq := globalDBSeq.Add(1)
+	r.dbSeq = seq
 	r.cfg.Database = fmt.Sprintf("%s_r%d", r.baseDB, seq)
 	if err := db.EnsureDatabase(ctx, r.cfg.DSN, r.cfg.Database); err != nil {
 		return err
@@ -87,15 +88,36 @@ func (r *Runner) rotateDatabaseWithRetry(ctx context.Context) error {
 }
 
 func (r *Runner) applyRuntimeToggles() {
-	if r.cfg.Weights.Oracles.DQE > 0 && r.cfg.TQS.Enabled {
-		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
-		r.cfg.TQS.Enabled = false
+	if r == nil {
+		return
 	}
-	if r.cfg.TQS.Enabled {
+	tqsEnabled := r.baseTQSEnabled
+	if r.baseTQSEnabled && r.baseDQEWeight > 0 {
+		tqsEnabled = r.dbSeq%2 == 0
+	}
+	r.cfg.TQS.Enabled = tqsEnabled
+	r.cfg.Weights.Actions = r.baseActions
+	r.cfg.Weights.DML = r.baseDMLWeights
+	r.cfg.Weights.Oracles.DQE = r.baseDQEWeight
+	r.cfg.Features.DSG = r.baseDSGEnabled
+	if tqsEnabled {
+		r.cfg.Features.DSG = true
 		r.cfg.Weights.Actions.DML = 0
 		if r.cfg.Weights.Oracles.DQE > 0 {
 			util.Detailf("tqs config adjusted: disable DQE oracle")
 		}
 		r.cfg.Weights.Oracles.DQE = 0
+		if r.cfg.Features.Views {
+			if r.cfg.Weights.Actions.DDL <= 0 {
+				r.cfg.Weights.Actions.DDL = 1
+			}
+		} else {
+			r.cfg.Weights.Actions.DDL = 0
+		}
+	} else if r.baseTQSEnabled && r.baseDQEWeight > 0 {
+		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
+	}
+	if r.gen != nil {
+		r.gen.Config = r.cfg
 	}
 }

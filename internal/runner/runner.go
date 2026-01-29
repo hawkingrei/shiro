@@ -64,6 +64,12 @@ type Runner struct {
 	kqeState            *kqeState
 	tqsHistory          *tqs.History
 	oracleStats         map[string]*oracleFunnel
+	baseActions         config.ActionWeights
+	baseDMLWeights      config.DMLWeights
+	baseDQEWeight       int
+	baseTQSEnabled      bool
+	baseDSGEnabled      bool
+	dbSeq               int64
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -120,6 +126,12 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinTypeSeqs:     make(map[string]int64),
 		joinGraphSigs:    make(map[string]int64),
 		oracleStats:      make(map[string]*oracleFunnel),
+		baseActions:      cfg.Weights.Actions,
+		baseDMLWeights:   cfg.Weights.DML,
+		baseDQEWeight:    cfg.Weights.Oracles.DQE,
+		baseTQSEnabled:   cfg.TQS.Enabled,
+		baseDSGEnabled:   cfg.Features.DSG,
+		dbSeq:            0,
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
@@ -147,6 +159,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	stop := r.startStatsLogger()
 	defer stop()
 
+	r.applyRuntimeToggles()
 	r.initBandits()
 	util.Infof("runner start database=%s iterations=%d plan_cache_only=%t", r.cfg.Database, r.cfg.Iterations, r.cfg.PlanCacheOnly)
 	if err := r.setupDatabase(ctx); err != nil {
