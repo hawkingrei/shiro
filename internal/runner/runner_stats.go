@@ -19,6 +19,7 @@ var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
 
 const topJoinSigN = 20
 const topOracleReasonsN = 10
+const topOracleSummaryN = 3
 
 type oracleFunnel struct {
 	Runs         int64
@@ -521,6 +522,19 @@ func (r *Runner) startStatsLogger() func() {
 										)
 									}
 								}
+							} else {
+								for _, name := range []string{"TLP", "CERT", "GroundTruth"} {
+									delta, ok := deltaFunnel[name]
+									if !ok {
+										continue
+									}
+									if len(delta.SkipReasons) > 0 {
+										util.Infof("oracle_skip_reasons last interval oracle=%s top=%d: %s", name, topOracleSummaryN, formatTopJoinSigs(delta.SkipReasons, topOracleSummaryN))
+									}
+									if len(delta.ErrorReasons) > 0 {
+										util.Infof("oracle_error_reasons last interval oracle=%s top=%d: %s", name, topOracleSummaryN, formatTopJoinSigs(delta.ErrorReasons, topOracleSummaryN))
+									}
+								}
 							}
 						}
 						r.updateOracleBanditFromFunnel(deltaFunnel)
@@ -586,6 +600,7 @@ func (r *Runner) startStatsLogger() func() {
 							impoTrunc,
 							deltaImpoTrunc,
 						)
+						util.Detailf("oracle mode current: %s", r.oracleModeLabel())
 						if r.cfg.Logging.Verbose && deltaImpoSkips > 0 && len(impoSkipReasons) > 0 {
 							type reasonDelta struct {
 								reason string

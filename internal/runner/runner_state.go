@@ -35,6 +35,7 @@ func (r *Runner) rotateDatabase(ctx context.Context) error {
 		return err
 	}
 	r.applyRuntimeToggles()
+	util.Infof("database rotated db=%s mode=%s", r.cfg.Database, r.oracleModeLabel())
 	r.cfg.DSN = config.UpdateDatabaseInDSN(r.cfg.DSN, r.cfg.Database)
 	util.CloseWithErr(r.exec, "db exec")
 	exec, err := db.Open(r.cfg.DSN)

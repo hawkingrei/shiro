@@ -402,6 +402,19 @@ func (r *Runner) viewMax() int {
 	return 5
 }
 
+func (r *Runner) oracleModeLabel() string {
+	if r == nil {
+		return "unknown"
+	}
+	if r.cfg.TQS.Enabled {
+		return "TQS"
+	}
+	if r.cfg.Weights.Oracles.DQE > 0 {
+		return "DQE"
+	}
+	return "default"
+}
+
 func hasAction(actions []string, target string) bool {
 	for _, action := range actions {
 		if action == target {
