@@ -1,12 +1,13 @@
 package oracle
 
 import (
-	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
 
+	"shiro/internal/config"
 	"shiro/internal/generator"
+	"shiro/internal/schema"
 )
 
 func TestInjectHintWithCTE(t *testing.T) {
@@ -38,9 +39,13 @@ func TestInjectHintWithCTE(t *testing.T) {
 }
 
 func TestJoinReorderThresholdHintsRange(t *testing.T) {
-	//nolint:staticcheck // Deterministic randomness is required for stable tests.
-	rand.Seed(1)
-	hints := joinReorderThresholdHints(5)
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 1)
+	hints := joinReorderThresholdHints(gen, 5)
 	if len(hints) != 1 {
 		t.Fatalf("expected 1 hint, got %d", len(hints))
 	}
@@ -56,10 +61,14 @@ func TestJoinReorderThresholdHintsRange(t *testing.T) {
 }
 
 func TestDQPSetVarHintsCount(t *testing.T) {
-	//nolint:staticcheck // Deterministic randomness is required for stable tests.
-	rand.Seed(2)
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 2)
 	for i := 0; i < 20; i++ {
-		hints := dqpSetVarHints(3, true, true, true, true, true, true)
+		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true)
 		if len(hints) > 2 {
 			t.Fatalf("expected <=2 set_var hints, got %d", len(hints))
 		}
@@ -67,8 +76,12 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 }
 
 func TestDQPHintsForQueryCount(t *testing.T) {
-	//nolint:staticcheck // Deterministic randomness is required for stable tests.
-	rand.Seed(3)
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 3)
 	noArgHints := map[string]struct{}{
 		HintStraightJoin:    {},
 		HintSemiJoinRewrite: {},
@@ -77,7 +90,7 @@ func TestDQPHintsForQueryCount(t *testing.T) {
 		HintStreamAgg:       {},
 		HintAggToCop:        {},
 	}
-	hints := dqpHintsForQuery([]string{"t1", "t2"}, true, true, true, true, noArgHints)
+	hints := dqpHintsForQuery(gen, []string{"t1", "t2"}, true, true, true, true, noArgHints)
 	if len(hints) > 2 {
 		t.Fatalf("expected <=2 hints, got %d", len(hints))
 	}
