@@ -41,7 +41,8 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireWhere().
 		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic()
+		RequireDeterministic().
+		MaxTries(10)
 	var query *generator.SelectQuery
 	var restrictPred generator.Expr
 	lastReason := ""
@@ -132,6 +133,26 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		}
 		baseRows = rows
 		if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
+			baseNoWhere := base.Clone()
+			baseNoWhere.Where = nil
+			baseNoWhereExplain := "EXPLAIN " + baseNoWhere.SQLString()
+			rows, err := exec.QueryPlanRows(ctx, baseNoWhereExplain)
+			if err != nil {
+				return Result{
+					OK:     true,
+					Oracle: o.Name(),
+					SQL:    []string{baseNoWhereExplain},
+					Err:    err,
+					Details: map[string]any{
+						"error_reason": "cert:base_explain_error",
+					},
+				}
+			}
+			if rows >= o.MinBaseRows {
+				base = baseNoWhere
+				baseRows = rows
+				break
+			}
 			lastReason = "constraint:base_rows_low"
 			continue
 		}
@@ -148,7 +169,11 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	}
 
 	restricted := base.Clone()
-	restricted.Where = generator.BinaryExpr{Left: base.Where, Op: "AND", Right: restrictPred}
+	if base.Where == nil {
+		restricted.Where = restrictPred
+	} else {
+		restricted.Where = generator.BinaryExpr{Left: base.Where, Op: "AND", Right: restrictPred}
+	}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
 	}
