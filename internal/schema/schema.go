@@ -36,11 +36,21 @@ type Index struct {
 	Columns []string
 }
 
+// ForeignKey describes a single-column foreign key.
+type ForeignKey struct {
+	Name      string
+	Table     string
+	Column    string
+	RefTable  string
+	RefColumn string
+}
+
 // Table describes a database table.
 type Table struct {
 	Name           string
 	Columns        []Column
 	Indexes        []Index
+	ForeignKeys    []ForeignKey
 	HasPK          bool
 	NextID         int64
 	Partitioned    bool

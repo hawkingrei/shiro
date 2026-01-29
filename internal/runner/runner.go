@@ -364,11 +364,22 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		for _, tbl := range baseTables {
 			tableSnapshot = append(tableSnapshot, *tbl)
 		}
-		sql := r.gen.AddForeignKeySQL(&schema.State{Tables: tableSnapshot})
+		sql, fk := r.gen.AddForeignKeySQL(&schema.State{Tables: tableSnapshot})
 		if sql == "" {
 			return
 		}
-		_ = r.execSQL(ctx, sql)
+		if err := r.execSQL(ctx, sql); err != nil {
+			return
+		}
+		if fk == nil {
+			return
+		}
+		for i := range r.state.Tables {
+			if r.state.Tables[i].Name == fk.Table {
+				r.state.Tables[i].ForeignKeys = append(r.state.Tables[i].ForeignKeys, *fk)
+				break
+			}
+		}
 	case "add_check":
 		if len(baseTables) == 0 {
 			return
