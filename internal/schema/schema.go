@@ -67,6 +67,28 @@ func SplitTablesByView(tables []Table) (base []Table, views []Table) {
 	return base, views
 }
 
+// BaseTables returns non-view tables in creation order.
+func (s State) BaseTables() []Table {
+	out := make([]Table, 0, len(s.Tables))
+	for _, tbl := range s.Tables {
+		if tbl.IsView {
+			continue
+		}
+		out = append(out, tbl)
+	}
+	return out
+}
+
+// HasBaseTables reports whether any non-view tables exist.
+func (s State) HasBaseTables() bool {
+	for _, tbl := range s.Tables {
+		if !tbl.IsView {
+			return true
+		}
+	}
+	return false
+}
+
 // SQLType returns the SQL type string for this column.
 func (c Column) SQLType() string {
 	switch c.Type {
