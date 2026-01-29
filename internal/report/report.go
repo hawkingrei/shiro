@@ -111,13 +111,13 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 	var b strings.Builder
 	b.WriteString("SET FOREIGN_KEY_CHECKS=0;\n")
 	tables, views := schema.SplitTablesByView(state.Tables)
-	for _, view := range sortedTables(views) {
-		b.WriteString(fmt.Sprintf("DROP VIEW IF EXISTS %s;\n", view.Name))
+	for i := len(views) - 1; i >= 0; i-- {
+		b.WriteString(fmt.Sprintf("DROP VIEW IF EXISTS %s;\n", views[i].Name))
 	}
-	for _, tbl := range sortedTables(tables) {
-		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tbl.Name))
+	for i := len(tables) - 1; i >= 0; i-- {
+		b.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS %s;\n", tables[i].Name))
 	}
-	for _, tbl := range sortedTables(tables) {
+	for _, tbl := range tables {
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
 		var name, createSQL string
 		if err := row.Scan(&name, &createSQL); err != nil {
@@ -126,7 +126,7 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 		b.WriteString(createSQL)
 		b.WriteString(";\n\n")
 	}
-	for _, view := range sortedTables(views) {
+	for _, view := range views {
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE VIEW %s", view.Name))
 		var name, createSQL, charset, collation string
 		if err := row.Scan(&name, &createSQL, &charset, &collation); err != nil {
