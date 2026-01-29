@@ -33,6 +33,7 @@ func (r *Runner) rotateDatabase(ctx context.Context) error {
 	if err := db.EnsureDatabase(ctx, r.cfg.DSN, r.cfg.Database); err != nil {
 		return err
 	}
+	r.applyRuntimeToggles()
 	r.cfg.DSN = config.UpdateDatabaseInDSN(r.cfg.DSN, r.cfg.Database)
 	util.CloseWithErr(r.exec, "db exec")
 	exec, err := db.Open(r.cfg.DSN)
@@ -83,4 +84,18 @@ func (r *Runner) rotateDatabaseWithRetry(ctx context.Context) error {
 		}
 	}
 	return lastErr
+}
+
+func (r *Runner) applyRuntimeToggles() {
+	if r.cfg.Weights.Oracles.DQE > 0 && r.cfg.TQS.Enabled {
+		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
+		r.cfg.TQS.Enabled = false
+	}
+	if r.cfg.TQS.Enabled {
+		r.cfg.Weights.Actions.DML = 0
+		if r.cfg.Weights.Oracles.DQE > 0 {
+			util.Detailf("tqs config adjusted: disable DQE oracle")
+		}
+		r.cfg.Weights.Oracles.DQE = 0
+	}
 }

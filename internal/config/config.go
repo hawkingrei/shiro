@@ -259,6 +259,10 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Features.ViewMax <= 0 {
 		cfg.Features.ViewMax = 5
 	}
+	if cfg.Weights.Oracles.DQE > 0 && cfg.TQS.Enabled {
+		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
+		cfg.TQS.Enabled = false
+	}
 	if cfg.TQS.Enabled {
 		cfg.Features.DSG = true
 		cfg.Weights.Actions.DML = 0
