@@ -67,46 +67,6 @@ func (b *hintBandit) ensureConfig(window int, exploration float64) {
 	}
 }
 
-func pickHintBandit(r *rand.Rand, candidates []string, window int, exploration float64) string {
-	if len(candidates) == 0 {
-		return ""
-	}
-	globalHintBandit.ensureConfig(window, exploration)
-	globalHintBandit.mu.Lock()
-	defer globalHintBandit.mu.Unlock()
-
-	zeroIdx := make([]int, 0, len(candidates))
-	bestIdx := -1
-	bestScore := -1.0
-	for i, hint := range candidates {
-		if hint == "" {
-			continue
-		}
-		count := globalHintBandit.counts[hint]
-		if count == 0 {
-			zeroIdx = append(zeroIdx, i)
-			continue
-		}
-		// When total is 0, all hints are unseen; handled via zeroIdx above.
-		if globalHintBandit.total <= 0 {
-			continue
-		}
-		avg := globalHintBandit.rewards[hint] / float64(count)
-		score := avg + globalHintBandit.exploration*math.Sqrt(math.Log(float64(globalHintBandit.total))/float64(count))
-		if score > bestScore {
-			bestScore = score
-			bestIdx = i
-		}
-	}
-	if len(zeroIdx) > 0 {
-		return candidates[zeroIdx[r.Intn(len(zeroIdx))]]
-	}
-	if bestIdx >= 0 {
-		return candidates[bestIdx]
-	}
-	return candidates[r.Intn(len(candidates))]
-}
-
 func pickHintsBandit(r *rand.Rand, candidates []string, limit int, window int, exploration float64) []string {
 	if limit <= 0 || len(candidates) == 0 {
 		return nil
