@@ -104,24 +104,28 @@ func (r *Runner) pickOracle() int {
 		return r.certOracleIdx
 	}
 	r.statsMu.Unlock()
-	return r.pickNonCertOracle()
+	if r.oracleBandit != nil {
+		r.statsMu.Lock()
+		choice := r.oracleBandit.Pick(r.gen.Rand, r.oracleEnabled)
+		r.statsMu.Unlock()
+		return r.nonCertOracleByChoice(choice)
+	}
+	return r.pickNonCertOracleWeighted()
 }
 
-func (r *Runner) pickNonCertOracle() int {
+func (r *Runner) pickNonCertOracleWeighted() int {
 	if len(r.nonCertOracleIdx) == 0 {
 		return r.certOracleIdx
 	}
-	if r.oracleBandit != nil {
-		r.statsMu.Lock()
-		defer r.statsMu.Unlock()
-		choice := r.oracleBandit.Pick(r.gen.Rand, r.oracleEnabled)
-		if choice < 0 || choice >= len(r.nonCertOracleIdx) {
-			return r.nonCertOracleIdx[0]
-		}
-		return r.nonCertOracleIdx[choice]
-	}
 	weights := r.nonCertWeights()
 	choice := util.PickWeighted(r.gen.Rand, weights)
+	return r.nonCertOracleByChoice(choice)
+}
+
+func (r *Runner) nonCertOracleByChoice(choice int) int {
+	if len(r.nonCertOracleIdx) == 0 {
+		return r.certOracleIdx
+	}
 	if choice < 0 || choice >= len(r.nonCertOracleIdx) {
 		return r.nonCertOracleIdx[0]
 	}
