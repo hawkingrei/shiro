@@ -26,3 +26,4 @@ Links:
 - EXISTS metrics: regex matching for whitespace/newlines; DML subquery probability tuned to 30 with TODO to improve EXISTS/NOT EXISTS coverage (2026-01-30).
 - Reviewed logs/reports, captured CERT/TLP/DQP examples, and fixed PR description line breaks (2026-01-30).
 - Ran `go test ./...` (2026-01-29, 2026-01-30).
+- Added paper notes: EET and SQLancer++ summaries under docs (2026-01-31).
