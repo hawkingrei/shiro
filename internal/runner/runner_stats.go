@@ -138,6 +138,9 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 				if result.Oracle == "CERT" {
 					r.certLastErrReason = reason
 				}
+				if result.Oracle == "TLP" {
+					r.tlpLastErrReason = reason
+				}
 			}
 		}
 		if result.Oracle == "CERT" {
@@ -145,6 +148,12 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 				r.certLastErrSQL = result.SQL[len(result.SQL)-1]
 			}
 			r.certLastErr = result.Err.Error()
+		}
+		if result.Oracle == "TLP" {
+			if len(result.SQL) > 0 {
+				r.tlpLastErrSQL = result.SQL[len(result.SQL)-1]
+			}
+			r.tlpLastErr = result.Err.Error()
 		}
 	}
 	if !result.OK {
@@ -571,6 +580,16 @@ func (r *Runner) startStatsLogger() func() {
 											r.certLastErrReason,
 											compactSQL(r.certLastErrSQL, 2000),
 											r.certLastErr,
+										)
+									}
+								}
+								if tlpDelta, ok := deltaFunnel["TLP"]; ok && tlpDelta.Errors > 0 {
+									if r.tlpLastErrSQL != "" && r.tlpLastErr != "" {
+										util.Detailf(
+											"tlp error example: reason=%s sql=%s err=%s",
+											r.tlpLastErrReason,
+											compactSQL(r.tlpLastErrSQL, 2000),
+											r.tlpLastErr,
 										)
 									}
 								}

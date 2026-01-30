@@ -54,6 +54,9 @@ type Runner struct {
 	certLastErrSQL         string
 	certLastErr            string
 	certLastErrReason      string
+	tlpLastErrSQL          string
+	tlpLastErr             string
+	tlpLastErrReason       string
 	joinCounts             map[int]int64
 	joinTypeSeqs           map[string]int64
 	joinGraphSigs          map[string]int64

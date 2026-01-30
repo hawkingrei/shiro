@@ -41,9 +41,22 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			return false
 		}
 	}
-	for _, join := range query.From.Joins {
-		if join.On != nil && !m.validateExpr(join.On, scope, outer) {
-			return false
+	if len(query.From.Joins) > 0 {
+		visible := []string{}
+		if query.From.BaseTable != "" {
+			visible = append(visible, query.From.BaseTable)
+		}
+		for _, join := range query.From.Joins {
+			joinScope := scopeForTables(scope, visible)
+			if join.Table != "" {
+				joinScope = scopeForTables(scope, append(visible, join.Table))
+			}
+			if join.On != nil && !m.validateExpr(join.On, joinScope, outer) {
+				return false
+			}
+			if join.Table != "" {
+				visible = append(visible, join.Table)
+			}
 		}
 	}
 	return true
@@ -149,6 +162,29 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 	return scope
 }
 
+func scopeForTables(scope tableScope, tables []string) tableScope {
+	out := tableScope{
+		tables:  tableSet{},
+		columns: map[string]map[string]struct{}{},
+	}
+	if len(tables) == 0 {
+		return out
+	}
+	for _, name := range tables {
+		if name == "" {
+			continue
+		}
+		if _, ok := scope.tables[name]; !ok {
+			continue
+		}
+		out.tables[name] = struct{}{}
+		if cols, ok := scope.columns[name]; ok {
+			out.columns[name] = cols
+		}
+	}
+	return out
+}
+
 func mergeTableScopes(left tableScope, right tableScope) tableScope {
 	if len(left.tables) == 0 && len(right.tables) == 0 {
 		return tableScope{tables: tableSet{}, columns: map[string]map[string]struct{}{}}
@@ -187,6 +223,11 @@ func (g *Generator) ValidateExprInQueryScope(expr Expr, query *SelectQuery) bool
 	tables := g.scopeTablesForQuery(query)
 	scope := scopeTablesForQuery(query, tables)
 	return scopeManager{}.validateExpr(expr, scope, tableScope{})
+}
+
+// ValidateQueryScope reports whether query only uses columns visible in each scope.
+func (g *Generator) ValidateQueryScope(query *SelectQuery) bool {
+	return g.validateQueryScope(query)
 }
 
 // TablesForQueryScope returns the tables visible to a query, including CTE outputs.

@@ -28,6 +28,10 @@ type ColumnExpr struct {
 
 // Build emits the qualified column reference.
 func (e ColumnExpr) Build(b *SQLBuilder) {
+	if e.Ref.Table == "" {
+		b.Write(e.Ref.Name)
+		return
+	}
 	b.Write(fmt.Sprintf("%s.%s", e.Ref.Table, e.Ref.Name))
 }
 
