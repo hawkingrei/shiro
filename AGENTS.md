@@ -30,3 +30,4 @@ Links:
 - Added the EET oracle using AST-level predicate rewrites and signature comparison (2026-01-30).
 - Expanded EET to cover HAVING/JOIN ON and added type-aware literal identities (2026-01-30).
 - Added weighted EET rewrite selection to tune boolean vs literal identities (2026-01-30).
+- Added TODO to track EET rewrite coverage logging needs (2026-01-30).

@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
-	"github.com/pingcap/tidb/pkg/parser/model"
 	"github.com/pingcap/tidb/pkg/parser/opcode"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
@@ -423,9 +422,6 @@ func collectLiteralKindsExpr(expr ast.ExprNode) literalKind {
 	case *ast.PatternLikeOrIlikeExpr:
 		kinds := collectLiteralKindsExpr(e.Expr)
 		kinds |= collectLiteralKindsExpr(e.Pattern)
-		if e.Escape != nil {
-			kinds |= collectLiteralKindsExpr(e.Escape)
-		}
 		return kinds
 	case *ast.IsNullExpr:
 		return collectLiteralKindsExpr(e.Expr)
@@ -521,12 +517,6 @@ func rewriteLiteralInExpr(expr ast.ExprNode, kind eetRewriteKind) (ast.ExprNode,
 			e.Pattern = next
 			return e, true
 		}
-		if e.Escape != nil {
-			if next, ok := rewriteLiteralInExpr(e.Escape, kind); ok {
-				e.Escape = next
-				return e, true
-			}
-		}
 		return e, false
 	case *ast.IsNullExpr:
 		if next, ok := rewriteLiteralInExpr(e.Expr, kind); ok {
@@ -588,7 +578,7 @@ func rewriteLiteralValue(expr *test_driver.ValueExpr, kind eetRewriteKind) (ast.
 		}
 		return &ast.FuncCallExpr{
 			Tp:     ast.FuncCallExprTypeGeneric,
-			FnName: model.NewCIStr("CONCAT"),
+			FnName: ast.NewCIStr("CONCAT"),
 			Args: []ast.ExprNode{
 				expr,
 				ast.NewValueExpr("", "", ""),
@@ -600,7 +590,7 @@ func rewriteLiteralValue(expr *test_driver.ValueExpr, kind eetRewriteKind) (ast.
 		}
 		return &ast.FuncCallExpr{
 			Tp:     ast.FuncCallExprTypeKeyword,
-			FnName: model.NewCIStr("ADDDATE"),
+			FnName: ast.NewCIStr("ADDDATE"),
 			Args: []ast.ExprNode{
 				expr,
 				ast.NewValueExpr(0, "", ""),

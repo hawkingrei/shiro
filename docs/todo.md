@@ -14,6 +14,7 @@ Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs. 
 6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
 7. Improve EXISTS/NOT EXISTS coverage; DMLSubqueryProb=60 did not raise exists/not_exists counters, consider tuning PredicateExistsProb or adding DQE-specific EXISTS forcing.
 8. EET: add broader expression-level rewrites with schema-aware type inference and safety checks.
+9. EET: add per-rewrite skip reason counters and coverage logging to validate weighting.
 
 ## Reporting / Aggregation
 
