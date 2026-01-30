@@ -18,34 +18,11 @@ Links:
 
 ## Recent updates
 
-- Added a constraints-based SelectQueryBuilder to centralize oracle query requirements and expose builder skip reasons.
-- Tightened DSG join key alignment (k0 or k{idx}) and adjusted GroundTruth join extraction to reduce edge mismatch.
-- Improved CERT generation by retrying base rows and allowing base-without-where fallback.
-- DSG: fall back from index-prefix join columns to k* columns and classify missing join keys separately from DSG mismatch.
-- Enabled Impo init for non-recursive WITH clauses and added mutation coverage counters.
-- Ran `go test ./...` (2026-01-29).
-- Reviewed `logs/shiro.log` (2026-01-30) and captured CERT reports plus error/skip stats.
-- Extracted `cert:base_explain_error` / `Unknown column` occurrences (2026-01-30).
-- Checked join/CTE scope and view/CTE column reference issues (2026-01-30).
-- Tightened JOIN ON scope validation, added CERT scope validation, and added tests (2026-01-30).
-- Rechecked recent `logs/shiro.log` windows (2026-01-30), focusing on WARN and CERT reports.
-- Added TLP error_reason + whitelist skips and tests (2026-01-30).
-- Recorded TLP error example SQL for attribution (2026-01-30).
-- Reviewed latest logs and `reports/case_*` (2026-01-30).
-- Fixed TLP UNION/ORDER BY 1221 errors and added tests (2026-01-30).
-- Fixed TLP USING column qualification 1054 errors and added tests (2026-01-30).
-- Normalized USING merged column references and allowed TLP to proceed (2026-01-30).
-- Rewrote TLP USING to ON and qualified unqualified columns (2026-01-30).
-- Reviewed `logs/shiro.log` after latest run (2026-01-30).
-- Removed unused TLP helper functions and reran `go test ./...` (2026-01-30).
-- Added a TLP ORDER BY/UNION comment, removed the temporary TLP config file, and cleaned the roadmap item list (2026-01-30).
-- Removed the CERT weight configuration, fixed CERT sampling at a constant rate, and excluded CERT from oracle bandit selection (2026-01-30).
-- Ran `go test ./...` after CERT sampling changes (2026-01-30).
-- Added CERT sampling ratio logging and documented fixed sampling behavior (2026-01-30).
-- Ran `go test ./...` after adding CERT sampling logging (2026-01-30).
-- Fixed PR description line breaks by editing PR body via `gh pr edit --body-file` (2026-01-30).
-- Refined CERT sampling counter updates to reduce lock contention and avoid counting fallback picks (2026-01-30).
-- Minimized lock contention by keeping bandit picks under a single statsMu scope and refactoring non-CERT selection helpers (2026-01-30).
-- Initialized non-CERT oracle index slice defensively and reran tests (2026-01-30).
-- Added a safe default oracle index fallback for empty non-CERT sets and reran tests (2026-01-30).
-- Fixed EXISTS/NOT EXISTS metrics to use regex matching for whitespace/newlines and reran tests (2026-01-30).
+- Added a constraints-based SelectQueryBuilder, tightened DSG join alignment, and improved GroundTruth/CERT generation guardrails (2026-01-30).
+- Fixed JOIN ON scope validation, added CERT scope checks, and updated tests (2026-01-30).
+- TLP: added error_reason/whitelist skips, fixed UNION/ORDER BY 1221, rewrote USING to ON with column qualification, removed unused helpers, and updated tests/logging (2026-01-30).
+- CERT sampling: removed weight config, fixed sampling at a constant rate, added sampling ratio logs, and refined bandit/lock handling with safe fallbacks (2026-01-30).
+- DQP: treat LEADING mismatches as TiDB bugs; enabled subqueries (including EXISTS/NOT EXISTS and IN/NOT IN) (2026-01-30).
+- EXISTS metrics: regex matching for whitespace/newlines; DML subquery probability tuned to 30 with TODO to improve EXISTS/NOT EXISTS coverage (2026-01-30).
+- Reviewed logs/reports, captured CERT/TLP/DQP examples, and fixed PR description line breaks (2026-01-30).
+- Ran `go test ./...` (2026-01-29, 2026-01-30).
