@@ -39,3 +39,13 @@ Links:
 - Reviewed `logs/shiro.log` after latest run (2026-01-30).
 - Removed unused TLP helper functions and reran `go test ./...` (2026-01-30).
 - Added a TLP ORDER BY/UNION comment, removed the temporary TLP config file, and cleaned the roadmap item list (2026-01-30).
+- Removed the CERT weight configuration, fixed CERT sampling at a constant rate, and excluded CERT from oracle bandit selection (2026-01-30).
+- Ran `go test ./...` after CERT sampling changes (2026-01-30).
+- Added CERT sampling ratio logging and documented fixed sampling behavior (2026-01-30).
+- Ran `go test ./...` after adding CERT sampling logging (2026-01-30).
+- Fixed PR description line breaks by editing PR body via `gh pr edit --body-file` (2026-01-30).
+- Refined CERT sampling counter updates to reduce lock contention and avoid counting fallback picks (2026-01-30).
+- Minimized lock contention by keeping bandit picks under a single statsMu scope and refactoring non-CERT selection helpers (2026-01-30).
+- Initialized non-CERT oracle index slice defensively and reran tests (2026-01-30).
+- Added a safe default oracle index fallback for empty non-CERT sets and reran tests (2026-01-30).
+- Fixed EXISTS/NOT EXISTS metrics to use regex matching for whitespace/newlines and reran tests (2026-01-30).

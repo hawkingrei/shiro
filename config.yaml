@@ -75,7 +75,6 @@ weights:
     norec: 10
     tlp: 10
     dqp: 10
-    cert: 1
     coddtest: 2
     dqe: 10
     impo: 10

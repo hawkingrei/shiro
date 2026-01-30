@@ -106,10 +106,10 @@ func (r *Runner) snapshotBandits() *banditDump {
 	if r.oracleBandit != nil {
 		s := r.oracleBandit.Snapshot()
 		out.Oracle = &s
-		out.OracleWeights = append([]int{}, r.oracleWeights()...)
-		out.OracleArms = make([]string, 0, len(r.oracles))
-		for _, o := range r.oracles {
-			out.OracleArms = append(out.OracleArms, o.Name())
+		out.OracleWeights = append([]int{}, r.nonCertWeights()...)
+		out.OracleArms = make([]string, 0, len(r.nonCertOracleIdx))
+		for _, idx := range r.nonCertOracleIdx {
+			out.OracleArms = append(out.OracleArms, r.oracles[idx].Name())
 		}
 		if r.oracleEnabled != nil {
 			out.OracleEnabled = append([]bool{}, r.oracleEnabled...)
