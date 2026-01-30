@@ -95,22 +95,16 @@ func (r *Runner) updateActionBandit(action int, reward float64) {
 }
 
 func (r *Runner) pickOracle() int {
+	shouldPickCert := r.certOracleIdx >= 0 && r.gen.Rand.Float64() < certSampleRate
 	r.statsMu.Lock()
 	r.oraclePickTotal++
-	r.statsMu.Unlock()
-	if r.certOracleIdx >= 0 && r.gen.Rand.Float64() < certSampleRate {
-		r.statsMu.Lock()
+	if shouldPickCert {
 		r.certPickTotal++
 		r.statsMu.Unlock()
 		return r.certOracleIdx
 	}
-	idx := r.pickNonCertOracle()
-	if idx == r.certOracleIdx {
-		r.statsMu.Lock()
-		r.certPickTotal++
-		r.statsMu.Unlock()
-	}
-	return idx
+	r.statsMu.Unlock()
+	return r.pickNonCertOracle()
 }
 
 func (r *Runner) pickNonCertOracle() int {
@@ -127,9 +121,6 @@ func (r *Runner) pickNonCertOracle() int {
 		return r.nonCertOracleIdx[choice]
 	}
 	weights := r.nonCertWeights()
-	if len(weights) == 0 {
-		return r.nonCertOracleIdx[0]
-	}
 	choice := util.PickWeighted(r.gen.Rand, weights)
 	if choice < 0 || choice >= len(r.nonCertOracleIdx) {
 		return r.nonCertOracleIdx[0]

@@ -44,3 +44,4 @@ Links:
 - Added CERT sampling ratio logging and documented fixed sampling behavior (2026-01-30).
 - Ran `go test ./...` after adding CERT sampling logging (2026-01-30).
 - Fixed PR description line breaks by editing PR body via `gh pr edit --body-file` (2026-01-30).
+- Refined CERT sampling counter updates to reduce lock contention and avoid counting fallback picks (2026-01-30).
