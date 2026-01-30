@@ -21,6 +21,13 @@ const topJoinSigN = 20
 const topOracleReasonsN = 10
 const topOracleSummaryN = 3
 
+func ratio(numerator, denominator int64) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	return float64(numerator) / float64(denominator)
+}
+
 type oracleFunnel struct {
 	Runs         int64
 	Skips        int64
@@ -277,6 +284,8 @@ func (r *Runner) startStatsLogger() func() {
 		lastImpoMutationCounts := make(map[string]int64)
 		lastImpoMutationExecCounts := make(map[string]int64)
 		lastOracleStats := make(map[string]oracleFunnel)
+		var lastOraclePickTotal int64
+		var lastCertPickTotal int64
 		for {
 			select {
 			case <-ticker.C:
@@ -290,6 +299,8 @@ func (r *Runner) startStatsLogger() func() {
 				impoTotal := r.impoTotal
 				impoSkips := r.impoSkips
 				impoTrunc := r.impoTrunc
+				oraclePickTotal := r.oraclePickTotal
+				certPickTotal := r.certPickTotal
 				viewQueries := r.viewQueries
 				viewTableRefs := r.viewTableRefs
 				truthMismatches := r.truthMismatches
@@ -362,6 +373,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaImpoTotal := impoTotal - lastImpoTotal
 				deltaImpoSkips := impoSkips - lastImpoSkips
 				deltaImpoTrunc := impoTrunc - lastImpoTrunc
+				deltaOraclePicks := oraclePickTotal - lastOraclePickTotal
+				deltaCertPicks := certPickTotal - lastCertPickTotal
 				deltaViewQueries := viewQueries - lastViewQueries
 				deltaViewTableRefs := viewTableRefs - lastViewTableRefs
 				deltaTruthMismatches := truthMismatches - lastTruthMismatches
@@ -418,6 +431,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastImpoTotal = impoTotal
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
+				lastOraclePickTotal = oraclePickTotal
+				lastCertPickTotal = certPickTotal
 				lastViewQueries = viewQueries
 				lastViewTableRefs = viewTableRefs
 				lastTruthMismatches = truthMismatches
@@ -609,6 +624,18 @@ func (r *Runner) startStatsLogger() func() {
 							}
 						}
 						r.updateOracleBanditFromFunnel(deltaFunnel)
+					}
+					if deltaOraclePicks > 0 {
+						util.Detailf(
+							"cert sampling last interval: picks=%d cert=%d ratio=%.8f target=%.8f total_picks=%d total_cert=%d total_ratio=%.8f",
+							deltaOraclePicks,
+							deltaCertPicks,
+							ratio(deltaCertPicks, deltaOraclePicks),
+							certSampleRate,
+							oraclePickTotal,
+							certPickTotal,
+							ratio(certPickTotal, oraclePickTotal),
+						)
 					}
 					if tqsStats.Nodes > 0 {
 						coveredDelta := tqsStats.Covered - lastTQSCovered

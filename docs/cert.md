@@ -20,6 +20,8 @@ CERT treats the intuition "estRows should be monotonic under tighter predicates"
 - Targets performance issues, not result correctness.
 - Must avoid unstable statistics or tiny samples that introduce noise.
 - Complex queries (joins, subqueries, aggregates) can be noisy and should be constrained.
+- CERT is sampled at a fixed, low rate (currently 1e-6) to limit noise on TiDB. The sampling
+  rate is not exposed via external config and is not adjusted by bandit tuning.
 
 ## Impact
 CERT provides an automated, approximation-based oracle for detecting optimizer and statistics regressions.

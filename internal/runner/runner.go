@@ -54,6 +54,8 @@ type Runner struct {
 	certLastErrSQL         string
 	certLastErr            string
 	certLastErrReason      string
+	certPickTotal          int64
+	oraclePickTotal        int64
 	tlpLastErrSQL          string
 	tlpLastErr             string
 	tlpLastErrReason       string
@@ -75,6 +77,9 @@ type Runner struct {
 	baseTQSEnabled         bool
 	baseDSGEnabled         bool
 	dbSeq                  int64
+	certOracleIdx          int
+	nonCertOracleIdx       []int
+	oracleBanditIndex      map[int]int
 
 	actionBandit  *util.Bandit
 	oracleBandit  *util.Bandit
@@ -150,6 +155,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 			oracle.GroundTruth{},
 		},
 	}
+	r.initOracleIndices()
 	util.Infof("runner config loaded tqs.enabled=%v base_tqs_enabled=%v dqe_weight=%d dsg_enabled=%v db=%s",
 		cfg.TQS.Enabled,
 		r.baseTQSEnabled,
@@ -164,6 +170,20 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		r.kqeState = newKQELiteState()
 	}
 	return r
+}
+
+func (r *Runner) initOracleIndices() {
+	r.certOracleIdx = -1
+	r.nonCertOracleIdx = r.nonCertOracleIdx[:0]
+	r.oracleBanditIndex = make(map[int]int, len(r.oracles))
+	for i, o := range r.oracles {
+		if o.Name() == "CERT" {
+			r.certOracleIdx = i
+			continue
+		}
+		r.oracleBanditIndex[i] = len(r.nonCertOracleIdx)
+		r.nonCertOracleIdx = append(r.nonCertOracleIdx, i)
+	}
 }
 
 // Run executes the fuzz loop until iterations are exhausted or an error occurs.

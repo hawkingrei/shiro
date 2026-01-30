@@ -6,6 +6,8 @@ import (
 	"shiro/internal/util"
 )
 
+const certSampleRate = 1e-6
+
 func (r *Runner) initBandits() {
 	if !r.cfg.Adaptive.Enabled {
 		return
@@ -19,8 +21,10 @@ func (r *Runner) initBandits() {
 		}
 	}
 	if r.cfg.Adaptive.AdaptOracles {
-		r.oracleBandit = util.NewBanditWithWindow(len(r.oracles), r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
-		r.refreshOracleEnabled()
+		if len(r.nonCertOracleIdx) > 0 {
+			r.oracleBandit = util.NewBanditWithWindow(len(r.nonCertOracleIdx), r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
+			r.refreshOracleEnabled()
+		}
 	}
 	if r.cfg.Adaptive.AdaptDML {
 		r.dmlBandit = util.NewBanditWithWindow(3, r.cfg.Adaptive.UCBExploration, r.cfg.Adaptive.WindowSize)
@@ -35,21 +39,40 @@ func (r *Runner) initBandits() {
 	}
 }
 
-func (r *Runner) oracleWeights() []int {
-	return []int{
-		r.cfg.Weights.Oracles.NoREC,
-		r.cfg.Weights.Oracles.TLP,
-		r.cfg.Weights.Oracles.DQP,
-		r.cfg.Weights.Oracles.CERT,
-		r.cfg.Weights.Oracles.CODDTest,
-		r.cfg.Weights.Oracles.DQE,
-		r.cfg.Weights.Oracles.Impo,
-		r.cfg.Weights.Oracles.GroundTruth,
+func (r *Runner) oracleWeightByName(name string) int {
+	switch name {
+	case "NoREC":
+		return r.cfg.Weights.Oracles.NoREC
+	case "TLP":
+		return r.cfg.Weights.Oracles.TLP
+	case "DQP":
+		return r.cfg.Weights.Oracles.DQP
+	case "CODDTest":
+		return r.cfg.Weights.Oracles.CODDTest
+	case "DQE":
+		return r.cfg.Weights.Oracles.DQE
+	case "Impo":
+		return r.cfg.Weights.Oracles.Impo
+	case "GroundTruth":
+		return r.cfg.Weights.Oracles.GroundTruth
+	default:
+		return 0
 	}
 }
 
+func (r *Runner) nonCertWeights() []int {
+	if len(r.nonCertOracleIdx) == 0 {
+		return nil
+	}
+	weights := make([]int, 0, len(r.nonCertOracleIdx))
+	for _, idx := range r.nonCertOracleIdx {
+		weights = append(weights, r.oracleWeightByName(r.oracles[idx].Name()))
+	}
+	return weights
+}
+
 func (r *Runner) refreshOracleEnabled() {
-	weights := r.oracleWeights()
+	weights := r.nonCertWeights()
 	if r.oracleEnabled == nil || len(r.oracleEnabled) != len(weights) {
 		r.oracleEnabled = make([]bool, len(weights))
 	}
@@ -72,26 +95,53 @@ func (r *Runner) updateActionBandit(action int, reward float64) {
 }
 
 func (r *Runner) pickOracle() int {
+	r.statsMu.Lock()
+	r.oraclePickTotal++
+	r.statsMu.Unlock()
+	if r.certOracleIdx >= 0 && r.gen.Rand.Float64() < certSampleRate {
+		r.statsMu.Lock()
+		r.certPickTotal++
+		r.statsMu.Unlock()
+		return r.certOracleIdx
+	}
+	idx := r.pickNonCertOracle()
+	if idx == r.certOracleIdx {
+		r.statsMu.Lock()
+		r.certPickTotal++
+		r.statsMu.Unlock()
+	}
+	return idx
+}
+
+func (r *Runner) pickNonCertOracle() int {
+	if len(r.nonCertOracleIdx) == 0 {
+		return r.certOracleIdx
+	}
 	if r.oracleBandit != nil {
 		r.statsMu.Lock()
 		defer r.statsMu.Unlock()
-		return r.oracleBandit.Pick(r.gen.Rand, r.oracleEnabled)
+		choice := r.oracleBandit.Pick(r.gen.Rand, r.oracleEnabled)
+		if choice < 0 || choice >= len(r.nonCertOracleIdx) {
+			return r.nonCertOracleIdx[0]
+		}
+		return r.nonCertOracleIdx[choice]
 	}
-	return util.PickWeighted(r.gen.Rand, []int{
-		r.cfg.Weights.Oracles.NoREC,
-		r.cfg.Weights.Oracles.TLP,
-		r.cfg.Weights.Oracles.DQP,
-		r.cfg.Weights.Oracles.CERT,
-		r.cfg.Weights.Oracles.CODDTest,
-		r.cfg.Weights.Oracles.DQE,
-		r.cfg.Weights.Oracles.Impo,
-		r.cfg.Weights.Oracles.GroundTruth,
-	})
+	weights := r.nonCertWeights()
+	if len(weights) == 0 {
+		return r.nonCertOracleIdx[0]
+	}
+	choice := util.PickWeighted(r.gen.Rand, weights)
+	if choice < 0 || choice >= len(r.nonCertOracleIdx) {
+		return r.nonCertOracleIdx[0]
+	}
+	return r.nonCertOracleIdx[choice]
 }
 
 func (r *Runner) updateOracleBandit(oracleIdx int, reward float64) {
 	if r.oracleBandit != nil {
-		r.oracleBandit.Update(oracleIdx, reward)
+		if banditIdx, ok := r.oracleBanditIndex[oracleIdx]; ok {
+			r.oracleBandit.Update(banditIdx, reward)
+		}
 	}
 }
 
@@ -106,6 +156,10 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 		if !ok || stat.Runs == 0 {
 			continue
 		}
+		banditIdx, ok := r.oracleBanditIndex[i]
+		if !ok {
+			continue
+		}
 		reward := float64(stat.Mismatches + stat.Panics)
 		if stat.Errors > 0 {
 			reward += 0.5 * float64(stat.Errors)
@@ -116,7 +170,7 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 			reward = 0
 		}
 		rewardPerRun := reward / float64(stat.Runs)
-		r.oracleBandit.UpdateBatch(i, rewardPerRun, int(stat.Runs))
+		r.oracleBandit.UpdateBatch(banditIdx, rewardPerRun, int(stat.Runs))
 	}
 }
 

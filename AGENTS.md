@@ -39,3 +39,7 @@ Links:
 - Reviewed `logs/shiro.log` after latest run (2026-01-30).
 - Removed unused TLP helper functions and reran `go test ./...` (2026-01-30).
 - Added a TLP ORDER BY/UNION comment, removed the temporary TLP config file, and cleaned the roadmap item list (2026-01-30).
+- Removed the CERT weight configuration, fixed CERT sampling at a constant rate, and excluded CERT from oracle bandit selection (2026-01-30).
+- Ran `go test ./...` after CERT sampling changes (2026-01-30).
+- Added CERT sampling ratio logging and documented fixed sampling behavior (2026-01-30).
+- Ran `go test ./...` after adding CERT sampling logging (2026-01-30).
