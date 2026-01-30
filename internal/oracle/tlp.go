@@ -80,6 +80,9 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	q2 := base.Clone()
 	q3 := base.Clone()
 
+	// The partition queries inherit ORDER BY from base.Clone(), but ORDER BY is not
+	// allowed in UNION ALL subqueries (e.g., MySQL error 1221). Keep ORDER BY only
+	// on the combined query via ensureTLPOrderBy(base).
 	q1.OrderBy = nil
 	q2.OrderBy = nil
 	q3.OrderBy = nil

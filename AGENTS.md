@@ -38,3 +38,4 @@ Links:
 - Rewrote TLP USING to ON and qualified unqualified columns (2026-01-30).
 - Reviewed `logs/shiro.log` after latest run (2026-01-30).
 - Removed unused TLP helper functions and reran `go test ./...` (2026-01-30).
+- Added a TLP ORDER BY/UNION comment, removed the temporary TLP config file, and cleaned the roadmap item list (2026-01-30).
