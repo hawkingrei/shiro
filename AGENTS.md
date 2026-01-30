@@ -48,3 +48,4 @@ Links:
 - Minimized lock contention by keeping bandit picks under a single statsMu scope and refactoring non-CERT selection helpers (2026-01-30).
 - Initialized non-CERT oracle index slice defensively and reran tests (2026-01-30).
 - Added a safe default oracle index fallback for empty non-CERT sets and reran tests (2026-01-30).
+- Fixed EXISTS/NOT EXISTS metrics to use regex matching for whitespace/newlines and reran tests (2026-01-30).

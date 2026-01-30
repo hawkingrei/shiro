@@ -16,6 +16,8 @@ import (
 
 var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
+var existsPattern = regexp.MustCompile(`(?i)\bEXISTS\b`)
+var notExistsPattern = regexp.MustCompile(`(?i)\bNOT\s+EXISTS\b`)
 
 const topJoinSigN = 20
 const topOracleReasonsN = 10
@@ -48,12 +50,12 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
-		upper := strings.ToUpper(sql)
-		if strings.Contains(upper, "NOT EXISTS") {
+		if notExistsPattern.MatchString(sql) {
 			r.sqlNotEx++
-		} else if strings.Contains(upper, "EXISTS") {
+		} else if existsPattern.MatchString(sql) {
 			r.sqlExists++
 		}
+		upper := strings.ToUpper(sql)
 		if strings.Contains(upper, " NOT IN (") || notInWrappedPattern.MatchString(upper) {
 			r.sqlNotIn++
 		} else if strings.Contains(upper, " IN (") {
