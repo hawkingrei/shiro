@@ -46,3 +46,4 @@ Links:
 - Fixed PR description line breaks by editing PR body via `gh pr edit --body-file` (2026-01-30).
 - Refined CERT sampling counter updates to reduce lock contention and avoid counting fallback picks (2026-01-30).
 - Minimized lock contention by keeping bandit picks under a single statsMu scope and refactoring non-CERT selection helpers (2026-01-30).
+- Initialized non-CERT oracle index slice defensively and reran tests (2026-01-30).

@@ -174,7 +174,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 
 func (r *Runner) initOracleIndices() {
 	r.certOracleIdx = -1
-	r.nonCertOracleIdx = r.nonCertOracleIdx[:0]
+	r.nonCertOracleIdx = make([]int, 0, len(r.oracles))
 	r.oracleBanditIndex = make(map[int]int, len(r.oracles))
 	for i, o := range r.oracles {
 		if o.Name() == "CERT" {
