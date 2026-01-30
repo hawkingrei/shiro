@@ -115,7 +115,7 @@ func (r *Runner) pickOracle() int {
 
 func (r *Runner) pickNonCertOracleWeighted() int {
 	if len(r.nonCertOracleIdx) == 0 {
-		return r.certOracleIdx
+		return r.defaultOracleIndex()
 	}
 	weights := r.nonCertWeights()
 	choice := util.PickWeighted(r.gen.Rand, weights)
@@ -124,12 +124,22 @@ func (r *Runner) pickNonCertOracleWeighted() int {
 
 func (r *Runner) nonCertOracleByChoice(choice int) int {
 	if len(r.nonCertOracleIdx) == 0 {
-		return r.certOracleIdx
+		return r.defaultOracleIndex()
 	}
 	if choice < 0 || choice >= len(r.nonCertOracleIdx) {
 		return r.nonCertOracleIdx[0]
 	}
 	return r.nonCertOracleIdx[choice]
+}
+
+func (r *Runner) defaultOracleIndex() int {
+	if r.certOracleIdx >= 0 {
+		return r.certOracleIdx
+	}
+	if len(r.oracles) > 0 {
+		return 0
+	}
+	return -1
 }
 
 func (r *Runner) updateOracleBandit(oracleIdx int, reward float64) {

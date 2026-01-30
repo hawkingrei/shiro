@@ -47,3 +47,4 @@ Links:
 - Refined CERT sampling counter updates to reduce lock contention and avoid counting fallback picks (2026-01-30).
 - Minimized lock contention by keeping bandit picks under a single statsMu scope and refactoring non-CERT selection helpers (2026-01-30).
 - Initialized non-CERT oracle index slice defensively and reran tests (2026-01-30).
+- Added a safe default oracle index fallback for empty non-CERT sets and reran tests (2026-01-30).
