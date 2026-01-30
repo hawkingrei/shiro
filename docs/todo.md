@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-01-31. Added paper summaries for EET and SQLancer++ under docs. Consolidated AGENTS.md recent updates. (Previous review: 2026-01-30.)
+Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs. (Previous review: 2026-01-30.)
 
 ## Generator / Oracles
 
@@ -13,6 +13,7 @@ Last review: 2026-01-31. Added paper summaries for EET and SQLancer++ under docs
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
 7. Improve EXISTS/NOT EXISTS coverage; DMLSubqueryProb=60 did not raise exists/not_exists counters, consider tuning PredicateExistsProb or adding DQE-specific EXISTS forcing.
+8. EET: add broader expression-level rewrites with schema-aware type inference and safety checks.
 
 ## Reporting / Aggregation
 

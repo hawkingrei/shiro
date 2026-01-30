@@ -43,6 +43,15 @@ weights:
     insert: 3
     update: 1
     delete: 1
+  oracles:
+    norec: 5
+    tlp: 5
+    eet: 3
+    dqp: 5
+    coddtest: 2
+    dqe: 5
+    impo: 3
+    groundtruth: 5
   features:
     join_count: 3
     cte_count: 2
@@ -70,6 +79,13 @@ oracles:
   impo_max_rows: 200
   impo_max_mutations: 64
   impo_timeout_ms: 5000
+  eet_rewrites:
+    double_not: 4
+    and_true: 3
+    or_false: 3
+    numeric_identity: 2
+    string_identity: 2
+    date_identity: 2
 
 qpg:
   enabled: true

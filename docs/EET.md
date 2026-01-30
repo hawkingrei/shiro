@@ -1,32 +1,56 @@
-## EET (Equivalent Expression Transformation)
+# Equivalent Expression Transformation (EET)
 
-### What it is
-Equivalent Expression Transformation (EET) is a logic-bug testing approach for DBMSs that transforms **expressions** inside a query into semantically equivalent forms and then checks whether the transformed query returns the same result as the original.
+## Background
+Expression-level rewrites can test optimizer correctness without constraining query shapes. Instead of rewriting whole queries, EET rewrites expressions inside a query into semantically equivalent forms and checks whether results match.
 
-### Key idea
-Instead of rewriting whole queries (which often requires restricting query shapes), EET rewrites **expressions** at the AST level. If each expression rewrite is semantics-preserving, then the entire query should remain equivalent:
+## Oracle Form
+- Original: `SELECT ... WHERE P`
+- Transformed: `SELECT ... WHERE T(P)`
+- Compare signatures (row count + checksum) between the two.
 
+## Implementation in Shiro
+- Operates on `SELECT` statements with `WHERE`, `HAVING`, or `JOIN ON` predicates.
+- Requires deterministic predicates and disallows subqueries for now.
+- Uses TiDB parser AST to rewrite predicates.
+
+## Rewrite Set (current)
+Boolean identities:
+- `P` -> `NOT (NOT P)`
+- `P` -> `P AND TRUE`
+- `P` -> `P OR FALSE`
+
+Type-aware literal identities (first-match within predicates):
+- Numeric literal `N` -> `N + 0`
+- String literal `S` -> `CONCAT(S, '')`
+- Date/time literal `D` -> `ADDDATE(D, INTERVAL 0 DAY)`
+
+## Rewrite Weights
+EET rewrite selection is weighted. Configure via:
+
+```yaml
+oracles:
+  eet_rewrites:
+    double_not: 4
+    and_true: 3
+    or_false: 3
+    numeric_identity: 2
+    string_identity: 2
+    date_identity: 2
 ```
-E ≡ E'  =>  DB(Q) ≡ DB(Q'), where Q' = Q with E replaced by E'
-```
 
-This makes the method applicable to **arbitrary queries**, not just pattern-limited ones.
+Unavailable literal kinds are masked to weight 0. If all weights are zero, EET falls back to boolean rewrites.
 
-### Core transformations (paper examples)
-- **Determined boolean expressions**: replace boolean expressions with equivalent forms that preserve truth tables.
-- **Redundant branch structures**: introduce equivalent conditional structures that should not change results.
+These are three-valued logic safe and do not change predicate semantics.
 
-### Architecture (high level)
-1. Parse query to AST.
-2. Traverse expressions.
-3. Apply equivalence-preserving rewrites.
-4. Emit transformed query.
-5. Compare results of original vs. transformed query.
+## Guardrails
+- Only applies to deterministic predicates.
+- Requires at least one predicate in `WHERE`, `HAVING`, or `JOIN ON`.
+- Skips non-`SELECT` statements or parse failures.
 
-### Evaluation highlights (paper claims)
-- Evaluated on MySQL, PostgreSQL, SQLite, ClickHouse, and TiDB.
-- Found **66 unique bugs**, **35** of which are logic bugs.
-- Reported and confirmed most findings; **37** were fixed at the time of writing.
+## Expected Coverage
+Good at catching optimizer bugs in predicate evaluation and simplification without relying on query-shape constraints.
 
-### Why it matters here
-EET shows that **expression-level** rewrites can test complex SQL without over-constraining query shapes. This aligns with Shiro's goals of maintaining broad query coverage while still using strong equivalence oracles.
+## TODO
+- Extend rewrites to `HAVING` and `JOIN ON` conditions.
+- Add type-aware expression rewrites (e.g., numeric/boolean identities).
+- Consider safe rewrites involving `IS TRUE/FALSE` and `CASE` once guardrails are in place.

@@ -100,6 +100,7 @@ type DMLWeights struct {
 type OracleWeights struct {
 	NoREC       int `yaml:"norec"`
 	TLP         int `yaml:"tlp"`
+	EET         int `yaml:"eet"`
 	DQP         int `yaml:"dqp"`
 	CODDTest    int `yaml:"coddtest"`
 	DQE         int `yaml:"dqe"`
@@ -156,15 +157,26 @@ type MetricsThresholds struct {
 
 // OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
-	StrictPredicates   bool    `yaml:"strict_predicates"`
-	PredicateLevel     string  `yaml:"predicate_level"`
-	CertMinBaseRows    float64 `yaml:"cert_min_base_rows"`
-	GroundTruthMaxRows int     `yaml:"groundtruth_max_rows"`
-	ImpoMaxRows        int     `yaml:"impo_max_rows"`
-	ImpoMaxMutations   int     `yaml:"impo_max_mutations"`
-	ImpoTimeoutMs      int     `yaml:"impo_timeout_ms"`
-	ImpoDisableStage1  bool    `yaml:"impo_disable_stage1"`
-	ImpoKeepLRJoin     bool    `yaml:"impo_keep_lr_join"`
+	StrictPredicates   bool              `yaml:"strict_predicates"`
+	PredicateLevel     string            `yaml:"predicate_level"`
+	CertMinBaseRows    float64           `yaml:"cert_min_base_rows"`
+	GroundTruthMaxRows int               `yaml:"groundtruth_max_rows"`
+	ImpoMaxRows        int               `yaml:"impo_max_rows"`
+	ImpoMaxMutations   int               `yaml:"impo_max_mutations"`
+	ImpoTimeoutMs      int               `yaml:"impo_timeout_ms"`
+	ImpoDisableStage1  bool              `yaml:"impo_disable_stage1"`
+	ImpoKeepLRJoin     bool              `yaml:"impo_keep_lr_join"`
+	EETRewrites        EETRewriteWeights `yaml:"eet_rewrites"`
+}
+
+// EETRewriteWeights controls rewrite selection inside the EET oracle.
+type EETRewriteWeights struct {
+	DoubleNot       int `yaml:"double_not"`
+	AndTrue         int `yaml:"and_true"`
+	OrFalse         int `yaml:"or_false"`
+	NumericIdentity int `yaml:"numeric_identity"`
+	StringIdentity  int `yaml:"string_identity"`
+	DateIdentity    int `yaml:"date_identity"`
 }
 
 // QPGConfig configures query plan guidance.
@@ -370,7 +382,7 @@ func defaultConfig() Config {
 		Weights: Weights{
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
-			Oracles:  OracleWeights{NoREC: 4, TLP: 3, DQP: 3, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
+			Oracles:  OracleWeights{NoREC: 4, TLP: 3, EET: 2, DQP: 3, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
 			Features: FeatureWeights{JoinCount: 5, CTECount: 4, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
 		},
 		Logging: Logging{
@@ -382,7 +394,16 @@ func defaultConfig() Config {
 				ImpoBaseExecFailedMaxRatio: 0.02,
 			},
 		},
-		Oracles:  OracleConfig{StrictPredicates: true, PredicateLevel: "strict", CertMinBaseRows: 20, GroundTruthMaxRows: 50, ImpoMaxRows: 50, ImpoMaxMutations: 64, ImpoTimeoutMs: 2000},
+		Oracles: OracleConfig{
+			StrictPredicates:   true,
+			PredicateLevel:     "strict",
+			CertMinBaseRows:    20,
+			GroundTruthMaxRows: 50,
+			ImpoMaxRows:        50,
+			ImpoMaxMutations:   64,
+			ImpoTimeoutMs:      2000,
+			EETRewrites:        EETRewriteWeights{DoubleNot: 4, AndTrue: 3, OrFalse: 3, NumericIdentity: 2, StringIdentity: 2, DateIdentity: 2},
+		},
 		Adaptive: Adaptive{Enabled: true, UCBExploration: 1.5, WindowSize: 50000},
 		QPG: QPGConfig{
 			Enabled:             false,
