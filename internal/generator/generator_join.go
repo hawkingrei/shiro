@@ -67,6 +67,18 @@ func (g *Generator) collectJoinColumns(tbl schema.Table, useIndexPrefix bool) []
 	if len(filtered) > 0 {
 		return filtered
 	}
+	if useIndexPrefix {
+		allCols := g.collectColumns([]schema.Table{tbl})
+		filtered = filtered[:0]
+		for _, col := range allCols {
+			if strings.HasPrefix(col.Name, "k") {
+				filtered = append(filtered, col)
+			}
+		}
+		if len(filtered) > 0 {
+			return filtered
+		}
+	}
 	return cols
 }
 

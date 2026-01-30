@@ -1,5 +1,7 @@
 # Shiro Roadmap: 100-Step Plan
 
+Completed items are tracked in `docs/notes/summary.md`; this roadmap lists active and upcoming tasks only.
+
 ## Stability milestones
 
 1. **Metrics baseline**: log sql_valid_ratio, impo_invalid_columns_ratio, impo_base_exec_failed_ratio every interval.
@@ -46,7 +48,6 @@
 36. Add Impo configurable mutation selector (random subset vs. exhaustive).
 37. Add Impo mutation weights tuned for optimizer coverage.
 38. Add Impo skip if query uses window functions after stage1.
-39. Restrict Impo seed generation to non-aggregate queries to avoid generate-and-skip. (done)
 40. Add Impo skip for recursive CTEs.
 41. Add Impo support for CTE-aware mutation and restoration.
 42. Add Impo with plan-guided mutation selection (tie into QPG signals).

@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,8 @@ import (
 	"shiro/internal/generator"
 	"shiro/internal/schema"
 	"shiro/internal/util"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 type predicatePolicy struct {
@@ -327,6 +330,30 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		}
 	}
 	return true, ""
+}
+
+func mysqlErrCode(err error) (uint16, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number, true
+	}
+	return 0, false
+}
+
+func isWhitelistedSQLError(err error) (uint16, bool) {
+	code, ok := mysqlErrCode(err)
+	if !ok {
+		return 0, false
+	}
+	switch code {
+	case 1064, 1292, 1451, 1452:
+		return code, true
+	default:
+		return code, false
+	}
 }
 
 func sanitizeQueryColumns(query *generator.SelectQuery, state *schema.State) bool {

@@ -38,3 +38,6 @@
 - Generated/computed columns are avoided for now to reduce TiDB master feature skew.
 - Oracle-specific generator overrides enforce guardrails (e.g., GroundTruth inner joins without predicates, Impo without scalar subqueries).
 - Stdout logs are kept minimal; detailed metrics are emitted to `logs/shiro.log` with top-N summaries.
+- Completed: Impo seed generation restricted to non-aggregate queries.
+- Completed: Impo init accepts non-recursive WITH clauses for CTE-aware mutation.
+- Completed: Impo mutation coverage counters by mutation type.

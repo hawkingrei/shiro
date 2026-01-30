@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Last review: 2026-01-30. No items completed; added join scope tests and CERT validation, reviewed latest logs, added TLP error breakdowns and captured examples, reviewed latest reports, fixed TLP UNION/ORDER BY errors, fixed TLP USING column qualification errors, normalized USING merged references, and rewrote USING to ON. Checked `logs/shiro.log`; TLP errors were 0 after 12:32. Added a TLP ORDER BY/UNION comment, removed the temporary TLP config, and removed completed roadmap items.
 
 ## Generator / Oracles
 

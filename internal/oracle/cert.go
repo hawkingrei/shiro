@@ -117,6 +117,10 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 			base.From = buildBaseFromClause(baseTables, nil)
 		}
 		ensureFromHasPredicateTables(base, state)
+		if !gen.ValidateQueryScope(base) {
+			lastReason = "constraint:base_scope"
+			continue
+		}
 
 		baseExplain := "EXPLAIN " + base.SQLString()
 		rows, err := exec.QueryPlanRows(ctx, baseExplain)
@@ -135,6 +139,10 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
 			baseNoWhere := base.Clone()
 			baseNoWhere.Where = nil
+			if !gen.ValidateQueryScope(baseNoWhere) {
+				lastReason = "constraint:base_scope"
+				continue
+			}
 			baseNoWhereExplain := "EXPLAIN " + baseNoWhere.SQLString()
 			rows, err := exec.QueryPlanRows(ctx, baseNoWhereExplain)
 			if err != nil {
@@ -173,6 +181,10 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		restricted.Where = restrictPred
 	} else {
 		restricted.Where = generator.BinaryExpr{Left: base.Where, Op: "AND", Right: restrictPred}
+	}
+	ensureFromHasPredicateTables(restricted, state)
+	if !gen.ValidateQueryScope(restricted) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:restricted_scope"}}
 	}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
