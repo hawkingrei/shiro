@@ -160,46 +160,6 @@ func tlpSkipReason(query *generator.SelectQuery) string {
 	return ""
 }
 
-func tlpHasUsingQualifiedRefs(query *generator.SelectQuery) bool {
-	if query == nil {
-		return false
-	}
-	if len(query.From.Joins) == 0 {
-		return false
-	}
-	merged := tlpUsingMergedColumns(query.From)
-	if len(merged) == 0 {
-		return false
-	}
-	if tlpExprHasMergedQualifier(query.Where, merged) {
-		return true
-	}
-	for _, item := range query.Items {
-		if tlpExprHasMergedQualifier(item.Expr, merged) {
-			return true
-		}
-	}
-	for _, expr := range query.GroupBy {
-		if tlpExprHasMergedQualifier(expr, merged) {
-			return true
-		}
-	}
-	if tlpExprHasMergedQualifier(query.Having, merged) {
-		return true
-	}
-	for _, ob := range query.OrderBy {
-		if tlpExprHasMergedQualifier(ob.Expr, merged) {
-			return true
-		}
-	}
-	for _, join := range query.From.Joins {
-		if tlpExprHasMergedQualifier(join.On, merged) {
-			return true
-		}
-	}
-	return false
-}
-
 func tlpNormalizeUsingRefs(gen *generator.Generator, query *generator.SelectQuery) {
 	if query == nil || gen == nil {
 		return
@@ -360,54 +320,6 @@ func tlpPickLeftTable(col string, visible []string, columnsByTable map[string]ma
 		}
 	}
 	return ""
-}
-
-func tlpExprHasMergedQualifier(expr generator.Expr, merged map[string]map[string]struct{}) bool {
-	if expr == nil {
-		return false
-	}
-	for _, ref := range expr.Columns() {
-		if ref.Table == "" {
-			continue
-		}
-		if cols, ok := merged[ref.Table]; ok {
-			if _, ok := cols[ref.Name]; ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func tlpUsingMergedColumns(from generator.FromClause) map[string]map[string]struct{} {
-	merged := make(map[string]map[string]struct{})
-	visible := make([]string, 0, 1+len(from.Joins))
-	if from.BaseTable != "" {
-		visible = append(visible, from.BaseTable)
-	}
-	for _, join := range from.Joins {
-		if len(join.Using) > 0 {
-			affected := append([]string{}, visible...)
-			if join.Table != "" {
-				affected = append(affected, join.Table)
-			}
-			for _, col := range join.Using {
-				for _, tbl := range affected {
-					if tbl == "" {
-						continue
-					}
-					if merged[tbl] == nil {
-						merged[tbl] = make(map[string]struct{})
-					}
-					merged[tbl][col] = struct{}{}
-				}
-			}
-		}
-		if join.Table != "" {
-			visible = append(visible, join.Table)
-		}
-	}
-	return merged
 }
 
 func tlpOrderColumns(items []generator.SelectItem) []generator.ColumnRef {
