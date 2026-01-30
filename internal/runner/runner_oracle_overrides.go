@@ -73,12 +73,15 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
 	case "DQP":
 		cfg.Features.CTE = false
+		cfg.Features.Subqueries = false
 		cfg.Features.Aggregates = false
 		cfg.Features.GroupBy = false
 		cfg.Features.Having = false
 		cfg.Features.Distinct = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
+		cfg.Features.NotExists = false
+		cfg.Features.NotIn = false
 		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
 		r.gen.SetMinJoinTables(2)
 	default:
