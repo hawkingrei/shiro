@@ -4,7 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    labels:
+      - "dependencies"
+      - "go"
   - package-ecosystem: "npm"
-    directory: "/web" # Location of package.json and package-lock.json
+    directory: "/web"
     schedule:
       interval: "daily"
+    labels:
+      - "dependencies"
+      - "npm"
