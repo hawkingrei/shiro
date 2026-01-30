@@ -1,8 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-最近检查：2026-01-30，暂无已完成项；已补充 join scope 测试与 CERT 校验，复查最新日志，增加 TLP error 细分，并记录 TLP 错误样例，查看最新 reports，修复 TLP UNION/ORDER BY 错误，修复 TLP USING 列名限定错误，并归一化 USING 合并列引用与重写 ON。
-Last review: 2026-01-30. Checked shiro.log; TLP errors were 0 after 12:32.
+Last review: 2026-01-30. No items completed; added join scope tests and CERT validation, reviewed latest logs, added TLP error breakdowns and captured examples, reviewed latest reports, fixed TLP UNION/ORDER BY errors, fixed TLP USING column qualification errors, normalized USING merged references, and rewrote USING to ON. Checked `logs/shiro.log`; TLP errors were 0 after 12:32.
 
 ## Generator / Oracles
 
