@@ -17,7 +17,7 @@ const (
 	// InsertRowCountMax is the maximum number of rows in a single INSERT.
 	InsertRowCountMax = 3
 	// DMLSubqueryProb is the chance to allow subqueries in DML predicates.
-	DMLSubqueryProb = 20
+	DMLSubqueryProb = 30
 )
 
 const (
