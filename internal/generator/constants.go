@@ -129,10 +129,16 @@ const (
 	FloatLiteralScale = 10000
 	// FloatLiteralDiv rounds scaled float literals to two decimals.
 	FloatLiteralDiv = 100
-	// DateDayMax is the day range for date literals.
-	DateDayMax = 28
 	// TimeMinuteMax is the minute range for datetime/timestamp literals.
 	TimeMinuteMax = 59
+	// TimeSecondMax is the second range for datetime/timestamp literals.
+	TimeSecondMax = 59
+	// DateYearMin is the minimum year for date literals.
+	DateYearMin = 2023
+	// DateYearMax is the maximum year for date literals.
+	DateYearMax = 2026
+	// DateSampleMax caps per-column date literal samples from INSERTs.
+	DateSampleMax = 32
 	// BoolLiteralTrueProb is the chance to emit TRUE-like literal for boolean.
 	BoolLiteralTrueProb = 50
 	// ComparablePairColumnLiteralProb is the chance to emit column vs literal pairs.

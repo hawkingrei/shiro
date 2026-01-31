@@ -26,7 +26,13 @@ func (g *Generator) InsertSQL(tbl *schema.Table) string {
 				tbl.NextID++
 				continue
 			}
-			vals = append(vals, g.exprSQL(g.literalForColumn(col)))
+			lit := g.literalForColumn(col)
+			if col.Type == schema.TypeDate || col.Type == schema.TypeDatetime || col.Type == schema.TypeTimestamp {
+				if v, ok := lit.Value.(string); ok {
+					g.recordDateSample(tbl.Name, col.Name, v)
+				}
+			}
+			vals = append(vals, g.exprSQL(lit))
 		}
 		values = append(values, fmt.Sprintf("(%s)", strings.Join(vals, ", ")))
 	}

@@ -218,16 +218,16 @@ func (g *Generator) generateComparablePair(tables []schema.Table, allowSubquery 
 	if util.Chance(g.Rand, ComparablePairColumnLiteralProb) {
 		var colType schema.ColumnType
 		left, colType = g.pickComparableExpr(tables)
-		right = g.literalForColumn(schema.Column{Type: colType})
+		right = g.literalForExprType(left, colType)
 		return left, right
 	}
 	left = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(left); ok {
-		return left, g.literalForColumn(schema.Column{Type: t})
+		return left, g.literalForExprType(left, t)
 	}
 	right = g.generateScalarExpr(tables, 0, allowSubquery, subqDepth)
 	if t, ok := g.exprType(right); ok {
-		return g.literalForColumn(schema.Column{Type: t}), right
+		return g.literalForExprType(right, t), right
 	}
 	colType := g.randomColumnType()
 	lit := g.literalForColumn(schema.Column{Type: colType})
@@ -472,6 +472,97 @@ func (g *Generator) randomLiteralExpr() Expr {
 	return g.literalForColumn(schema.Column{Type: g.randomColumnType()})
 }
 
+func randIntRange(r *rand.Rand, min int, max int) int {
+	if max <= min {
+		return min
+	}
+	return min + r.Intn(max-min+1)
+}
+
+func (g *Generator) recordDateSample(table string, column string, value string) {
+	if table == "" || column == "" || value == "" {
+		return
+	}
+	if g.dateSamples == nil {
+		g.dateSamples = make(map[string]map[string][]string)
+	}
+	tableSamples := g.dateSamples[table]
+	if tableSamples == nil {
+		tableSamples = make(map[string][]string)
+		g.dateSamples[table] = tableSamples
+	}
+	samples := tableSamples[column]
+	if len(samples) < DateSampleMax {
+		tableSamples[column] = append(samples, value)
+		return
+	}
+	tableSamples[column][g.Rand.Intn(DateSampleMax)] = value
+}
+
+func (g *Generator) sampleDateLiteral(ref ColumnRef) (LiteralExpr, bool) {
+	if g.dateSamples == nil || ref.Table == "" || ref.Name == "" {
+		return LiteralExpr{}, false
+	}
+	tableSamples := g.dateSamples[ref.Table]
+	if tableSamples == nil {
+		return LiteralExpr{}, false
+	}
+	samples := tableSamples[ref.Name]
+	if len(samples) == 0 {
+		return LiteralExpr{}, false
+	}
+	return LiteralExpr{Value: samples[g.Rand.Intn(len(samples))]}, true
+}
+
+func (g *Generator) literalForColumnRef(ref ColumnRef) LiteralExpr {
+	if ref.Type == schema.TypeDate || ref.Type == schema.TypeDatetime || ref.Type == schema.TypeTimestamp {
+		if lit, ok := g.sampleDateLiteral(ref); ok {
+			return lit
+		}
+	}
+	return g.literalForColumn(schema.Column{Type: ref.Type})
+}
+
+func (g *Generator) literalForExprType(expr Expr, colType schema.ColumnType) LiteralExpr {
+	if colType == schema.TypeDate || colType == schema.TypeDatetime || colType == schema.TypeTimestamp {
+		if col, ok := expr.(ColumnExpr); ok {
+			return g.literalForColumnRef(col.Ref)
+		}
+	}
+	return g.literalForColumn(schema.Column{Type: colType})
+}
+
+func isLeapYear(year int) bool {
+	if year%400 == 0 {
+		return true
+	}
+	if year%100 == 0 {
+		return false
+	}
+	return year%4 == 0
+}
+
+func daysInMonth(year int, month int) int {
+	switch month {
+	case 2:
+		if isLeapYear(year) {
+			return 29
+		}
+		return 28
+	case 4, 6, 9, 11:
+		return 30
+	default:
+		return 31
+	}
+}
+
+func (g *Generator) randomDateParts() (year int, month int, day int) {
+	year = randIntRange(g.Rand, DateYearMin, DateYearMax)
+	month = randIntRange(g.Rand, 1, 12)
+	day = randIntRange(g.Rand, 1, daysInMonth(year, month))
+	return year, month, day
+}
+
 func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 	switch col.Type {
 	case schema.TypeInt, schema.TypeBigInt:
@@ -481,11 +572,20 @@ func (g *Generator) literalForColumn(col schema.Column) LiteralExpr {
 	case schema.TypeVarchar:
 		return LiteralExpr{Value: fmt.Sprintf("s%d", g.Rand.Intn(StringLiteralMax))}
 	case schema.TypeDate:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d", g.Rand.Intn(DateDayMax)+1)}
+		year, month, day := g.randomDateParts()
+		return LiteralExpr{Value: fmt.Sprintf("%04d-%02d-%02d", year, month, day)}
 	case schema.TypeDatetime:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 12:%02d:00", g.Rand.Intn(DateDayMax)+1, g.Rand.Intn(TimeMinuteMax))}
+		year, month, day := g.randomDateParts()
+		hour := randIntRange(g.Rand, 0, 23)
+		minute := randIntRange(g.Rand, 0, TimeMinuteMax)
+		second := randIntRange(g.Rand, 0, TimeSecondMax)
+		return LiteralExpr{Value: fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second)}
 	case schema.TypeTimestamp:
-		return LiteralExpr{Value: fmt.Sprintf("2024-01-%02d 08:%02d:00", g.Rand.Intn(DateDayMax)+1, g.Rand.Intn(TimeMinuteMax))}
+		year, month, day := g.randomDateParts()
+		hour := randIntRange(g.Rand, 0, 23)
+		minute := randIntRange(g.Rand, 0, TimeMinuteMax)
+		second := randIntRange(g.Rand, 0, TimeSecondMax)
+		return LiteralExpr{Value: fmt.Sprintf("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second)}
 	case schema.TypeBool:
 		if util.Chance(g.Rand, BoolLiteralTrueProb) {
 			return LiteralExpr{Value: 1}

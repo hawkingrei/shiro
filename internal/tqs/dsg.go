@@ -367,6 +367,44 @@ func randomValueType(r *rand.Rand) schema.ColumnType {
 	return types[r.Intn(len(types))]
 }
 
+func randIntRange(r *rand.Rand, min int, max int) int {
+	if max <= min {
+		return min
+	}
+	return min + r.Intn(max-min+1)
+}
+
+func isLeapYear(year int) bool {
+	if year%400 == 0 {
+		return true
+	}
+	if year%100 == 0 {
+		return false
+	}
+	return year%4 == 0
+}
+
+func daysInMonth(year int, month int) int {
+	switch month {
+	case 2:
+		if isLeapYear(year) {
+			return 29
+		}
+		return 28
+	case 4, 6, 9, 11:
+		return 30
+	default:
+		return 31
+	}
+}
+
+func randomDateParts(r *rand.Rand) (year int, month int, day int) {
+	year = randIntRange(r, 2023, 2026)
+	month = randIntRange(r, 1, 12)
+	day = randIntRange(r, 1, daysInMonth(year, month))
+	return year, month, day
+}
+
 func pickKeyType(r *rand.Rand) schema.ColumnType {
 	types := []schema.ColumnType{
 		schema.TypeInt,
@@ -388,9 +426,14 @@ func randomValue(r *rand.Rand, t schema.ColumnType) any {
 	case schema.TypeVarchar:
 		return fmt.Sprintf("s%d", r.Intn(1000))
 	case schema.TypeDate:
-		return time.Date(2024, time.Month(r.Intn(12)+1), r.Intn(28)+1, 0, 0, 0, 0, time.UTC)
+		year, month, day := randomDateParts(r)
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	case schema.TypeDatetime, schema.TypeTimestamp:
-		return time.Date(2024, time.Month(r.Intn(12)+1), r.Intn(28)+1, r.Intn(24), r.Intn(60), r.Intn(60), 0, time.UTC)
+		year, month, day := randomDateParts(r)
+		hour := randIntRange(r, 0, 23)
+		minute := randIntRange(r, 0, 59)
+		second := randIntRange(r, 0, 59)
+		return time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
 	case schema.TypeBool:
 		return r.Intn(2) == 0
 	default:
