@@ -2,12 +2,12 @@ package util
 
 import "math/rand"
 
-// RandIntRange returns a random int in [min, max].
-func RandIntRange(r *rand.Rand, min int, max int) int {
-	if max <= min {
-		return min
+// RandIntRange returns a random int in [minValue, maxValue].
+func RandIntRange(r *rand.Rand, minValue int, maxValue int) int {
+	if maxValue <= minValue {
+		return minValue
 	}
-	return min + r.Intn(max-min+1)
+	return minValue + r.Intn(maxValue-minValue+1)
 }
 
 // IsLeapYear reports whether year is a leap year.
