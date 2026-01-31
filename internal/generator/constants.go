@@ -17,7 +17,7 @@ const (
 	// InsertRowCountMax is the maximum number of rows in a single INSERT.
 	InsertRowCountMax = 3
 	// DMLSubqueryProb is the chance to allow subqueries in DML predicates.
-	DMLSubqueryProb = 20
+	DMLSubqueryProb = 30
 )
 
 const (
@@ -69,7 +69,7 @@ const (
 	// PredicateSubqueryScale multiplies subquery weight for predicate generation.
 	PredicateSubqueryScale = 5
 	// PredicateExistsProb is the chance to use EXISTS in predicate subquery.
-	PredicateExistsProb = 50
+	PredicateExistsProb = 60
 	// PredicateInListProb is the chance to use IN list instead of binary comparison.
 	PredicateInListProb = 20
 	// PredicateInListMax is the maximum IN list size.
