@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
 	"github.com/pingcap/tidb/pkg/parser/opcode"
-	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
 	"shiro/internal/util"
 )
@@ -388,7 +387,7 @@ func collectLiteralKindsSetOpr(stmt *ast.SetOprStmt) literalKind {
 
 func collectLiteralKindsExpr(expr ast.ExprNode) literalKind {
 	switch e := expr.(type) {
-	case *test_driver.ValueExpr:
+	case ast.ValueExpr:
 		return literalKindsForValue(e)
 	case *ast.BinaryOperationExpr:
 		return collectLiteralKindsExpr(e.L) | collectLiteralKindsExpr(e.R)
@@ -435,22 +434,87 @@ func collectLiteralKindsExpr(expr ast.ExprNode) literalKind {
 	}
 }
 
-func literalKindsForValue(v *test_driver.ValueExpr) literalKind {
-	switch v.Kind() {
-	case test_driver.KindInt64, test_driver.KindUint64, test_driver.KindFloat32, test_driver.KindFloat64, test_driver.KindMysqlDecimal:
+func literalKindsForValue(v ast.ValueExpr) literalKind {
+	switch val := v.GetValue().(type) {
+	case int, int8, int16, int32, int64:
 		return literalNumeric
-	case test_driver.KindMysqlTime, test_driver.KindMysqlDuration:
-		return literalDate
-	case test_driver.KindString, test_driver.KindBytes:
+	case uint, uint8, uint16, uint32, uint64:
+		return literalNumeric
+	case float32, float64:
+		return literalNumeric
+	case string:
+		return classifyStringLiteral(val)
+	case []byte:
 		return literalString
 	default:
-		return 0
+		if val == nil {
+			return 0
+		}
+		switch val.(type) {
+		case fmt.Stringer:
+			return literalString
+		default:
+			return 0
+		}
 	}
+}
+
+func classifyStringLiteral(val string) literalKind {
+	if isDateLiteralString(val) || isDateTimeLiteralString(val) {
+		return literalDate
+	}
+	return literalString
+}
+
+func isDateLiteralString(value string) bool {
+	if len(value) != 10 {
+		return false
+	}
+	for i, ch := range value {
+		switch i {
+		case 4, 7:
+			if ch != '-' {
+				return false
+			}
+		default:
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isDateTimeLiteralString(value string) bool {
+	if len(value) != 19 {
+		return false
+	}
+	for i, ch := range value {
+		switch i {
+		case 4, 7:
+			if ch != '-' {
+				return false
+			}
+		case 10:
+			if ch != ' ' {
+				return false
+			}
+		case 13, 16:
+			if ch != ':' {
+				return false
+			}
+		default:
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func rewriteLiteralInExpr(expr ast.ExprNode, kind eetRewriteKind) (ast.ExprNode, bool) {
 	switch e := expr.(type) {
-	case *test_driver.ValueExpr:
+	case ast.ValueExpr:
 		return rewriteLiteralValue(e, kind)
 	case *ast.BinaryOperationExpr:
 		if next, ok := rewriteLiteralInExpr(e.L, kind); ok {
@@ -547,7 +611,7 @@ func rewriteLiteralInExpr(expr ast.ExprNode, kind eetRewriteKind) (ast.ExprNode,
 	}
 }
 
-func rewriteLiteralValue(expr *test_driver.ValueExpr, kind eetRewriteKind) (ast.ExprNode, bool) {
+func rewriteLiteralValue(expr ast.ValueExpr, kind eetRewriteKind) (ast.ExprNode, bool) {
 	switch kind {
 	case eetRewriteNumericIdentity:
 		if literalKindsForValue(expr)&literalNumeric == 0 {
