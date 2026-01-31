@@ -665,6 +665,7 @@ func rewriteLiteralValue(expr ast.ValueExpr, kind eetRewriteKind) (ast.ExprNode,
 			Args: []ast.ExprNode{
 				expr,
 				ast.NewValueExpr(0, "", ""),
+				&ast.TimeUnitExpr{Unit: ast.TimeUnitDay},
 			},
 		}, true
 	default:

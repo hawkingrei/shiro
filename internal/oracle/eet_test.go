@@ -133,8 +133,8 @@ func TestRewriteLiteralDateIdentity(t *testing.T) {
 	if !strings.Contains(strings.ToUpper(sql), "ADDDATE") {
 		t.Fatalf("expected ADDDATE identity expression, got: %s", sql)
 	}
-	if !strings.Contains(strings.ToUpper(sql), "CONCAT") {
-		t.Fatalf("expected CONCAT identity expression, got: %s", sql)
+	if !strings.Contains(strings.ToUpper(sql), "INTERVAL 0 DAY") {
+		t.Fatalf("expected INTERVAL 0 DAY, got: %s", sql)
 	}
 }
 
