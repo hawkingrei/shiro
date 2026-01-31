@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-01-31. Fold schema.sql by default.
+Last review: 2026-01-31. Move report UI formatting notes to docs/notes/feature.md.
 
 ## Generator / Oracles
 
