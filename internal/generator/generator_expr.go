@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"shiro/internal/schema"
