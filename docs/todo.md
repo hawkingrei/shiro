@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-01-31. Loosened EET predicate guards and raised DML/EXISTS subquery probabilities.
+Last review: 2026-01-31. Fold schema.sql by default.
 
 ## Generator / Oracles
 
@@ -20,6 +20,7 @@ Last review: 2026-01-31. Loosened EET predicate guards and raised DML/EXISTS sub
 
 1. Add frontend aggregation views (commit/bug type) and export.
 2. Add S3/report incremental merging and multi-source aggregation.
+3. Consider column-aware EXPLAIN diff once table parsing stabilizes.
 
 ## Coverage / Guidance
 

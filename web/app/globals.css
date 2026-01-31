@@ -159,8 +159,38 @@ code {
 .case__grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: 1fr;
   margin-top: 12px;
+}
+.case__pair,
+.case__meta,
+.case__diffs {
+  max-width: 1200px;
+  width: 100%;
+}
+.case__meta {
+  grid-column: 1 / -1;
+}
+.case__pair {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+}
+.case__diffs {
+  margin-top: -6px;
+}
+.case__row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.case__block--empty {
+  min-height: 0;
+}
+.case__diffs {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
 }
 
 .label {
@@ -198,6 +228,17 @@ pre {
   font-size: 12px;
   overflow-x: auto;
   margin: 0;
+}
+.diff-viewer {
+  overflow-x: auto;
+  border-radius: 10px;
+}
+.diff-viewer .react-diff-viewer {
+  font-family: var(--font-mono, "IBM Plex Mono", monospace);
+  font-size: 12px;
+}
+.diff-viewer .react-diff-viewer-table {
+  width: 100%;
 }
 .fold summary {
   list-style: none;

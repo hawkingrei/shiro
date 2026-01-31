@@ -33,3 +33,26 @@ Links:
 - Added TODO to track EET rewrite coverage logging needs (2026-01-30).
 - Addressed EET review fixes (date rewrite form, parser driver imports, predicate target shuffle, doc TODO updates) (2026-01-30).
 - Loosened EET predicate guards (allow NOT/IS NULL) and raised DML/EXISTS subquery probabilities (2026-01-31).
+- Frontend: aligned EXPLAIN output columns and added EXPLAIN diff views (2026-01-31).
+- Frontend: preserve logical plan tree lines while aligning EXPLAIN columns (2026-01-31).
+- Frontend: keep EXPLAIN first column indentation when aligning columns (2026-01-31).
+- Frontend: render EXPLAIN diffs side-by-side (2026-01-31).
+- Frontend: align EXPLAIN columns without tree lines affecting widths; render diffs in a two-column table (2026-01-31).
+- Frontend: keep tree lines splittable for column alignment; hide unchanged EXPLAIN diff lines by default (2026-01-31).
+- Frontend: align EXPLAIN content using tab-separated columns in text output (2026-01-31).
+- Frontend: align Expected/Actual EXPLAIN headings by pairing blocks in a two-column grid (2026-01-31).
+- Frontend: wrap EXPLAIN diff tables to avoid clipping and enable horizontal scroll (2026-01-31).
+- Frontend: pair add/del lines in EXPLAIN diffs and increase diff contrast (2026-01-31).
+- Frontend: widen EXPLAIN diff tables to split columns evenly (2026-01-31).
+- Frontend: make paired blocks span the full grid width for diff readability (2026-01-31).
+- Frontend: keep diff blocks in the left two columns so data stays in the right column (2026-01-31).
+- Frontend: switch EXPLAIN diff rendering to react-diff-viewer-continued (2026-01-31).
+- Frontend: move diff blocks to a full-width row below the three-column layout (2026-01-31).
+- Frontend: move schema/data to the left column and render data before schema (2026-01-31).
+- Frontend: render schema.sql without formatting and tighten block spacing (2026-01-31).
+- Frontend: tune diff viewer (diffWordsWithSpace, word-level highlights, context lines) (2026-01-31).
+- Frontend: render schema above data in the left column (2026-01-31).
+- Frontend: split Expected/Actual rows above EXPLAIN blocks, then diff below (2026-01-31).
+- Frontend: stack meta (schema/data) above Expected/Actual rows, then diff at the bottom (2026-01-31).
+- Frontend: cap report content width for readability (2026-01-31).
+- Frontend: fold schema.sql by default (2026-01-31).
