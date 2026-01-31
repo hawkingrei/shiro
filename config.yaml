@@ -74,6 +74,7 @@ weights:
   oracles:
     norec: 10
     tlp: 10
+    eet: 5
     dqp: 10
     coddtest: 2
     dqe: 10
@@ -112,6 +113,13 @@ oracles:
   impo_max_rows: 200
   impo_max_mutations: 64
   impo_timeout_ms: 5000
+  eet_rewrites:
+    double_not: 4
+    and_true: 3
+    or_false: 3
+    numeric_identity: 2
+    string_identity: 2
+    date_identity: 2
 
 qpg:
   enabled: true

@@ -45,6 +45,8 @@ func (r *Runner) oracleWeightByName(name string) int {
 		return r.cfg.Weights.Oracles.NoREC
 	case "TLP":
 		return r.cfg.Weights.Oracles.TLP
+	case "EET":
+		return r.cfg.Weights.Oracles.EET
 	case "DQP":
 		return r.cfg.Weights.Oracles.DQP
 	case "CODDTest":

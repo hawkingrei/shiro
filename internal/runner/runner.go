@@ -147,6 +147,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		oracles: []oracle.Oracle{
 			oracle.NoREC{},
 			oracle.TLP{},
+			oracle.EET{},
 			oracle.DQP{},
 			oracle.CERT{MinBaseRows: cfg.Oracles.CertMinBaseRows},
 			oracle.CODDTest{},
