@@ -82,11 +82,7 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 
 func TestRewriteLiteralNumericIdentity(t *testing.T) {
 	expr := ast.NewValueExpr(5, "", "")
-	val, ok := expr.(ast.ValueExpr)
-	if !ok {
-		t.Fatalf("expected value expr, got: %T", expr)
-	}
-	next, ok := rewriteLiteralValue(val, eetRewriteNumericIdentity)
+	next, ok := rewriteLiteralValue(expr, eetRewriteNumericIdentity)
 	if !ok {
 		t.Fatalf("expected numeric identity rewrite")
 	}
@@ -98,11 +94,7 @@ func TestRewriteLiteralNumericIdentity(t *testing.T) {
 
 func TestRewriteLiteralStringIdentity(t *testing.T) {
 	expr := ast.NewValueExpr("x", "", "")
-	val, ok := expr.(ast.ValueExpr)
-	if !ok {
-		t.Fatalf("expected value expr, got: %T", expr)
-	}
-	next, ok := rewriteLiteralValue(val, eetRewriteStringIdentity)
+	next, ok := rewriteLiteralValue(expr, eetRewriteStringIdentity)
 	if !ok {
 		t.Fatalf("expected string identity rewrite")
 	}
