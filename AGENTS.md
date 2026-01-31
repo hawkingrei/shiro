@@ -35,3 +35,4 @@ Links:
 - Addressed EET review fixes (date rewrite form, parser driver imports, predicate target shuffle, doc TODO updates) (2026-01-30).
 - Loosened EET predicate guards (allow NOT/IS NULL) and raised DML/EXISTS subquery probabilities (2026-01-31).
 - Report UI formatting updates moved to docs/notes/summary.md (2026-01-31).
+- Web linting notes moved to docs/notes/feature.md (2026-01-31).

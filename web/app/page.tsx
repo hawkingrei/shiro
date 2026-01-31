@@ -207,7 +207,7 @@ export default function Page() {
       });
   }, []);
 
-  const cases = payload?.cases ?? [];
+  const cases = useMemo(() => payload?.cases ?? [], [payload]);
   const q = query.trim().toLowerCase();
 
   const oracleOptions = useMemo(() => {
