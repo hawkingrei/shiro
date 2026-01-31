@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs. (Previous review: 2026-01-30.)
+Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs.
 
 ## Generator / Oracles
 

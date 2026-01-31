@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"shiro/internal/db"
@@ -13,6 +14,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/format"
 	"github.com/pingcap/tidb/pkg/parser/opcode"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 
 	"shiro/internal/util"
 )
@@ -49,6 +51,14 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	}
 	if query.Where != nil && !predicateMatches(query.Where, policy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:predicate_guard"}}
+	}
+	if query.Having != nil && !predicateMatches(query.Having, policy) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:having_guard"}}
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && !predicateMatches(join.On, policy) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:on_guard"}}
+		}
 	}
 
 	baseSQL := query.SQLString()
@@ -132,7 +142,12 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 		return "", details, nil
 	}
 	details["rewrite"] = string(kind)
-	return restoreEETSQL(sel), details, nil
+	restored, err := restoreEETSQL(sel)
+	if err != nil {
+		details["error_reason"] = "eet:restore_error"
+		return "", details, err
+	}
+	return restored, details, nil
 }
 
 func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
@@ -169,12 +184,12 @@ func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator) (eet
 		return "", false
 	}
 	if kind == eetRewriteDoubleNot || kind == eetRewriteAndTrue || kind == eetRewriteOrFalse {
-		if rewriteBooleanPredicateInSelect(sel, kind) {
+		if rewriteBooleanPredicateInSelect(sel, kind, gen) {
 			return kind, true
 		}
 		return "", false
 	}
-	if rewriteLiteralPredicateInSelect(sel, kind) {
+	if rewriteLiteralPredicateInSelect(sel, kind, gen) {
 		return kind, true
 	}
 	return "", false
@@ -231,18 +246,22 @@ func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator) eetRewrit
 	return candidates[util.PickWeighted(gen.Rand, weightValues)]
 }
 
-func rewriteBooleanPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind) bool {
-	if sel.Where != nil {
-		sel.Where = rewritePredicate(sel.Where, kind)
+func rewriteBooleanPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind, gen *generator.Generator) bool {
+	targets := collectPredicateTargets(sel)
+	if len(targets) == 0 {
+		return false
+	}
+	var r *rand.Rand
+	if gen != nil {
+		r = gen.Rand
+	}
+	order := pickTargetOrder(targets, r)
+	for _, idx := range order {
+		target := targets[idx]
+		target.set(rewritePredicate(target.get(), kind))
 		return true
 	}
-	if sel.Having != nil && sel.Having.Expr != nil {
-		sel.Having.Expr = rewritePredicate(sel.Having.Expr, kind)
-		return true
-	}
-	return rewriteJoinOn(sel.From, func(expr ast.ExprNode) (ast.ExprNode, bool) {
-		return rewritePredicate(expr, kind), true
-	})
+	return false
 }
 
 func pickBooleanRewrite(gen *generator.Generator) eetRewriteKind {
@@ -268,31 +287,33 @@ func sumWeights(values []int) int {
 	return total
 }
 
-func rewriteLiteralPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind) bool {
-	if sel.Where != nil {
-		if next, ok := rewriteLiteralInExpr(sel.Where, kind); ok {
-			sel.Where = next
+func rewriteLiteralPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind, gen *generator.Generator) bool {
+	targets := collectPredicateTargets(sel)
+	if len(targets) == 0 {
+		return false
+	}
+	var r *rand.Rand
+	if gen != nil {
+		r = gen.Rand
+	}
+	order := pickTargetOrder(targets, r)
+	for _, idx := range order {
+		target := targets[idx]
+		if next, ok := rewriteLiteralInExpr(target.get(), kind); ok {
+			target.set(next)
 			return true
 		}
 	}
-	if sel.Having != nil && sel.Having.Expr != nil {
-		if next, ok := rewriteLiteralInExpr(sel.Having.Expr, kind); ok {
-			sel.Having.Expr = next
-			return true
-		}
-	}
-	return rewriteJoinOn(sel.From, func(expr ast.ExprNode) (ast.ExprNode, bool) {
-		return rewriteLiteralInExpr(expr, kind)
-	})
+	return false
 }
 
-func restoreEETSQL(node ast.Node) string {
+func restoreEETSQL(node ast.Node) (string, error) {
 	var b strings.Builder
 	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &b)
 	if err := node.Restore(ctx); err != nil {
-		return ""
+		return "", err
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 func signatureSQLFor(sqlText string, aliases []string) string {
@@ -644,12 +665,108 @@ func rewriteLiteralValue(expr ast.ValueExpr, kind eetRewriteKind) (ast.ExprNode,
 			Args: []ast.ExprNode{
 				expr,
 				ast.NewValueExpr(0, "", ""),
-				&ast.TimeUnitExpr{Unit: ast.TimeUnitDay},
 			},
 		}, true
 	default:
 		return expr, false
 	}
+}
+
+type predicateTarget struct {
+	get func() ast.ExprNode
+	set func(ast.ExprNode)
+}
+
+func collectPredicateTargets(sel *ast.SelectStmt) []predicateTarget {
+	var targets []predicateTarget
+	if sel == nil {
+		return targets
+	}
+	if sel.Where != nil {
+		targets = append(targets, predicateTarget{
+			get: func() ast.ExprNode { return sel.Where },
+			set: func(expr ast.ExprNode) { sel.Where = expr },
+		})
+	}
+	if sel.Having != nil && sel.Having.Expr != nil {
+		targets = append(targets, predicateTarget{
+			get: func() ast.ExprNode { return sel.Having.Expr },
+			set: func(expr ast.ExprNode) { sel.Having.Expr = expr },
+		})
+	}
+	targets = append(targets, collectJoinTargets(sel.From)...)
+	return targets
+}
+
+func collectJoinTargets(from *ast.TableRefsClause) []predicateTarget {
+	if from == nil || from.TableRefs == nil {
+		return nil
+	}
+	return collectJoinTargetsResultSet(from.TableRefs)
+}
+
+func collectJoinTargetsResultSet(node ast.ResultSetNode) []predicateTarget {
+	switch v := node.(type) {
+	case *ast.Join:
+		var targets []predicateTarget
+		if v.On != nil && v.On.Expr != nil {
+			on := v.On
+			targets = append(targets, predicateTarget{
+				get: func() ast.ExprNode { return on.Expr },
+				set: func(expr ast.ExprNode) { on.Expr = expr },
+			})
+		}
+		targets = append(targets, collectJoinTargetsResultSet(v.Left)...)
+		if v.Right != nil {
+			targets = append(targets, collectJoinTargetsResultSet(v.Right)...)
+		}
+		return targets
+	case *ast.TableSource:
+		switch src := v.Source.(type) {
+		case *ast.Join:
+			return collectJoinTargetsResultSet(src)
+		case *ast.SelectStmt:
+			return collectPredicateTargets(src)
+		case *ast.SetOprStmt:
+			return collectSetOprTargets(src)
+		default:
+			return nil
+		}
+	default:
+		return nil
+	}
+}
+
+func collectSetOprTargets(stmt *ast.SetOprStmt) []predicateTarget {
+	if stmt == nil || stmt.SelectList == nil {
+		return nil
+	}
+	var targets []predicateTarget
+	for _, sel := range stmt.SelectList.Selects {
+		switch v := sel.(type) {
+		case *ast.SelectStmt:
+			targets = append(targets, collectPredicateTargets(v)...)
+		case *ast.SetOprStmt:
+			targets = append(targets, collectSetOprTargets(v)...)
+		}
+	}
+	return targets
+}
+
+func pickTargetOrder(targets []predicateTarget, r *rand.Rand) []int {
+	count := len(targets)
+	order := make([]int, count)
+	for i := 0; i < count; i++ {
+		order[i] = i
+	}
+	if count <= 1 || r == nil {
+		return order
+	}
+	for i := count - 1; i > 0; i-- {
+		j := r.Intn(i + 1)
+		order[i], order[j] = order[j], order[i]
+	}
+	return order
 }
 
 func rewriteJoinOn(from *ast.TableRefsClause, rewrite func(ast.ExprNode) (ast.ExprNode, bool)) bool {

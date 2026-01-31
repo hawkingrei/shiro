@@ -51,6 +51,6 @@ These are three-valued logic safe and do not change predicate semantics.
 Good at catching optimizer bugs in predicate evaluation and simplification without relying on query-shape constraints.
 
 ## TODO
-- Extend rewrites to `HAVING` and `JOIN ON` conditions.
-- Add type-aware expression rewrites (e.g., numeric/boolean identities).
-- Consider safe rewrites involving `IS TRUE/FALSE` and `CASE` once guardrails are in place.
+- Expand rewrite set beyond current boolean and literal identities (e.g., arithmetic simplifications, predicate normalization).
+- Broaden type-aware expression rewrites to non-literal expressions with schema-aware type inference.
+- Consider safe rewrites involving `IS TRUE/FALSE` and `CASE` within existing guardrails.

@@ -31,3 +31,4 @@ Links:
 - Expanded EET to cover HAVING/JOIN ON and added type-aware literal identities (2026-01-30).
 - Added weighted EET rewrite selection to tune boolean vs literal identities (2026-01-30).
 - Added TODO to track EET rewrite coverage logging needs (2026-01-30).
+- Addressed EET review fixes (date rewrite form, parser driver imports, predicate target shuffle, doc TODO updates) (2026-01-30).
