@@ -89,38 +89,6 @@ const formatSQL = (sql: string) => {
   }
 };
 
-const isExplainTreeLine = (line: string): boolean => {
-  if (!line) return false;
-  if (/^[\s│├└┌┐─┬┼]+/.test(line)) return true;
-  if (line.includes("->")) return true;
-  return false;
-};
-
-const splitExplainLine = (line: string): string[] => {
-  if (!line) return [""];
-  if (line.includes("\t")) {
-    const match = line.match(/^(\s*)(.*)$/);
-    const prefix = match ? match[1] : "";
-    const rest = match ? match[2] : line;
-    const parts = rest.split(/\t+/).map((part) => part.trim());
-    if (parts.length > 0) {
-      parts[0] = prefix + parts[0];
-    }
-    return parts;
-  }
-  if (/\s{2,}/.test(line)) {
-    const match = line.match(/^(\s*)(.*)$/);
-    const prefix = match ? match[1] : "";
-    const rest = match ? match[2] : line;
-    const parts = rest.trim().split(/\s{2,}/);
-    if (parts.length > 0) {
-      parts[0] = prefix + parts[0];
-    }
-    return parts;
-  }
-  return [line.trim()];
-};
-
 const formatExplain = (text: string) => {
   if (!text.trim()) return text;
   const lines = text.replace(/\r/g, "").split("\n");
@@ -424,7 +392,7 @@ export default function Page() {
                       oldValue={optimizedDiff.oldValue}
                       newValue={optimizedDiff.newValue}
                       splitView
-                      showDiffOnly
+                      showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
                       compareMethod="diffWordsWithSpace"
                       disableWordDiff={false}
@@ -444,7 +412,7 @@ export default function Page() {
                       oldValue={expectedActualDiff.oldValue}
                       newValue={expectedActualDiff.newValue}
                       splitView
-                      showDiffOnly
+                      showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
                       compareMethod="diffWordsWithSpace"
                       disableWordDiff={false}
@@ -594,8 +562,8 @@ export default function Page() {
                 )}
                 {diffBlocks.length > 0 && (
                   <div className="case__diffs">
-                    {diffBlocks.map((block) => (
-                      <div className="case__block" key={block.label}>
+                    {diffBlocks.map((block, idx) => (
+                      <div className="case__block" key={`${block.label}-${idx}`}>
                         <LabelRow
                           label={block.label}
                           onCopy={block.copyText ? () => copyText(block.label, block.copyText || "") : undefined}

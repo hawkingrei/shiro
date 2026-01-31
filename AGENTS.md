@@ -36,3 +36,4 @@ Links:
 - Loosened EET predicate guards (allow NOT/IS NULL) and raised DML/EXISTS subquery probabilities (2026-01-31).
 - Report UI formatting updates moved to docs/notes/summary.md (2026-01-31).
 - Web linting notes moved to docs/notes/feature.md (2026-01-31).
+- CI linting updates are tracked in docs/notes/feature.md (2026-01-31).

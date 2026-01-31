@@ -8,3 +8,4 @@
 
 ## Web linting
 - Added ESLint flat config using `eslint-config-next` and wired `npm run lint` to `eslint .`.
+- Added CI step to run `npm run lint` in `web`.
