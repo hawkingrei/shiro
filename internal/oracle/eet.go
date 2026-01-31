@@ -28,10 +28,17 @@ type EET struct{}
 // Name returns the oracle identifier.
 func (o EET) Name() string { return "EET" }
 
+func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
+	policy := predicatePolicyFor(gen)
+	policy.allowNot = true
+	policy.allowIsNull = true
+	return policy
+}
+
 // Run builds a query, applies an equivalent predicate rewrite, and compares
 // signatures for mismatches.
 func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
-	policy := predicatePolicyFor(gen)
+	policy := eetPredicatePolicy(gen)
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireDeterministic().
 		DisallowSubquery().

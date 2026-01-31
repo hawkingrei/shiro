@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs.
+Last review: 2026-01-31. Loosened EET predicate guards and raised DML/EXISTS subquery probabilities.
 
 ## Generator / Oracles
 
@@ -12,7 +12,7 @@ Last review: 2026-01-30. Added weighted EET rewrite selection and config knobs.
 4. Consider making `CTECountMax` configurable for resource-sensitive runs.
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
-7. Improve EXISTS/NOT EXISTS coverage; DMLSubqueryProb=60 did not raise exists/not_exists counters, consider tuning PredicateExistsProb or adding DQE-specific EXISTS forcing.
+7. Improve EXISTS/NOT EXISTS coverage; validate whether DMLSubqueryProb=30 and PredicateExistsProb=60 move the counters, otherwise add DQE-specific EXISTS forcing.
 8. EET: add broader expression-level rewrites with schema-aware type inference and safety checks.
 9. EET: add per-rewrite skip reason counters and coverage logging to validate weighting.
 

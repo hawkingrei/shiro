@@ -22,8 +22,8 @@ Links:
 - Fixed JOIN ON scope validation, added CERT scope checks, and updated tests (2026-01-30).
 - TLP: added error_reason/whitelist skips, fixed UNION/ORDER BY 1221, rewrote USING to ON with column qualification, removed unused helpers, and updated tests/logging (2026-01-30).
 - CERT sampling: removed weight config, fixed sampling at a constant rate, added sampling ratio logs, and refined bandit/lock handling with safe fallbacks (2026-01-30).
-- DQP: treat LEADING mismatches as TiDB bugs; enabled subqueries (including EXISTS/NOT EXISTS and IN/NOT IN) (2026-01-30).
-- EXISTS metrics: regex matching for whitespace/newlines; DML subquery probability tuned to 30 with TODO to improve EXISTS/NOT EXISTS coverage (2026-01-30).
+- DQP: treat LEADING mismatches as TiDB bugs; subqueries remain disabled via oracle overrides (2026-01-30).
+- EXISTS metrics: regex matching for whitespace/newlines; TODO to improve EXISTS/NOT EXISTS coverage (2026-01-30).
 - Reviewed logs/reports, captured CERT/TLP/DQP examples, and fixed PR description line breaks (2026-01-30).
 - Ran `go test ./...` (2026-01-29, 2026-01-30).
 - Added paper notes: EET and SQLancer++ summaries under docs (2026-01-30).
@@ -32,3 +32,4 @@ Links:
 - Added weighted EET rewrite selection to tune boolean vs literal identities (2026-01-30).
 - Added TODO to track EET rewrite coverage logging needs (2026-01-30).
 - Addressed EET review fixes (date rewrite form, parser driver imports, predicate target shuffle, doc TODO updates) (2026-01-30).
+- Loosened EET predicate guards (allow NOT/IS NULL) and raised DML/EXISTS subquery probabilities (2026-01-31).
