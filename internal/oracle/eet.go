@@ -136,20 +136,6 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 	return restoreEETSQL(sel), details, nil
 }
 
-func pickEETRewrite(gen *generator.Generator) eetRewriteKind {
-	if gen == nil {
-		return eetRewriteDoubleNot
-	}
-	switch gen.Rand.Intn(3) {
-	case 0:
-		return eetRewriteDoubleNot
-	case 1:
-		return eetRewriteAndTrue
-	default:
-		return eetRewriteOrFalse
-	}
-}
-
 func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
 	if expr == nil {
 		return nil
