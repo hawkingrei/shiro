@@ -37,3 +37,6 @@ Links:
 - Report UI formatting updates moved to docs/notes/summary.md (2026-01-31).
 - Web linting notes moved to docs/notes/feature.md (2026-01-31).
 - CI linting updates are tracked in docs/notes/feature.md (2026-01-31).
+- Generator randomness updates are tracked in docs/notes/feature.md (2026-01-31).
+- TQS randomValue date/time randomness updates are tracked in docs/notes/feature.md (2026-01-31).
+- Date sample reuse for predicate equality is tracked in docs/notes/feature.md (2026-01-31).

@@ -9,3 +9,8 @@
 ## Web linting
 - Added ESLint flat config using `eslint-config-next` and wired `npm run lint` to `eslint .`.
 - Added CI step to run `npm run lint` in `web`.
+
+## Generator randomness
+- Randomized DATE/DATETIME/TIMESTAMP literals across year/month/day and full time range (2023-2026), with leap-year aware day bounds.
+- TQS randomValue now uses the same broader date/time range with leap-year handling.
+- DATE/DATETIME/TIMESTAMP equality predicates prefer sampled INSERT values to keep match rates after randomization.

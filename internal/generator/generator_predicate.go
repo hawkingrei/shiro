@@ -111,7 +111,7 @@ func (g *Generator) GenerateSimpleColumnLiteralPredicate(tables []schema.Table) 
 		return BinaryExpr{
 			Left:  ColumnExpr{Ref: col},
 			Op:    g.pickComparison(),
-			Right: g.literalForColumn(schema.Column{Type: col.Type}),
+			Right: g.literalForColumnRef(col),
 		}
 	}
 	return nil
@@ -129,7 +129,7 @@ func (g *Generator) generateComparableColumnPredicate(tables []schema.Table) Exp
 		return BinaryExpr{
 			Left:  ColumnExpr{Ref: col},
 			Op:    g.pickComparison(),
-			Right: g.literalForColumn(schema.Column{Type: col.Type}),
+			Right: g.literalForColumnRef(col),
 		}
 	}
 	return nil

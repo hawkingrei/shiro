@@ -32,6 +32,7 @@ type Generator struct {
 	minJoinTables       int
 	predicateMode       PredicateMode
 	disallowScalarSubq  bool
+	dateSamples         map[string]map[string][]string
 }
 
 // PredicateMode controls predicate generation.

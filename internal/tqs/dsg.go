@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"shiro/internal/config"
+	"shiro/internal/generator"
 	"shiro/internal/oracle/groundtruth"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 // BuildResult contains DSG schema/data plus ground-truth bitmaps.
@@ -367,6 +369,13 @@ func randomValueType(r *rand.Rand) schema.ColumnType {
 	return types[r.Intn(len(types))]
 }
 
+func randomDateParts(r *rand.Rand) (year int, month int, day int) {
+	year = util.RandIntRange(r, generator.DateYearMin, generator.DateYearMax)
+	month = util.RandIntRange(r, 1, 12)
+	day = util.RandIntRange(r, 1, util.DaysInMonth(year, month))
+	return year, month, day
+}
+
 func pickKeyType(r *rand.Rand) schema.ColumnType {
 	types := []schema.ColumnType{
 		schema.TypeInt,
@@ -388,9 +397,14 @@ func randomValue(r *rand.Rand, t schema.ColumnType) any {
 	case schema.TypeVarchar:
 		return fmt.Sprintf("s%d", r.Intn(1000))
 	case schema.TypeDate:
-		return time.Date(2024, time.Month(r.Intn(12)+1), r.Intn(28)+1, 0, 0, 0, 0, time.UTC)
+		year, month, day := randomDateParts(r)
+		return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	case schema.TypeDatetime, schema.TypeTimestamp:
-		return time.Date(2024, time.Month(r.Intn(12)+1), r.Intn(28)+1, r.Intn(24), r.Intn(60), r.Intn(60), 0, time.UTC)
+		year, month, day := randomDateParts(r)
+		hour := util.RandIntRange(r, 0, 23)
+		minute := util.RandIntRange(r, 0, 59)
+		second := util.RandIntRange(r, 0, 59)
+		return time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
 	case schema.TypeBool:
 		return r.Intn(2) == 0
 	default:
