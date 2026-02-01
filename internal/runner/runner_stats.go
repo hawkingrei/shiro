@@ -394,7 +394,7 @@ func (r *Runner) startStatsLogger() func() {
 				for k, v := range r.subqueryDisallowReasons {
 					subqueryDisallowReasons[k] = v
 				}
-				subqueryOracleStats := make(map[string]subqueryOracleStats, len(r.subqueryOracleStats))
+				subqueryOracleStatsByName := make(map[string]subqueryOracleStats, len(r.subqueryOracleStats))
 				for name, stats := range r.subqueryOracleStats {
 					if stats == nil {
 						continue
@@ -414,7 +414,7 @@ func (r *Runner) startStatsLogger() func() {
 							return out
 						}(),
 					}
-					subqueryOracleStats[name] = copyStats
+					subqueryOracleStatsByName[name] = copyStats
 				}
 				impoSkipReasons := make(map[string]int64, len(r.impoSkipReasons))
 				for k, v := range r.impoSkipReasons {
@@ -628,14 +628,14 @@ func (r *Runner) startStatsLogger() func() {
 							formatTopJoinSigs(deltaSubqueryDisallowReasons, topOracleReasonsN),
 						)
 					}
-					if len(subqueryOracleStats) > 0 {
-						oracleNames := make([]string, 0, len(subqueryOracleStats))
-						for name := range subqueryOracleStats {
+					if len(subqueryOracleStatsByName) > 0 {
+						oracleNames := make([]string, 0, len(subqueryOracleStatsByName))
+						for name := range subqueryOracleStatsByName {
 							oracleNames = append(oracleNames, name)
 						}
 						sort.Strings(oracleNames)
 						for _, name := range oracleNames {
-							stats := subqueryOracleStats[name]
+							stats := subqueryOracleStatsByName[name]
 							prev := lastSubqueryOracleStats[name]
 							deltaAllowed := stats.allowed - prev.allowed
 							deltaDisallowed := stats.disallowed - prev.disallowed
@@ -680,7 +680,7 @@ func (r *Runner) startStatsLogger() func() {
 								)
 							}
 						}
-						lastSubqueryOracleStats = subqueryOracleStats
+						lastSubqueryOracleStats = subqueryOracleStatsByName
 					}
 					if deltaTruthMismatches > 0 {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)
