@@ -17,3 +17,6 @@
 
 ## Generator observability
 - Added subquery coverage logging (allowed/disabled/has/attempted/built/failed) plus disallow-reason stats per interval.
+
+## EET oracle
+- Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"shiro/internal/generator"
+
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
@@ -87,6 +89,26 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 	}
 	if details["rewrite"] == nil {
 		t.Fatalf("expected rewrite detail")
+	}
+}
+
+func TestOrderByAllConstant(t *testing.T) {
+	orderBy := []generator.OrderBy{
+		{Expr: generator.LiteralExpr{Value: 1}},
+		{Expr: generator.BinaryExpr{
+			Left:  generator.LiteralExpr{Value: 1},
+			Op:    "+",
+			Right: generator.LiteralExpr{Value: 2},
+		}},
+	}
+	if !orderByAllConstant(orderBy) {
+		t.Fatalf("expected orderByAllConstant to be true")
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}},
+	}
+	if orderByAllConstant(orderBy) {
+		t.Fatalf("expected orderByAllConstant to be false")
 	}
 }
 

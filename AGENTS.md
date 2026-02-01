@@ -41,3 +41,4 @@ Links:
 - TQS randomValue date/time randomness updates are tracked in docs/notes/feature.md (2026-01-31).
 - Date sample reuse for predicate equality is tracked in docs/notes/feature.md (2026-01-31).
 - Subquery coverage logging and disallow-reason stats are tracked in docs/notes/feature.md (2026-02-01).
+- EET skips constant ORDER BY with LIMIT to avoid nondeterministic sampling (2026-02-01).
