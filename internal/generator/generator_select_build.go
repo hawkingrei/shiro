@@ -15,6 +15,19 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		return nil
 	}
 	g.resetPredicateStats()
+	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	subqueryDisallowReason := ""
+	if !allowSubquery {
+		if g.subqueryConstraintDisallow {
+			subqueryDisallowReason = "constraint:subquery"
+		} else if !g.Config.Features.Subqueries {
+			subqueryDisallowReason = "config:subqueries_off"
+		} else if g.disallowScalarSubq {
+			subqueryDisallowReason = "scalar_subquery_off"
+		} else {
+			subqueryDisallowReason = "subquery_disabled"
+		}
+	}
 
 	if !g.Config.TQS.Enabled {
 		if query := g.generateTemplateQuery(baseTables); query != nil {
@@ -24,11 +37,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			if !g.validateQueryScope(query) {
 				return nil
 			}
-			queryFeatures := AnalyzeQueryFeatures(query)
-			queryFeatures.ViewCount = g.countViewsInQuery(query)
-			queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
-			queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
-			g.LastFeatures = &queryFeatures
+			g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
 			return query
 		}
 	}
@@ -105,15 +114,27 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	if !g.validateQueryScope(query) {
 		return nil
 	}
-	queryFeatures := AnalyzeQueryFeatures(query)
-	queryFeatures.ViewCount = g.countViewsInQuery(query)
-	queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
-	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
-	g.LastFeatures = &queryFeatures
+	g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
 	return query
 }
 
 // (constraints-based builder is implemented in select_query_builder.go)
+
+func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subqueryDisallowReason string) {
+	if query == nil {
+		return
+	}
+	queryFeatures := AnalyzeQueryFeatures(query)
+	queryFeatures.ViewCount = g.countViewsInQuery(query)
+	queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
+	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
+	queryFeatures.SubqueryAllowed = allowSubquery
+	queryFeatures.SubqueryDisallowReason = subqueryDisallowReason
+	queryFeatures.SubqueryAttempts = g.subqueryAttempts
+	queryFeatures.SubqueryBuilt = g.subqueryBuilt
+	queryFeatures.SubqueryFailed = g.subqueryFailed
+	g.LastFeatures = &queryFeatures
+}
 
 func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []schema.Table) []OrderBy {
 	if query == nil {

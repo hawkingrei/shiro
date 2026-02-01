@@ -39,6 +39,7 @@ type Summary struct {
 	Expected            string         `json:"expected"`
 	Actual              string         `json:"actual"`
 	Error               string         `json:"error"`
+	Flaky               bool           `json:"flaky"`
 	Seed                int64          `json:"seed"`
 	PlanReplay          string         `json:"plan_replayer"`
 	UploadLocation      string         `json:"upload_location"`

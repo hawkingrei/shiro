@@ -12,14 +12,19 @@ type AdaptiveWeights struct {
 
 // QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
-	JoinCount     int
-	JoinTypeSeq   string
-	JoinGraphSig  string
-	HasSubquery   bool
-	HasAggregate  bool
-	ViewCount     int
-	PredicatePairsTotal int64
-	PredicatePairsJoin  int64
+	JoinCount              int
+	JoinTypeSeq            string
+	JoinGraphSig           string
+	HasSubquery            bool
+	HasAggregate           bool
+	ViewCount              int
+	PredicatePairsTotal    int64
+	PredicatePairsJoin     int64
+	SubqueryAllowed        bool
+	SubqueryDisallowReason string
+	SubqueryAttempts       int64
+	SubqueryBuilt          int64
+	SubqueryFailed         int64
 }
 
 // AnalyzeQueryFeatures summarizes a query for feature tracking.

@@ -11,8 +11,10 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 		allowSubquery = false
 	}
 	if allowSubquery && subqDepth > 0 && util.Chance(g.Rand, g.subqCount()*PredicateSubqueryScale) {
+		g.subqueryAttempts++
 		sub := g.GenerateSubquery(tables, subqDepth-1)
 		if sub != nil {
+			g.subqueryBuilt++
 			if util.Chance(g.Rand, PredicateExistsProb) {
 				existsSub := g.generateExistsSubquery(tables, subqDepth-1)
 				if existsSub != nil {
@@ -46,6 +48,7 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 			}
 			return expr
 		}
+		g.subqueryFailed++
 	}
 	if depth <= 0 {
 		left, right := g.generateComparablePair(tables, allowSubquery, subqDepth)

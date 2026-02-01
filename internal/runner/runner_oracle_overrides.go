@@ -26,10 +26,10 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 	}
 
 	cfg := origCfg
+	allowSubquery := name != "DQP" && name != "TLP"
 	switch name {
 	case "GroundTruth":
 		cfg.Features.CTE = false
-		cfg.Features.Subqueries = false
 		cfg.Features.Aggregates = false
 		cfg.Features.GroupBy = false
 		cfg.Features.Having = false
@@ -37,8 +37,6 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.OrderBy = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
 		r.gen.SetPredicateMode(generator.PredicateModeNone)
 		r.gen.SetJoinTypeOverride(generator.JoinInner)
 		r.gen.SetMinJoinTables(2)
@@ -47,7 +45,6 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetDisallowScalarSubquery(true)
 	case "NoREC":
 		cfg.Features.CTE = false
-		cfg.Features.Subqueries = false
 		cfg.Features.Aggregates = false
 		cfg.Features.GroupBy = false
 		cfg.Features.Having = false
@@ -55,8 +52,6 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.OrderBy = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
 		r.gen.SetPredicateMode(generator.PredicateModeSimple)
 	case "TLP":
 		cfg.Features.CTE = false
@@ -88,6 +83,11 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		return restore
 	}
 
+	if allowSubquery {
+		cfg.Features.Subqueries = true
+		cfg.Features.NotExists = true
+		cfg.Features.NotIn = true
+	}
 	r.gen.Config = cfg
 	return restore
 }

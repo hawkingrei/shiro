@@ -92,10 +92,12 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	origMode := b.gen.PredicateMode()
 	origSubqueries := b.gen.Config.Features.Subqueries
 	origDisallowScalar := b.gen.DisallowScalarSubquery()
+	origDisallowConstraint := b.gen.subqueryConstraintDisallow
 	if c.PredicateMode != PredicateModeDefault {
 		b.gen.SetPredicateMode(c.PredicateMode)
 	}
 	if c.DisallowSubquery {
+		b.gen.subqueryConstraintDisallow = true
 		b.gen.Config.Features.Subqueries = false
 		b.gen.SetDisallowScalarSubquery(true)
 	}
@@ -103,6 +105,7 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 		b.gen.SetPredicateMode(origMode)
 		b.gen.Config.Features.Subqueries = origSubqueries
 		b.gen.SetDisallowScalarSubquery(origDisallowScalar)
+		b.gen.subqueryConstraintDisallow = origDisallowConstraint
 	}()
 
 	lastReason := ""

@@ -11,28 +11,32 @@ import (
 
 // Generator creates SQL statements based on schema state.
 type Generator struct {
-	Rand                *rand.Rand
-	Config              config.Config
-	State               *schema.State
-	Adaptive            *AdaptiveWeights
-	Template            *TemplateWeights
-	LastFeatures        *QueryFeatures
-	Seed                int64
-	Truth               any
-	TQSWalker           TQSWalker
-	tableSeq            int
-	viewSeq             int
-	indexSeq            int
-	constraintSeq       int
-	maxDepth            int
-	maxSubqDepth        int
-	predicatePairsTotal int64
-	predicatePairsJoin  int64
-	joinTypeOverride    *JoinType
-	minJoinTables       int
-	predicateMode       PredicateMode
-	disallowScalarSubq  bool
-	dateSamples         map[string]map[string][]string
+	Rand                       *rand.Rand
+	Config                     config.Config
+	State                      *schema.State
+	Adaptive                   *AdaptiveWeights
+	Template                   *TemplateWeights
+	LastFeatures               *QueryFeatures
+	Seed                       int64
+	Truth                      any
+	TQSWalker                  TQSWalker
+	tableSeq                   int
+	viewSeq                    int
+	indexSeq                   int
+	constraintSeq              int
+	maxDepth                   int
+	maxSubqDepth               int
+	predicatePairsTotal        int64
+	predicatePairsJoin         int64
+	subqueryAttempts           int64
+	subqueryBuilt              int64
+	subqueryFailed             int64
+	joinTypeOverride           *JoinType
+	minJoinTables              int
+	predicateMode              PredicateMode
+	disallowScalarSubq         bool
+	subqueryConstraintDisallow bool
+	dateSamples                map[string]map[string][]string
 }
 
 // PredicateMode controls predicate generation.
@@ -180,6 +184,9 @@ func (g *Generator) SetTQSWalker(history TQSWalker) {
 func (g *Generator) resetPredicateStats() {
 	g.predicatePairsTotal = 0
 	g.predicatePairsJoin = 0
+	g.subqueryAttempts = 0
+	g.subqueryBuilt = 0
+	g.subqueryFailed = 0
 }
 
 func (g *Generator) trackPredicatePair(fromJoinGraph bool) {

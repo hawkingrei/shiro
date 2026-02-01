@@ -32,6 +32,7 @@ func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
 	policy.allowIsNull = true
+	policy.allowSubquery = true
 	return policy
 }
 
@@ -41,7 +42,6 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	policy := eetPredicatePolicy(gen)
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireDeterministic().
-		DisallowSubquery().
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
 		}).
@@ -66,6 +66,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 		if join.On != nil && !predicateMatches(join.On, policy) {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:on_guard"}}
 		}
+	}
+	if query.Limit != nil && orderByAllConstant(query.OrderBy) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
 	}
 
 	baseSQL := query.SQLString()
@@ -155,6 +158,62 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 		return "", details, err
 	}
 	return restored, details, nil
+}
+
+func orderByAllConstant(orderBy []generator.OrderBy) bool {
+	if len(orderBy) == 0 {
+		return false
+	}
+	for _, ob := range orderBy {
+		if !exprIsConstant(ob.Expr) {
+			return false
+		}
+	}
+	return true
+}
+
+func exprIsConstant(expr generator.Expr) bool {
+	switch v := expr.(type) {
+	case generator.LiteralExpr, generator.ParamExpr:
+		return true
+	case generator.ColumnExpr:
+		return false
+	case generator.SubqueryExpr, generator.ExistsExpr, generator.WindowExpr:
+		return false
+	case generator.UnaryExpr:
+		return exprIsConstant(v.Expr)
+	case generator.BinaryExpr:
+		return exprIsConstant(v.Left) && exprIsConstant(v.Right)
+	case generator.FuncExpr:
+		for _, arg := range v.Args {
+			if !exprIsConstant(arg) {
+				return false
+			}
+		}
+		return true
+	case generator.CaseExpr:
+		for _, w := range v.Whens {
+			if !exprIsConstant(w.When) || !exprIsConstant(w.Then) {
+				return false
+			}
+		}
+		if v.Else != nil {
+			return exprIsConstant(v.Else)
+		}
+		return true
+	case generator.InExpr:
+		if !exprIsConstant(v.Left) {
+			return false
+		}
+		for _, item := range v.List {
+			if !exprIsConstant(item) {
+				return false
+			}
+		}
+		return true
+	default:
+		return len(expr.Columns()) == 0
+	}
 }
 
 func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {

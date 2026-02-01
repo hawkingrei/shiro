@@ -40,3 +40,12 @@ Links:
 - Generator randomness updates are tracked in docs/notes/feature.md (2026-01-31).
 - TQS randomValue date/time randomness updates are tracked in docs/notes/feature.md (2026-01-31).
 - Date sample reuse for predicate equality is tracked in docs/notes/feature.md (2026-01-31).
+- Subquery coverage logging and disallow-reason stats are tracked in docs/notes/feature.md (2026-02-01).
+- EET skips constant ORDER BY with LIMIT to avoid nondeterministic sampling (2026-02-01).
+- Enabled subqueries for non-DQP/TLP oracles via runner overrides (2026-02-01).
+- Enabled NOT EXISTS/NOT IN for non-DQP/TLP oracles via runner overrides (2026-02-01).
+- Relaxed EET/CODDTest builder subquery constraints and raised PredicateExistsProb to 90 (2026-02-01).
+- Added per-oracle subquery coverage logs to avoid DQP/TLP override confusion (2026-02-01).
+- Raised PredicateSubqueryScale/PredicateExistsProb and allowed EET predicate subqueries (2026-02-01).
+- Added IN(subquery)/NOT IN(subquery) counters to interval logs (2026-02-01).
+- Added flaky tag for cases with matching EXPLAIN plans but signature mismatches (2026-02-01).

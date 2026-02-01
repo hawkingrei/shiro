@@ -47,6 +47,7 @@ type CaseEntry struct {
 	Expected            string                 `json:"expected"`
 	Actual              string                 `json:"actual"`
 	Error               string                 `json:"error"`
+	Flaky               bool                   `json:"flaky"`
 	NoRECOptimizedSQL   string                 `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL string                 `json:"norec_unoptimized_sql"`
 	NoRECPredicate      string                 `json:"norec_predicate"`
@@ -175,6 +176,7 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 		Expected:            summary.Expected,
 		Actual:              summary.Actual,
 		Error:               summary.Error,
+		Flaky:               summary.Flaky,
 		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
 		NoRECPredicate:      summary.NoRECPredicate,
