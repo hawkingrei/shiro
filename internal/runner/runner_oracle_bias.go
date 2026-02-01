@@ -34,6 +34,8 @@ func (r *Runner) applyOracleBias(oracleName string) func() {
 	if !applied {
 		return nil
 	}
+	// Apply a scoped override for the current oracle execution.
+	// The returned closure restores the previous adaptive weights (or clears them).
 	r.setAdaptiveWeights(weights)
 	if snapshot == nil {
 		return r.clearAdaptiveWeights
