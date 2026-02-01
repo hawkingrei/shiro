@@ -42,3 +42,4 @@ Links:
 - Date sample reuse for predicate equality is tracked in docs/notes/feature.md (2026-01-31).
 - Subquery coverage logging and disallow-reason stats are tracked in docs/notes/feature.md (2026-02-01).
 - EET skips constant ORDER BY with LIMIT to avoid nondeterministic sampling (2026-02-01).
+- Enabled subqueries for non-DQP/TLP oracles via runner overrides (2026-02-01).

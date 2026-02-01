@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Added subquery coverage logging and EET ORDER BY guard notes to docs/notes/feature.md.
+Last review: 2026-02-01. Enabled subqueries for non-DQP/TLP oracles.
 
 ## Generator / Oracles
 
