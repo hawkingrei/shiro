@@ -43,3 +43,4 @@ Links:
 - Subquery coverage logging and disallow-reason stats are tracked in docs/notes/feature.md (2026-02-01).
 - EET skips constant ORDER BY with LIMIT to avoid nondeterministic sampling (2026-02-01).
 - Enabled subqueries for non-DQP/TLP oracles via runner overrides (2026-02-01).
+- Enabled NOT EXISTS/NOT IN for non-DQP/TLP oracles via runner overrides (2026-02-01).

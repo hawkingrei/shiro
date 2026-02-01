@@ -85,6 +85,8 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 
 	if allowSubquery {
 		cfg.Features.Subqueries = true
+		cfg.Features.NotExists = true
+		cfg.Features.NotIn = true
 	}
 	r.gen.Config = cfg
 	return restore
