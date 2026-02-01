@@ -20,3 +20,7 @@
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.
+- Relaxed EET/CODDTest builder subquery constraint; predicates still gate subquery forms.
+
+## Generator tuning
+- Slightly increased PredicateExistsProb to raise EXISTS coverage.

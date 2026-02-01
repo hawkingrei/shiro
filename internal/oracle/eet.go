@@ -41,7 +41,6 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	policy := eetPredicatePolicy(gen)
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireDeterministic().
-		DisallowSubquery().
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
 		}).

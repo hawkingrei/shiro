@@ -54,7 +54,6 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		RequireWhere().
 		PredicateMode(generator.PredicateModeSimple).
 		RequireDeterministic().
-		DisallowSubquery().
 		DisallowAggregate().
 		MaxJoinCount(0).
 		QueryGuard(func(query *generator.SelectQuery) bool {

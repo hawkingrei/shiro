@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Enabled subqueries/NOT EXISTS/NOT IN for non-DQP/TLP oracles.
+Last review: 2026-02-01. Raised PredicateExistsProb and relaxed EET/CODDTest subquery constraints.
 
 ## Generator / Oracles
 

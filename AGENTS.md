@@ -44,3 +44,4 @@ Links:
 - EET skips constant ORDER BY with LIMIT to avoid nondeterministic sampling (2026-02-01).
 - Enabled subqueries for non-DQP/TLP oracles via runner overrides (2026-02-01).
 - Enabled NOT EXISTS/NOT IN for non-DQP/TLP oracles via runner overrides (2026-02-01).
+- Relaxed EET/CODDTest builder subquery constraints and raised PredicateExistsProb (2026-02-01).
