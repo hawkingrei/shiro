@@ -70,10 +70,11 @@ func (r *Runner) applyKQELiteWeights() bool {
 		return false
 	}
 	base := generator.AdaptiveWeights{
-		JoinCount:      r.cfg.Weights.Features.JoinCount,
-		SubqCount:      r.cfg.Weights.Features.SubqCount,
-		AggProb:        r.cfg.Weights.Features.AggProb,
-		GroupByOrdProb: generator.GroupByOrdinalBaseProb,
+		JoinCount:       r.cfg.Weights.Features.JoinCount,
+		SubqCount:       r.cfg.Weights.Features.SubqCount,
+		AggProb:         r.cfg.Weights.Features.AggProb,
+		IndexPrefixProb: r.cfg.Weights.Features.IndexPrefixProb,
+		GroupByOrdProb:  generator.GroupByOrdinalBaseProb,
 	}
 	if snapshot := r.adaptiveSnapshot(); snapshot != nil {
 		base = *snapshot
