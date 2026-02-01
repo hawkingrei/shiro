@@ -1016,15 +1016,20 @@ func predicateMatches(expr generator.Expr, policy predicatePolicy) bool {
 	case generator.ExistsExpr:
 		return policy.allowSubquery
 	case generator.InExpr:
-		if policy.allowSubquery {
-			for _, item := range e.List {
-				if _, ok := item.(generator.SubqueryExpr); !ok {
-					return false
-				}
+		hasSubquery := false
+		for _, item := range e.List {
+			if _, ok := item.(generator.SubqueryExpr); ok {
+				hasSubquery = true
+				continue
 			}
-			return isSimpleOperand(e.Left)
+			if !isSimpleOperand(item) {
+				return false
+			}
 		}
-		return false
+		if hasSubquery && !policy.allowSubquery {
+			return false
+		}
+		return isSimpleOperand(e.Left)
 	case generator.BinaryExpr:
 		op := strings.ToUpper(strings.TrimSpace(e.Op))
 		switch op {

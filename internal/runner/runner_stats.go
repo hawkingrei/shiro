@@ -410,20 +410,18 @@ func (r *Runner) startStatsLogger() func() {
 					if stats == nil {
 						continue
 					}
+					reasonsCopy := make(map[string]int64, len(stats.disallowReasons))
+					for k, v := range stats.disallowReasons {
+						reasonsCopy[k] = v
+					}
 					copyStats := subqueryOracleStats{
-						allowed:    stats.allowed,
-						disallowed: stats.disallowed,
-						has:        stats.has,
-						attempted:  stats.attempted,
-						built:      stats.built,
-						failed:     stats.failed,
-						disallowReasons: func() map[string]int64 {
-							out := make(map[string]int64, len(stats.disallowReasons))
-							for k, v := range stats.disallowReasons {
-								out[k] = v
-							}
-							return out
-						}(),
+						allowed:         stats.allowed,
+						disallowed:      stats.disallowed,
+						has:             stats.has,
+						attempted:       stats.attempted,
+						built:           stats.built,
+						failed:          stats.failed,
+						disallowReasons: reasonsCopy,
 					}
 					subqueryOracleStatsByName[name] = copyStats
 				}
