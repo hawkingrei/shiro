@@ -69,7 +69,7 @@ const (
 	// PredicateSubqueryScale multiplies subquery weight for predicate generation.
 	PredicateSubqueryScale = 5
 	// PredicateExistsProb is the chance to use EXISTS in predicate subquery.
-	PredicateExistsProb = 70
+	PredicateExistsProb = 80
 	// PredicateInListProb is the chance to use IN list instead of binary comparison.
 	PredicateInListProb = 20
 	// PredicateInListMax is the maximum IN list size.
