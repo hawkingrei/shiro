@@ -41,6 +41,16 @@ type oracleFunnel struct {
 	ErrorReasons map[string]int64
 }
 
+type subqueryOracleStats struct {
+	allowed         int64
+	disallowed      int64
+	has             int64
+	attempted       int64
+	built           int64
+	failed          int64
+	disallowReasons map[string]int64
+}
+
 func (r *Runner) observeSQL(sql string, err error) {
 	if strings.TrimSpace(sql) == "" {
 		return
@@ -76,7 +86,7 @@ func (r *Runner) observeJoinCountValue(joinCount int) {
 	r.joinCounts[joinCount]++
 }
 
-func (r *Runner) observeJoinSignature(features *generator.QueryFeatures) {
+func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleName string) {
 	if features == nil {
 		return
 	}
@@ -124,6 +134,29 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures) {
 	}
 	if features.SubqueryFailed > 0 {
 		r.subqueryFailed += features.SubqueryFailed
+	}
+	if oracleName != "" {
+		perOracle := r.subqueryOracleStats[oracleName]
+		if perOracle == nil {
+			perOracle = &subqueryOracleStats{
+				disallowReasons: make(map[string]int64),
+			}
+			r.subqueryOracleStats[oracleName] = perOracle
+		}
+		if features.SubqueryAllowed {
+			perOracle.allowed++
+		} else {
+			perOracle.disallowed++
+			if features.SubqueryDisallowReason != "" {
+				perOracle.disallowReasons[features.SubqueryDisallowReason]++
+			}
+		}
+		if features.HasSubquery {
+			perOracle.has++
+		}
+		perOracle.attempted += features.SubqueryAttempts
+		perOracle.built += features.SubqueryBuilt
+		perOracle.failed += features.SubqueryFailed
 	}
 }
 
@@ -310,6 +343,7 @@ func (r *Runner) startStatsLogger() func() {
 		var lastSubqueryBuilt int64
 		var lastSubqueryFailed int64
 		lastSubqueryDisallowReasons := make(map[string]int64)
+		lastSubqueryOracleStats := make(map[string]subqueryOracleStats)
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
 		lastImpoReasonTotals := make(map[string]int64)
@@ -359,6 +393,28 @@ func (r *Runner) startStatsLogger() func() {
 				subqueryDisallowReasons := make(map[string]int64, len(r.subqueryDisallowReasons))
 				for k, v := range r.subqueryDisallowReasons {
 					subqueryDisallowReasons[k] = v
+				}
+				subqueryOracleStats := make(map[string]subqueryOracleStats, len(r.subqueryOracleStats))
+				for name, stats := range r.subqueryOracleStats {
+					if stats == nil {
+						continue
+					}
+					copyStats := subqueryOracleStats{
+						allowed:    stats.allowed,
+						disallowed: stats.disallowed,
+						has:        stats.has,
+						attempted:  stats.attempted,
+						built:      stats.built,
+						failed:     stats.failed,
+						disallowReasons: func() map[string]int64 {
+							out := make(map[string]int64, len(stats.disallowReasons))
+							for k, v := range stats.disallowReasons {
+								out[k] = v
+							}
+							return out
+						}(),
+					}
+					subqueryOracleStats[name] = copyStats
 				}
 				impoSkipReasons := make(map[string]int64, len(r.impoSkipReasons))
 				for k, v := range r.impoSkipReasons {
@@ -571,6 +627,60 @@ func (r *Runner) startStatsLogger() func() {
 							topOracleReasonsN,
 							formatTopJoinSigs(deltaSubqueryDisallowReasons, topOracleReasonsN),
 						)
+					}
+					if len(subqueryOracleStats) > 0 {
+						oracleNames := make([]string, 0, len(subqueryOracleStats))
+						for name := range subqueryOracleStats {
+							oracleNames = append(oracleNames, name)
+						}
+						sort.Strings(oracleNames)
+						for _, name := range oracleNames {
+							stats := subqueryOracleStats[name]
+							prev := lastSubqueryOracleStats[name]
+							deltaAllowed := stats.allowed - prev.allowed
+							deltaDisallowed := stats.disallowed - prev.disallowed
+							deltaHas := stats.has - prev.has
+							deltaAttempted := stats.attempted - prev.attempted
+							deltaBuilt := stats.built - prev.built
+							deltaFailed := stats.failed - prev.failed
+							if deltaAllowed == 0 && deltaDisallowed == 0 && deltaHas == 0 && deltaAttempted == 0 && deltaBuilt == 0 && deltaFailed == 0 {
+								continue
+							}
+							missing := deltaAllowed - deltaHas
+							if missing < 0 {
+								missing = 0
+							}
+							util.Detailf(
+								"subquery oracle=%s last interval: allowed=%d disallowed=%d has=%d missing=%d attempted=%d built=%d failed=%d",
+								name,
+								deltaAllowed,
+								deltaDisallowed,
+								deltaHas,
+								missing,
+								deltaAttempted,
+								deltaBuilt,
+								deltaFailed,
+							)
+							deltaReasons := make(map[string]int64, len(stats.disallowReasons))
+							for reason, total := range stats.disallowReasons {
+								prevVal := int64(0)
+								if prevStats, ok := lastSubqueryOracleStats[name]; ok {
+									prevVal = prevStats.disallowReasons[reason]
+								}
+								if total-prevVal > 0 {
+									deltaReasons[reason] = total - prevVal
+								}
+							}
+							if len(deltaReasons) > 0 {
+								util.Detailf(
+									"subquery oracle=%s disallow_reasons last interval top=%d: %s",
+									name,
+									topOracleReasonsN,
+									formatTopJoinSigs(deltaReasons, topOracleReasonsN),
+								)
+							}
+						}
+						lastSubqueryOracleStats = subqueryOracleStats
 					}
 					if deltaTruthMismatches > 0 {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)

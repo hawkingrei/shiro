@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Raised PredicateExistsProb and relaxed EET/CODDTest subquery constraints.
+Last review: 2026-02-01. Added per-oracle subquery coverage logging.
 
 ## Generator / Oracles
 

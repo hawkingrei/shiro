@@ -73,6 +73,7 @@ type Runner struct {
 	subqueryBuilt           int64
 	subqueryFailed          int64
 	subqueryDisallowReasons map[string]int64
+	subqueryOracleStats     map[string]*subqueryOracleStats
 	truthMismatches         int64
 	qpgState                *qpgState
 	kqeState                *kqeState
@@ -145,6 +146,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinTypeSeqs:            make(map[string]int64),
 		joinGraphSigs:           make(map[string]int64),
 		subqueryDisallowReasons: make(map[string]int64),
+		subqueryOracleStats:     make(map[string]*subqueryOracleStats),
 		oracleStats:             make(map[string]*oracleFunnel),
 		baseActions:             cfg.Weights.Actions,
 		baseDMLWeights:          cfg.Weights.DML,
@@ -576,7 +578,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
-		r.observeJoinSignature(r.gen.LastFeatures)
+		r.observeJoinSignature(r.gen.LastFeatures, oracleName)
 		r.observeKQELite(r.gen.LastFeatures)
 	}
 	r.applyResultMetrics(result)
