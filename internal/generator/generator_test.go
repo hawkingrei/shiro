@@ -120,6 +120,43 @@ func TestCreateTablePartitionedSQL(t *testing.T) {
 	}
 }
 
+func TestGroupByOrdinalExprBuild(t *testing.T) {
+	expr := GroupByOrdinalExpr{
+		Ordinal: 2,
+		Expr:    ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+	}
+	var b SQLBuilder
+	expr.Build(&b)
+	if got := b.String(); got != "2" {
+		t.Fatalf("expected ordinal build, got: %s", got)
+	}
+
+	expr = GroupByOrdinalExpr{
+		Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1"}},
+	}
+	b = SQLBuilder{}
+	expr.Build(&b)
+	if got := b.String(); got != "t1.c1" {
+		t.Fatalf("expected expr build, got: %s", got)
+	}
+
+	assertPanic(t, func() {
+		empty := GroupByOrdinalExpr{}
+		var b SQLBuilder
+		empty.Build(&b)
+	})
+}
+
+func assertPanic(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic")
+		}
+	}()
+	fn()
+}
+
 func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
 	cfg, err := config.Load("../../config.yaml")
 	if err != nil {

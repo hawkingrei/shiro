@@ -72,7 +72,8 @@ type GroupByOrdinalExpr struct {
 	Expr    Expr
 }
 
-// Build emits the ordinal position for GROUP BY.
+// Build renders the expression. For GROUP BY clauses, it emits the ordinal position.
+// For other contexts, it renders the underlying expression.
 func (e GroupByOrdinalExpr) Build(b *SQLBuilder) {
 	if e.Ordinal > 0 {
 		b.Write(fmt.Sprintf("%d", e.Ordinal))
@@ -82,7 +83,7 @@ func (e GroupByOrdinalExpr) Build(b *SQLBuilder) {
 		e.Expr.Build(b)
 		return
 	}
-	b.Write("1")
+	panic("invalid GroupByOrdinalExpr: Ordinal and Expr are both zero/nil")
 }
 
 // Columns reports the column references used by the base expression.
