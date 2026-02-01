@@ -42,6 +42,8 @@ type Runner struct {
 	sqlNotEx                int64
 	sqlIn                   int64
 	sqlNotIn                int64
+	sqlInSubquery           int64
+	sqlNotInSubquery        int64
 	impoTotal               int64
 	impoSkips               int64
 	impoTrunc               int64

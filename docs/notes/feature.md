@@ -18,6 +18,7 @@
 ## Generator observability
 - Added subquery coverage logging (allowed/disabled/has/attempted/built/failed) plus disallow-reason stats per interval.
 - Added per-oracle subquery coverage logging to isolate DQP/TLP overrides.
+- Added IN(subquery)/NOT IN(subquery) counters in interval logs.
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.

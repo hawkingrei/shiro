@@ -18,6 +18,8 @@ var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
 var existsPattern = regexp.MustCompile(`(?i)\bEXISTS\b`)
 var notExistsPattern = regexp.MustCompile(`(?i)\bNOT\s+EXISTS\b`)
+var inSubqueryPattern = regexp.MustCompile(`(?i)\bIN\s*\(\s*SELECT\b`)
+var notInSubqueryPattern = regexp.MustCompile(`(?i)\bNOT\s+IN\s*\(\s*SELECT\b`)
 
 const topJoinSigN = 20
 const topOracleReasonsN = 10
@@ -60,12 +62,17 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
+		upper := strings.ToUpper(sql)
 		if notExistsPattern.MatchString(sql) {
 			r.sqlNotEx++
 		} else if existsPattern.MatchString(sql) {
 			r.sqlExists++
 		}
-		upper := strings.ToUpper(sql)
+		if notInSubqueryPattern.MatchString(upper) {
+			r.sqlNotInSubquery++
+		} else if inSubqueryPattern.MatchString(upper) {
+			r.sqlInSubquery++
+		}
 		if strings.Contains(upper, " NOT IN (") || notInWrappedPattern.MatchString(upper) {
 			r.sqlNotIn++
 		} else if strings.Contains(upper, " IN (") {
@@ -315,6 +322,8 @@ func (r *Runner) startStatsLogger() func() {
 		var lastNotEx int64
 		var lastIn int64
 		var lastNotIn int64
+		var lastInSubquery int64
+		var lastNotInSubquery int64
 		var lastImpoTotal int64
 		var lastImpoSkips int64
 		var lastImpoTrunc int64
@@ -362,6 +371,8 @@ func (r *Runner) startStatsLogger() func() {
 				notEx := r.sqlNotEx
 				inCount := r.sqlIn
 				notIn := r.sqlNotIn
+				inSubquery := r.sqlInSubquery
+				notInSubquery := r.sqlNotInSubquery
 				impoTotal := r.impoTotal
 				impoSkips := r.impoSkips
 				impoTrunc := r.impoTrunc
@@ -468,6 +479,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaNotEx := notEx - lastNotEx
 				deltaIn := inCount - lastIn
 				deltaNotIn := notIn - lastNotIn
+				deltaInSubquery := inSubquery - lastInSubquery
+				deltaNotInSubquery := notInSubquery - lastNotInSubquery
 				deltaImpoTotal := impoTotal - lastImpoTotal
 				deltaImpoSkips := impoSkips - lastImpoSkips
 				deltaImpoTrunc := impoTrunc - lastImpoTrunc
@@ -538,6 +551,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastNotEx = notEx
 				lastIn = inCount
 				lastNotIn = notIn
+				lastInSubquery = inSubquery
+				lastNotInSubquery = notInSubquery
 				lastImpoTotal = impoTotal
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
@@ -554,7 +569,7 @@ func (r *Runner) startStatsLogger() func() {
 					sqlValidRatio := float64(deltaValid) / float64(deltaTotal)
 					deltaInvalidSQL := deltaTotal - deltaValid
 					util.Infof(
-						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d",
+						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d",
 						deltaValid,
 						deltaTotal,
 						sqlValidRatio,
@@ -563,6 +578,8 @@ func (r *Runner) startStatsLogger() func() {
 						deltaNotEx,
 						deltaIn,
 						deltaNotIn,
+						deltaInSubquery,
+						deltaNotInSubquery,
 					)
 					var impoInvalidRatio float64
 					var impoBaseExecRatio float64
