@@ -40,3 +40,4 @@ Links:
 - Generator randomness updates are tracked in docs/notes/feature.md (2026-01-31).
 - TQS randomValue date/time randomness updates are tracked in docs/notes/feature.md (2026-01-31).
 - Date sample reuse for predicate equality is tracked in docs/notes/feature.md (2026-01-31).
+- Subquery coverage logging and disallow-reason stats are tracked in docs/notes/feature.md (2026-02-01).

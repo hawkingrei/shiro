@@ -102,6 +102,29 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures) {
 		r.predicatePairsTotal += features.PredicatePairsTotal
 		r.predicatePairsJoin += features.PredicatePairsJoin
 	}
+	if features.SubqueryAllowed {
+		r.subqueryAllowed++
+	} else {
+		r.subqueryDisallowed++
+		if features.SubqueryDisallowReason != "" {
+			if r.subqueryDisallowReasons == nil {
+				r.subqueryDisallowReasons = make(map[string]int64)
+			}
+			r.subqueryDisallowReasons[features.SubqueryDisallowReason]++
+		}
+	}
+	if features.HasSubquery {
+		r.subqueryHas++
+	}
+	if features.SubqueryAttempts > 0 {
+		r.subqueryAttempts += features.SubqueryAttempts
+	}
+	if features.SubqueryBuilt > 0 {
+		r.subqueryBuilt += features.SubqueryBuilt
+	}
+	if features.SubqueryFailed > 0 {
+		r.subqueryFailed += features.SubqueryFailed
+	}
 }
 
 func (r *Runner) observeOracleRun(name string) {
@@ -280,6 +303,13 @@ func (r *Runner) startStatsLogger() func() {
 		var lastTruthMismatches int64
 		var lastPredicatePairsTotal int64
 		var lastPredicatePairsJoin int64
+		var lastSubqueryAllowed int64
+		var lastSubqueryDisallowed int64
+		var lastSubqueryHas int64
+		var lastSubqueryAttempts int64
+		var lastSubqueryBuilt int64
+		var lastSubqueryFailed int64
+		lastSubqueryDisallowReasons := make(map[string]int64)
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
 		lastImpoReasonTotals := make(map[string]int64)
@@ -320,6 +350,16 @@ func (r *Runner) startStatsLogger() func() {
 				}
 				predicatePairsTotal := r.predicatePairsTotal
 				predicatePairsJoin := r.predicatePairsJoin
+				subqueryAllowed := r.subqueryAllowed
+				subqueryDisallowed := r.subqueryDisallowed
+				subqueryHas := r.subqueryHas
+				subqueryAttempts := r.subqueryAttempts
+				subqueryBuilt := r.subqueryBuilt
+				subqueryFailed := r.subqueryFailed
+				subqueryDisallowReasons := make(map[string]int64, len(r.subqueryDisallowReasons))
+				for k, v := range r.subqueryDisallowReasons {
+					subqueryDisallowReasons[k] = v
+				}
 				impoSkipReasons := make(map[string]int64, len(r.impoSkipReasons))
 				for k, v := range r.impoSkipReasons {
 					impoSkipReasons[k] = v
@@ -382,6 +422,12 @@ func (r *Runner) startStatsLogger() func() {
 				deltaTruthMismatches := truthMismatches - lastTruthMismatches
 				deltaPredicatePairsTotal := predicatePairsTotal - lastPredicatePairsTotal
 				deltaPredicatePairsJoin := predicatePairsJoin - lastPredicatePairsJoin
+				deltaSubqueryAllowed := subqueryAllowed - lastSubqueryAllowed
+				deltaSubqueryDisallowed := subqueryDisallowed - lastSubqueryDisallowed
+				deltaSubqueryHas := subqueryHas - lastSubqueryHas
+				deltaSubqueryAttempts := subqueryAttempts - lastSubqueryAttempts
+				deltaSubqueryBuilt := subqueryBuilt - lastSubqueryBuilt
+				deltaSubqueryFailed := subqueryFailed - lastSubqueryFailed
 				deltaJoinCounts := make(map[int]int64, len(joinCounts))
 				for k, v := range joinCounts {
 					prev := lastJoinCounts[k]
@@ -424,6 +470,12 @@ func (r *Runner) startStatsLogger() func() {
 				lastImpoMutationExecCounts = impoMutationExecCounts
 				lastPredicatePairsTotal = predicatePairsTotal
 				lastPredicatePairsJoin = predicatePairsJoin
+				lastSubqueryAllowed = subqueryAllowed
+				lastSubqueryDisallowed = subqueryDisallowed
+				lastSubqueryHas = subqueryHas
+				lastSubqueryAttempts = subqueryAttempts
+				lastSubqueryBuilt = subqueryBuilt
+				lastSubqueryFailed = subqueryFailed
 				lastTotal = total
 				lastValid = valid
 				lastExists = exists
@@ -482,6 +534,22 @@ func (r *Runner) startStatsLogger() func() {
 					if deltaPredicatePairsTotal > 0 {
 						predicateJoinRatio = float64(deltaPredicatePairsJoin) / float64(deltaPredicatePairsTotal)
 					}
+					if deltaSubqueryAllowed > 0 || deltaSubqueryDisallowed > 0 || deltaSubqueryHas > 0 || deltaSubqueryAttempts > 0 || deltaSubqueryBuilt > 0 || deltaSubqueryFailed > 0 {
+						subqueryMissing := deltaSubqueryAllowed - deltaSubqueryHas
+						if subqueryMissing < 0 {
+							subqueryMissing = 0
+						}
+						util.Infof(
+							"subquery last interval: allowed=%d disallowed=%d has=%d missing=%d attempted=%d built=%d failed=%d",
+							deltaSubqueryAllowed,
+							deltaSubqueryDisallowed,
+							deltaSubqueryHas,
+							subqueryMissing,
+							deltaSubqueryAttempts,
+							deltaSubqueryBuilt,
+							deltaSubqueryFailed,
+						)
+					}
 					util.Infof(
 						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f",
 						sqlValidRatio,
@@ -489,6 +557,21 @@ func (r *Runner) startStatsLogger() func() {
 						impoBaseExecRatio,
 						predicateJoinRatio,
 					)
+					deltaSubqueryDisallowReasons := make(map[string]int64, len(subqueryDisallowReasons))
+					for reason, total := range subqueryDisallowReasons {
+						prev := lastSubqueryDisallowReasons[reason]
+						if total-prev > 0 {
+							deltaSubqueryDisallowReasons[reason] = total - prev
+						}
+					}
+					lastSubqueryDisallowReasons = subqueryDisallowReasons
+					if len(deltaSubqueryDisallowReasons) > 0 {
+						util.Detailf(
+							"subquery_disallow_reasons last interval top=%d: %s",
+							topOracleReasonsN,
+							formatTopJoinSigs(deltaSubqueryDisallowReasons, topOracleReasonsN),
+						)
+					}
 					if deltaTruthMismatches > 0 {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)
 					}

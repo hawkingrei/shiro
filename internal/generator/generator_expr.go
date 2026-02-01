@@ -379,10 +379,13 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 		return FuncExpr{Name: name, Args: []Expr{arg}}
 	case 4:
 		if allowSubquery && subqDepth > 0 {
+			g.subqueryAttempts++
 			sub := g.GenerateSubquery(tables, subqDepth-1)
 			if sub != nil {
+				g.subqueryBuilt++
 				return SubqueryExpr{Query: sub}
 			}
+			g.subqueryFailed++
 		}
 		return g.randomLiteralExpr()
 	default:
