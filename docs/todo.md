@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Increased PredicateExistsProb to 80 for EXISTS coverage.
+Last review: 2026-02-01. Increased PredicateSubqueryScale/PredicateExistsProb and allowed EET predicate subqueries.
 
 ## Generator / Oracles
 

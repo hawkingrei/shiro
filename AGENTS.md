@@ -46,3 +46,4 @@ Links:
 - Enabled NOT EXISTS/NOT IN for non-DQP/TLP oracles via runner overrides (2026-02-01).
 - Relaxed EET/CODDTest builder subquery constraints and raised PredicateExistsProb to 80 (2026-02-01).
 - Added per-oracle subquery coverage logs to avoid DQP/TLP override confusion (2026-02-01).
+- Raised PredicateSubqueryScale/PredicateExistsProb and allowed EET predicate subqueries (2026-02-01).

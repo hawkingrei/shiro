@@ -32,6 +32,7 @@ func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
 	policy.allowIsNull = true
+	policy.allowSubquery = true
 	return policy
 }
 

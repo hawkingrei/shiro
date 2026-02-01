@@ -24,4 +24,7 @@
 - Relaxed EET/CODDTest builder subquery constraint; predicates still gate subquery forms.
 
 ## Generator tuning
-- Increased PredicateExistsProb to raise EXISTS coverage.
+- Increased PredicateSubqueryScale and PredicateExistsProb to raise EXISTS coverage.
+
+## EET oracle
+- Predicate guard allows EXISTS/IN subquery forms.

@@ -15,9 +15,10 @@ import (
 )
 
 type predicatePolicy struct {
-	allowOr     bool
-	allowNot    bool
-	allowIsNull bool
+	allowOr       bool
+	allowNot      bool
+	allowIsNull   bool
+	allowSubquery bool
 }
 
 func predicatePolicyFor(gen *generator.Generator) predicatePolicy {
@@ -1012,6 +1013,18 @@ func isSimplePredicate(expr generator.Expr) bool {
 
 func predicateMatches(expr generator.Expr, policy predicatePolicy) bool {
 	switch e := expr.(type) {
+	case generator.ExistsExpr:
+		return policy.allowSubquery
+	case generator.InExpr:
+		if policy.allowSubquery {
+			for _, item := range e.List {
+				if _, ok := item.(generator.SubqueryExpr); !ok {
+					return false
+				}
+			}
+			return isSimpleOperand(e.Left)
+		}
+		return false
 	case generator.BinaryExpr:
 		op := strings.ToUpper(strings.TrimSpace(e.Op))
 		switch op {
