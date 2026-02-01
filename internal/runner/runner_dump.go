@@ -34,13 +34,17 @@ type banditDump struct {
 }
 
 type featureDump struct {
-	JoinArms []int               `json:"join_arms"`
-	SubqArms []int               `json:"subq_arms"`
-	AggArms  []int               `json:"agg_arms"`
-	Join     util.BanditSnapshot `json:"join"`
-	Subq     util.BanditSnapshot `json:"subq"`
-	Agg      util.BanditSnapshot `json:"agg"`
-	LastArms featureArms         `json:"last_arms"`
+	JoinArms        []int               `json:"join_arms"`
+	SubqArms        []int               `json:"subq_arms"`
+	AggArms         []int               `json:"agg_arms"`
+	IndexPrefixArms []int               `json:"index_prefix_arms"`
+	GroupByOrdArms  []int               `json:"group_by_ord_arms"`
+	Join            util.BanditSnapshot `json:"join"`
+	Subq            util.BanditSnapshot `json:"subq"`
+	Agg             util.BanditSnapshot `json:"agg"`
+	IndexPrefix     util.BanditSnapshot `json:"index_prefix"`
+	GroupByOrd      util.BanditSnapshot `json:"group_by_ord"`
+	LastArms        featureArms         `json:"last_arms"`
 }
 
 type qpgDump struct {
@@ -121,13 +125,17 @@ func (r *Runner) snapshotBandits() *banditDump {
 	}
 	if r.featureBandit != nil {
 		out.Feature = &featureDump{
-			JoinArms: append([]int{}, r.featureBandit.joinArms...),
-			SubqArms: append([]int{}, r.featureBandit.subqArms...),
-			AggArms:  append([]int{}, r.featureBandit.aggArms...),
-			Join:     r.featureBandit.joinBandit.Snapshot(),
-			Subq:     r.featureBandit.subqBandit.Snapshot(),
-			Agg:      r.featureBandit.aggBandit.Snapshot(),
-			LastArms: r.lastFeatureArms,
+			JoinArms:        append([]int{}, r.featureBandit.joinArms...),
+			SubqArms:        append([]int{}, r.featureBandit.subqArms...),
+			AggArms:         append([]int{}, r.featureBandit.aggArms...),
+			IndexPrefixArms: append([]int{}, r.featureBandit.indexPrefixArms...),
+			GroupByOrdArms:  append([]int{}, r.featureBandit.groupByOrdArms...),
+			Join:            r.featureBandit.joinBandit.Snapshot(),
+			Subq:            r.featureBandit.subqBandit.Snapshot(),
+			Agg:             r.featureBandit.aggBandit.Snapshot(),
+			IndexPrefix:     r.featureBandit.indexPrefixBandit.Snapshot(),
+			GroupByOrd:      r.featureBandit.groupByOrdBandit.Snapshot(),
+			LastArms:        r.lastFeatureArms,
 		}
 	}
 	return out

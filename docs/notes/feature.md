@@ -28,5 +28,9 @@
 ## Generator tuning
 - Increased PredicateSubqueryScale and PredicateExistsProb to raise EXISTS coverage.
 
+## Group By ordinals
+- Added optional `GROUP BY 1,2` rendering by wrapping group keys as ordinals while retaining the base expressions for semantic checks.
+- Group-by ordinal probability is controlled by the feature bandit (not config).
+
 ## Report UI
 - Added a flaky tag when expected/actual EXPLAIN match but signatures differ.

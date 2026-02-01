@@ -221,6 +221,11 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 				}
 			}
 			return true, ""
+		case generator.GroupByOrdinalExpr:
+			if e.Expr == nil {
+				return true, ""
+			}
+			return checkExpr(e.Expr)
 		case generator.CaseExpr:
 			for _, w := range e.Whens {
 				if ok, reason := checkExpr(w.When); !ok {
@@ -895,6 +900,11 @@ func exprHasAggregate(expr generator.Expr) bool {
 			}
 		}
 		return false
+	case generator.GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasAggregate(e.Expr)
 	case generator.SubqueryExpr:
 		return queryHasAggregate(e.Query)
 	case generator.ExistsExpr:
@@ -938,6 +948,11 @@ func exprHasSubquery(expr generator.Expr) bool {
 			}
 		}
 		return false
+	case generator.GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasSubquery(e.Expr)
 	default:
 		return false
 	}
@@ -982,6 +997,11 @@ func exprHasWindow(expr generator.Expr) bool {
 			}
 		}
 		return false
+	case generator.GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasWindow(e.Expr)
 	default:
 		return false
 	}

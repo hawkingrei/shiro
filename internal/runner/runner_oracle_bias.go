@@ -4,7 +4,7 @@ import "shiro/internal/generator"
 
 func (r *Runner) applyOracleBias(oracleName string) func() {
 	snapshot := r.adaptiveSnapshot()
-	weights := generator.AdaptiveWeights{}
+	weights := generator.AdaptiveWeights{GroupByOrdProb: -1}
 	if snapshot != nil {
 		weights = *snapshot
 	}

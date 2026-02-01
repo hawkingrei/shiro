@@ -188,6 +188,8 @@ func hasNonGroupColumn(expr Expr, groupSet map[string]bool) bool {
 	switch v := expr.(type) {
 	case ColumnExpr:
 		return !groupSet[exprString(v)]
+	case GroupByOrdinalExpr:
+		return hasNonGroupColumn(v.Expr, groupSet)
 	case FuncExpr:
 		if isAggregateFunc(v.Name) {
 			return false
@@ -253,6 +255,11 @@ func queryExprs(q *SelectQuery) []Expr {
 }
 
 func exprString(expr Expr) string {
+	if v, ok := expr.(GroupByOrdinalExpr); ok {
+		if v.Expr != nil {
+			return exprString(v.Expr)
+		}
+	}
 	var b SQLBuilder
 	expr.Build(&b)
 	return b.String()
@@ -282,6 +289,10 @@ func validateExpr(gen *Generator, expr Expr) error {
 			if err := validateExpr(gen, arg); err != nil {
 				return err
 			}
+		}
+	case GroupByOrdinalExpr:
+		if v.Expr != nil {
+			return validateExpr(gen, v.Expr)
 		}
 	case CaseExpr:
 		for _, w := range v.Whens {

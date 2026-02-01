@@ -97,6 +97,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		if g.Config.Features.Having && len(query.GroupBy) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.HavingProb) {
 			query.Having = g.GenerateHavingPredicate(query.GroupBy, queryTables)
 		}
+		if len(query.GroupBy) > 0 && util.Chance(g.Rand, g.groupByOrdinalProb()) {
+			query.GroupBy = g.wrapGroupByOrdinals(query.GroupBy)
+		}
 	}
 
 	// Only emit LIMIT when paired with ORDER BY to keep top-N semantics.

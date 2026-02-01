@@ -249,6 +249,11 @@ func tlpRewriteExpr(expr generator.Expr, preferred map[string]string, gen *gener
 			e.OrderBy[i].Expr = tlpRewriteExpr(e.OrderBy[i].Expr, preferred, gen)
 		}
 		return e
+	case generator.GroupByOrdinalExpr:
+		if e.Expr != nil {
+			e.Expr = tlpRewriteExpr(e.Expr, preferred, gen)
+		}
+		return e
 	default:
 		return e
 	}

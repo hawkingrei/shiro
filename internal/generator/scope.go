@@ -94,6 +94,11 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 			return false
 		}
 		return true
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return true
+		}
+		return m.validateExpr(e.Expr, scope, outer)
 	case SubqueryExpr:
 		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
 	case ExistsExpr:

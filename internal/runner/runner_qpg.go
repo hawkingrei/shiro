@@ -401,9 +401,10 @@ func (r *Runner) applyQPGWeights() bool {
 		return false
 	}
 	base := generator.AdaptiveWeights{
-		JoinCount: r.cfg.Weights.Features.JoinCount,
-		SubqCount: r.cfg.Weights.Features.SubqCount,
-		AggProb:   r.cfg.Weights.Features.AggProb,
+		JoinCount:      r.cfg.Weights.Features.JoinCount,
+		SubqCount:      r.cfg.Weights.Features.SubqCount,
+		AggProb:        r.cfg.Weights.Features.AggProb,
+		GroupByOrdProb: generator.GroupByOrdinalBaseProb,
 	}
 	if snapshot := r.adaptiveSnapshot(); snapshot != nil {
 		base = *snapshot

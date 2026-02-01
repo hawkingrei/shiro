@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Added flaky tag for cases with matching EXPLAIN plans.
+Last review: 2026-02-01. Added GROUP BY ordinal rendering under feature bandit control.
 
 ## Generator / Oracles
 
