@@ -442,6 +442,7 @@ export default function Page() {
                 </span>
                 <span className="case__toggle" aria-hidden="true" />
                 {c.case_dir && <span className="pill">{c.case_dir}</span>}
+                {c.flaky && <span className="pill pill--flaky">flaky</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
                 {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
                 {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}

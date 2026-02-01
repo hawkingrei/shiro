@@ -48,3 +48,4 @@ Links:
 - Added per-oracle subquery coverage logs to avoid DQP/TLP override confusion (2026-02-01).
 - Raised PredicateSubqueryScale/PredicateExistsProb and allowed EET predicate subqueries (2026-02-01).
 - Added IN(subquery)/NOT IN(subquery) counters to interval logs (2026-02-01).
+- Added flaky tag for cases with matching EXPLAIN plans but signature mismatches (2026-02-01).

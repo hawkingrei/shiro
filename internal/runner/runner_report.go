@@ -100,6 +100,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if details == nil {
 		details = map[string]any{}
 	}
+	flaky := isFlakyExplain(details)
 	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
 		if _, ok := details["error_reason"]; !ok {
 			details["error_reason"] = "unknown_column"
@@ -111,6 +112,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		SQL:           result.SQL,
 		Expected:      result.Expected,
 		Actual:        result.Actual,
+		Flaky:         flaky,
 		Details:       details,
 		Seed:          r.gen.Seed,
 		Timestamp:     time.Now().Format(time.RFC3339),
@@ -183,11 +185,43 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if result.Err != nil {
 		util.Errorf("case captured oracle=%s dir=%s err=%v", result.Oracle, caseData.Dir, result.Err)
 	} else if result.Expected != "" || result.Actual != "" {
-		util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+		if flaky {
+			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s flaky=true", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+		} else {
+			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+		}
 	} else {
 		util.Warnf("case captured oracle=%s dir=%s", result.Oracle, caseData.Dir)
 	}
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
 		util.Errorf("rotate database after bug failed: %v", err)
 	}
+}
+
+func isFlakyExplain(details map[string]any) bool {
+	if details == nil {
+		return false
+	}
+	expected, ok := details["expected_explain"].(string)
+	if !ok || strings.TrimSpace(expected) == "" {
+		return false
+	}
+	actual, ok := details["actual_explain"].(string)
+	if !ok || strings.TrimSpace(actual) == "" {
+		return false
+	}
+	return normalizeExplain(expected) == normalizeExplain(actual)
+}
+
+func normalizeExplain(text string) string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return strings.Join(out, "\n")
 }
