@@ -120,6 +120,61 @@ func TestCreateTablePartitionedSQL(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQueryFeaturesInSubquery(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}},
+		From:  FromClause{BaseTable: "t0"},
+		Where: InExpr{Left: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, List: []Expr{SubqueryExpr{Query: &SelectQuery{Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}}, From: FromClause{BaseTable: "t1"}}}}},
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasInSubquery || features.HasNotInSubquery {
+		t.Fatalf("expected HasInSubquery only, got in=%v notIn=%v", features.HasInSubquery, features.HasNotInSubquery)
+	}
+
+	query.Where = UnaryExpr{Op: "NOT", Expr: query.Where}
+	features = AnalyzeQueryFeatures(query)
+	if features.HasInSubquery || !features.HasNotInSubquery {
+		t.Fatalf("expected HasNotInSubquery only, got in=%v notIn=%v", features.HasInSubquery, features.HasNotInSubquery)
+	}
+}
+
+func TestAnalyzeQueryFeaturesExistsAndInList(t *testing.T) {
+	sub := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}},
+		From:  FromClause{BaseTable: "t1"},
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}},
+		From:  FromClause{BaseTable: "t0"},
+		Where: ExistsExpr{Query: sub},
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasExistsSubquery || features.HasNotExistsSubquery {
+		t.Fatalf("expected HasExistsSubquery only, got exists=%v notExists=%v", features.HasExistsSubquery, features.HasNotExistsSubquery)
+	}
+
+	query.Where = UnaryExpr{Op: "NOT", Expr: ExistsExpr{Query: sub}}
+	features = AnalyzeQueryFeatures(query)
+	if features.HasExistsSubquery || !features.HasNotExistsSubquery {
+		t.Fatalf("expected HasNotExistsSubquery only, got exists=%v notExists=%v", features.HasExistsSubquery, features.HasNotExistsSubquery)
+	}
+
+	query.Where = InExpr{
+		Left: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+		List: []Expr{LiteralExpr{Value: 1}, LiteralExpr{Value: 2}},
+	}
+	features = AnalyzeQueryFeatures(query)
+	if !features.HasInList || features.HasNotInList {
+		t.Fatalf("expected HasInList only, got inList=%v notInList=%v", features.HasInList, features.HasNotInList)
+	}
+
+	query.Where = UnaryExpr{Op: "NOT", Expr: query.Where}
+	features = AnalyzeQueryFeatures(query)
+	if features.HasInList || !features.HasNotInList {
+		t.Fatalf("expected HasNotInList only, got inList=%v notInList=%v", features.HasInList, features.HasNotInList)
+	}
+}
+
 func TestGroupByOrdinalExprBuild(t *testing.T) {
 	expr := GroupByOrdinalExpr{
 		Ordinal: 2,

@@ -21,29 +21,35 @@ import (
 
 // Runner orchestrates fuzzing, execution, and reporting.
 type Runner struct {
-	cfg                     config.Config
-	exec                    *db.DB
-	gen                     *generator.Generator
-	state                   *schema.State
-	baseDB                  string
-	validator               *validator.Validator
-	reporter                *report.Reporter
-	replayer                *replayer.Replayer
-	uploader                uploader.Uploader
-	oracles                 []oracle.Oracle
-	insertLog               []string
-	statsMu                 sync.Mutex
-	genMu                   sync.Mutex
-	qpgMu                   sync.Mutex
-	kqeMu                   sync.Mutex
-	sqlTotal                int64
-	sqlValid                int64
-	sqlExists               int64
-	sqlNotEx                int64
-	sqlIn                   int64
-	sqlNotIn                int64
-	sqlInSubquery           int64
-	sqlNotInSubquery        int64
+	cfg       config.Config
+	exec      *db.DB
+	gen       *generator.Generator
+	state     *schema.State
+	baseDB    string
+	validator *validator.Validator
+	reporter  *report.Reporter
+	replayer  *replayer.Replayer
+	uploader  uploader.Uploader
+	oracles   []oracle.Oracle
+	insertLog []string
+	statsMu   sync.Mutex
+	genMu     sync.Mutex
+	qpgMu     sync.Mutex
+	kqeMu     sync.Mutex
+	sqlTotal  int64
+	sqlValid  int64
+	sqlExists int64
+	sqlNotEx  int64
+	sqlIn     int64
+	sqlNotIn  int64
+	// sqlInSubquery tracks IN(subquery) occurrences from generator AST features.
+	sqlInSubquery int64
+	// sqlNotInSubquery tracks NOT IN(subquery) occurrences from generator AST features.
+	sqlNotInSubquery int64
+	// sqlInSubqueryVariant tracks IN(subquery) occurrences in oracle-variant SQL.
+	sqlInSubqueryVariant int64
+	// sqlNotInSubqueryVariant tracks NOT IN(subquery) occurrences in oracle-variant SQL.
+	sqlNotInSubqueryVariant int64
 	impoTotal               int64
 	impoSkips               int64
 	impoTrunc               int64
@@ -578,6 +584,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	isPanic := isPanicError(result.Err)
 	reported := !result.OK || isPanic
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
+	r.observeVariantSubqueryCounts(result.SQL)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
 		r.observeJoinSignature(r.gen.LastFeatures, oracleName)

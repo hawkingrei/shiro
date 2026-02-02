@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-01. Added GROUP BY ordinal rendering tests and strict guard.
+Last review: 2026-02-02. Switched EXISTS/IN counters to AST parsing and retained variant IN(subquery) tracking.
 
 ## Generator / Oracles
 

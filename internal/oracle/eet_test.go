@@ -160,6 +160,30 @@ func TestRewriteLiteralDateIdentity(t *testing.T) {
 	}
 }
 
+func TestQueryHasUsingQualifiedRefs(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t4", Name: "k0"}}},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t4", Using: []string{"k0"}},
+			},
+		},
+	}
+	if !queryHasUsingQualifiedRefs(query) {
+		t.Fatalf("expected using-qualified ref to be detected")
+	}
+
+	query.Items = []generator.SelectItem{
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "", Name: "k0"}}},
+	}
+	if queryHasUsingQualifiedRefs(query) {
+		t.Fatalf("expected no using-qualified ref for unqualified column")
+	}
+}
+
 func parseSelect(t *testing.T, sql string) *ast.SelectStmt {
 	t.Helper()
 	p := parser.New()
