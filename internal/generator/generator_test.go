@@ -120,6 +120,43 @@ func TestCreateTablePartitionedSQL(t *testing.T) {
 	}
 }
 
+func TestGroupByOrdinalExprBuild(t *testing.T) {
+	expr := GroupByOrdinalExpr{
+		Ordinal: 2,
+		Expr:    ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+	}
+	var b SQLBuilder
+	expr.Build(&b)
+	if got := b.String(); got != "2" {
+		t.Fatalf("expected ordinal build, got: %s", got)
+	}
+
+	expr = GroupByOrdinalExpr{
+		Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1"}},
+	}
+	b = SQLBuilder{}
+	expr.Build(&b)
+	if got := b.String(); got != "t1.c1" {
+		t.Fatalf("expected expr build, got: %s", got)
+	}
+
+	assertPanic(t, func() {
+		empty := GroupByOrdinalExpr{}
+		var b SQLBuilder
+		empty.Build(&b)
+	})
+}
+
+func assertPanic(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic")
+		}
+	}()
+	fn()
+}
+
 func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
 	cfg, err := config.Load("../../config.yaml")
 	if err != nil {
@@ -188,6 +225,8 @@ func hasNonGroupColumn(expr Expr, groupSet map[string]bool) bool {
 	switch v := expr.(type) {
 	case ColumnExpr:
 		return !groupSet[exprString(v)]
+	case GroupByOrdinalExpr:
+		return hasNonGroupColumn(v.Expr, groupSet)
 	case FuncExpr:
 		if isAggregateFunc(v.Name) {
 			return false
@@ -253,6 +292,11 @@ func queryExprs(q *SelectQuery) []Expr {
 }
 
 func exprString(expr Expr) string {
+	if v, ok := expr.(GroupByOrdinalExpr); ok {
+		if v.Expr != nil {
+			return exprString(v.Expr)
+		}
+	}
 	var b SQLBuilder
 	expr.Build(&b)
 	return b.String()
@@ -282,6 +326,10 @@ func validateExpr(gen *Generator, expr Expr) error {
 			if err := validateExpr(gen, arg); err != nil {
 				return err
 			}
+		}
+	case GroupByOrdinalExpr:
+		if v.Expr != nil {
+			return validateExpr(gen, v.Expr)
 		}
 	case CaseExpr:
 		for _, w := range v.Whens {

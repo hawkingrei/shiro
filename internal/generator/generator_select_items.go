@@ -120,6 +120,18 @@ func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
 	return []Expr{ColumnExpr{Ref: col}}
 }
 
+// wrapGroupByOrdinals converts GROUP BY expressions into ordinal positions.
+func (g *Generator) wrapGroupByOrdinals(groupBy []Expr) []Expr {
+	if len(groupBy) == 0 {
+		return groupBy
+	}
+	out := make([]Expr, 0, len(groupBy))
+	for idx, expr := range groupBy {
+		out = append(out, GroupByOrdinalExpr{Ordinal: idx + 1, Expr: expr})
+	}
+	return out
+}
+
 // GenerateOrderBy builds an ORDER BY list.
 func (g *Generator) GenerateOrderBy(tables []schema.Table) []OrderBy {
 	count := g.Rand.Intn(OrderByCountMax) + 1

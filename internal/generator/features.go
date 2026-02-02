@@ -8,6 +8,7 @@ type AdaptiveWeights struct {
 	SubqCount       int
 	AggProb         int
 	IndexPrefixProb int
+	GroupByOrdProb  int
 }
 
 // QueryFeatures captures structural properties of a query.
@@ -134,6 +135,11 @@ func ExprHasAggregate(expr Expr) bool {
 			}
 		}
 		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return ExprHasAggregate(e.Expr)
 	case SubqueryExpr:
 		return exprHasAggregateQuery(e.Query)
 	case ExistsExpr:
@@ -189,6 +195,11 @@ func exprHasSubquery(expr Expr) bool {
 			}
 		}
 		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasSubquery(e.Expr)
 	default:
 		return false
 	}

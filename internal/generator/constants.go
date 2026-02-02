@@ -76,6 +76,8 @@ const (
 	PredicateInListMax = 3
 	// PredicateOrProb is the chance to use OR instead of AND.
 	PredicateOrProb = 30
+	// GroupByOrdinalBaseProb is the baseline chance to render GROUP BY with ordinals.
+	GroupByOrdinalBaseProb = 20
 	// CorrelatedSubqProb is the chance to use a correlated subquery.
 	CorrelatedSubqProb = 90
 	// CorrelatedSubqExtraProb is the chance to add an extra correlated predicate.

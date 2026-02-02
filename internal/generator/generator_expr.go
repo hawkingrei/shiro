@@ -122,6 +122,11 @@ func (g *Generator) exprType(expr Expr) (schema.ColumnType, bool) {
 			return schema.TypeInt, true
 		}
 		return schema.TypeVarchar, true
+	case GroupByOrdinalExpr:
+		if v.Expr == nil {
+			return 0, false
+		}
+		return g.exprType(v.Expr)
 	default:
 		return 0, false
 	}

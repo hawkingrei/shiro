@@ -4,7 +4,13 @@ import "shiro/internal/generator"
 
 func (r *Runner) applyOracleBias(oracleName string) func() {
 	snapshot := r.adaptiveSnapshot()
-	weights := generator.AdaptiveWeights{}
+	weights := generator.AdaptiveWeights{
+		JoinCount:       -1,
+		SubqCount:       -1,
+		AggProb:         -1,
+		IndexPrefixProb: -1,
+		GroupByOrdProb:  -1,
+	}
 	if snapshot != nil {
 		weights = *snapshot
 	}
@@ -28,6 +34,8 @@ func (r *Runner) applyOracleBias(oracleName string) func() {
 	if !applied {
 		return nil
 	}
+	// Apply a scoped override for the current oracle execution.
+	// The returned closure restores the previous adaptive weights (or clears them).
 	r.setAdaptiveWeights(weights)
 	if snapshot == nil {
 		return r.clearAdaptiveWeights

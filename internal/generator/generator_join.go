@@ -340,6 +340,13 @@ func (g *Generator) indexPrefixProb() int {
 	return g.Config.Weights.Features.IndexPrefixProb
 }
 
+func (g *Generator) groupByOrdinalProb() int {
+	if g.Adaptive != nil && g.Adaptive.GroupByOrdProb >= 0 {
+		return g.Adaptive.GroupByOrdProb
+	}
+	return GroupByOrdinalBaseProb
+}
+
 func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}

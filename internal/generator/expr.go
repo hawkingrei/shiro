@@ -66,6 +66,42 @@ func (e LiteralExpr) Columns() []ColumnRef { return nil }
 // Deterministic reports whether the expression is deterministic.
 func (e LiteralExpr) Deterministic() bool { return true }
 
+// GroupByOrdinalExpr renders a GROUP BY ordinal while preserving its base expression.
+type GroupByOrdinalExpr struct {
+	Ordinal int
+	Expr    Expr
+}
+
+// Build renders the expression. For GROUP BY clauses, it emits the ordinal position.
+// For other contexts, it renders the underlying expression.
+func (e GroupByOrdinalExpr) Build(b *SQLBuilder) {
+	if e.Ordinal > 0 {
+		b.Write(fmt.Sprintf("%d", e.Ordinal))
+		return
+	}
+	if e.Expr != nil {
+		e.Expr.Build(b)
+		return
+	}
+	panic("invalid GroupByOrdinalExpr: Ordinal and Expr are both zero/nil")
+}
+
+// Columns reports the column references used by the base expression.
+func (e GroupByOrdinalExpr) Columns() []ColumnRef {
+	if e.Expr == nil {
+		return nil
+	}
+	return e.Expr.Columns()
+}
+
+// Deterministic reports whether the base expression is deterministic.
+func (e GroupByOrdinalExpr) Deterministic() bool {
+	if e.Expr == nil {
+		return true
+	}
+	return e.Expr.Deterministic()
+}
+
 // ParamExpr renders a prepared statement parameter.
 type ParamExpr struct {
 	Value any
