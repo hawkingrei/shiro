@@ -2,7 +2,6 @@ package runner
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -15,9 +14,6 @@ import (
 )
 
 var globalDBSeq atomic.Int64
-var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
-var existsPattern = regexp.MustCompile(`(?i)\bEXISTS\b`)
-var notExistsPattern = regexp.MustCompile(`(?i)\bNOT\s+EXISTS\b`)
 
 const topJoinSigN = 20
 const topOracleReasonsN = 10
@@ -60,16 +56,24 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
-		upper := strings.ToUpper(sql)
-		if notExistsPattern.MatchString(sql) {
+		features := oracle.DetectSubqueryFeaturesSQL(sql)
+		if features.HasNotExists {
 			r.sqlNotEx++
-		} else if existsPattern.MatchString(sql) {
+		}
+		if features.HasExistsSubquery {
 			r.sqlExists++
 		}
-		if strings.Contains(upper, " NOT IN (") || notInWrappedPattern.MatchString(upper) {
-			r.sqlNotIn++
-		} else if strings.Contains(upper, " IN (") {
+		if features.HasInList || features.HasInSubquery {
 			r.sqlIn++
+		}
+		if features.HasNotInList || features.HasNotInSubquery {
+			r.sqlNotIn++
+		}
+		if features.HasInSubquery {
+			r.sqlInSubquery++
+		}
+		if features.HasNotInSubquery {
+			r.sqlNotInSubquery++
 		}
 	}
 }
@@ -97,6 +101,18 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	}
 	if features.HasNotInSubquery {
 		r.sqlNotInSubquery++
+	}
+	if features.HasInList || features.HasInSubquery {
+		r.sqlIn++
+	}
+	if features.HasNotInList || features.HasNotInSubquery {
+		r.sqlNotIn++
+	}
+	if features.HasExistsSubquery {
+		r.sqlExists++
+	}
+	if features.HasNotExistsSubquery {
+		r.sqlNotEx++
 	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
@@ -173,15 +189,14 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 	var inCount int64
 	var notInCount int64
 	for _, sqlText := range sqls {
-		upper := strings.ToUpper(sqlText)
-		if !strings.Contains(upper, " IN (") && !strings.Contains(upper, " NOT IN (") {
+		if !strings.Contains(strings.ToUpper(sqlText), "IN") {
 			continue
 		}
-		inSubquery, notInSubquery := oracle.DetectInSubquerySQL(sqlText)
-		if inSubquery {
+		features := oracle.DetectSubqueryFeaturesSQL(sqlText)
+		if features.HasInSubquery {
 			inCount++
 		}
-		if notInSubquery {
+		if features.HasNotInSubquery {
 			notInCount++
 		}
 	}

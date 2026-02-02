@@ -20,6 +20,7 @@
 - Added per-oracle subquery coverage logging to isolate DQP/TLP overrides.
 - Added IN(subquery)/NOT IN(subquery) counters using generator AST features (not SQL regex).
 - Added oracle-variant IN(subquery) counters via SQL AST parsing.
+- Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL paths.
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.

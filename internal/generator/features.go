@@ -19,6 +19,10 @@ type QueryFeatures struct {
 	HasSubquery            bool
 	HasInSubquery          bool
 	HasNotInSubquery       bool
+	HasExistsSubquery      bool
+	HasNotExistsSubquery   bool
+	HasInList              bool
+	HasNotInList           bool
 	HasAggregate           bool
 	ViewCount              int
 	PredicatePairsTotal    int64
@@ -50,6 +54,12 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inSub, notInSub := exprHasInSubquery(item.Expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+		existsSub, notExistsSub := exprHasExistsSubquery(item.Expr)
+		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
+		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
+		inList, notInList := exprHasInList(item.Expr)
+		features.HasInList = features.HasInList || inList
+		features.HasNotInList = features.HasNotInList || notInList
 	}
 	if query.Where != nil {
 		if exprHasSubquery(query.Where) {
@@ -58,6 +68,12 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inSub, notInSub := exprHasInSubquery(query.Where)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+		existsSub, notExistsSub := exprHasExistsSubquery(query.Where)
+		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
+		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
+		inList, notInList := exprHasInList(query.Where)
+		features.HasInList = features.HasInList || inList
+		features.HasNotInList = features.HasNotInList || notInList
 	}
 	if query.Having != nil {
 		if exprHasSubquery(query.Having) {
@@ -66,6 +82,12 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inSub, notInSub := exprHasInSubquery(query.Having)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+		existsSub, notExistsSub := exprHasExistsSubquery(query.Having)
+		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
+		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
+		inList, notInList := exprHasInList(query.Having)
+		features.HasInList = features.HasInList || inList
+		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, expr := range query.GroupBy {
 		if exprHasSubquery(expr) {
@@ -74,6 +96,12 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inSub, notInSub := exprHasInSubquery(expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+		existsSub, notExistsSub := exprHasExistsSubquery(expr)
+		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
+		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
+		inList, notInList := exprHasInList(expr)
+		features.HasInList = features.HasInList || inList
+		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, ob := range query.OrderBy {
 		if exprHasSubquery(ob.Expr) {
@@ -82,6 +110,12 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inSub, notInSub := exprHasInSubquery(ob.Expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+		existsSub, notExistsSub := exprHasExistsSubquery(ob.Expr)
+		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
+		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
+		inList, notInList := exprHasInList(ob.Expr)
+		features.HasInList = features.HasInList || inList
+		features.HasNotInList = features.HasNotInList || notInList
 	}
 	return features
 }
@@ -350,6 +384,378 @@ func inExprListHasSubquery(list []Expr) bool {
 		}
 	}
 	return false
+}
+
+func exprHasInList(expr Expr) (hasInList bool, hasNotInList bool) {
+	switch e := expr.(type) {
+	case nil:
+		return false, false
+	case InExpr:
+		if inExprListHasSubquery(e.List) {
+			return false, false
+		}
+		return true, false
+	case UnaryExpr:
+		if strings.EqualFold(e.Op, "NOT") {
+			if inner, ok := e.Expr.(InExpr); ok {
+				if inExprListHasSubquery(inner.List) {
+					return false, false
+				}
+				return false, true
+			}
+		}
+		return exprHasInList(e.Expr)
+	case BinaryExpr:
+		lin, lnot := exprHasInList(e.Left)
+		rin, rnot := exprHasInList(e.Right)
+		return lin || rin, lnot || rnot
+	case FuncExpr:
+		hasIn := false
+		hasNotIn := false
+		for _, arg := range e.Args {
+			inList, notInList := exprHasInList(arg)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			if hasIn && hasNotIn {
+				break
+			}
+		}
+		return hasIn, hasNotIn
+	case CaseExpr:
+		hasIn := false
+		hasNotIn := false
+		for _, w := range e.Whens {
+			inList, notInList := exprHasInList(w.When)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			inList, notInList = exprHasInList(w.Then)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			if hasIn && hasNotIn {
+				return hasIn, hasNotIn
+			}
+		}
+		if e.Else != nil {
+			inList, notInList := exprHasInList(e.Else)
+			hasIn = hasIn || inList
+			hasNotIn = hasNotIn || notInList
+		}
+		return hasIn, hasNotIn
+	case SubqueryExpr:
+		return exprHasInListQuery(e.Query)
+	case ExistsExpr:
+		return exprHasInListQuery(e.Query)
+	case WindowExpr:
+		hasIn := false
+		hasNotIn := false
+		for _, arg := range e.Args {
+			inList, notInList := exprHasInList(arg)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			if hasIn && hasNotIn {
+				return hasIn, hasNotIn
+			}
+		}
+		for _, part := range e.PartitionBy {
+			inList, notInList := exprHasInList(part)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			if hasIn && hasNotIn {
+				return hasIn, hasNotIn
+			}
+		}
+		for _, ob := range e.OrderBy {
+			inList, notInList := exprHasInList(ob.Expr)
+			if inList {
+				hasIn = true
+			}
+			if notInList {
+				hasNotIn = true
+			}
+			if hasIn && hasNotIn {
+				return hasIn, hasNotIn
+			}
+		}
+		return hasIn, hasNotIn
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false, false
+		}
+		return exprHasInList(e.Expr)
+	default:
+		return false, false
+	}
+}
+
+func exprHasInListQuery(query *SelectQuery) (hasInList bool, hasNotInList bool) {
+	if query == nil {
+		return false, false
+	}
+	hasIn := false
+	hasNotIn := false
+	for _, item := range query.Items {
+		inList, notInList := exprHasInList(item.Expr)
+		if inList {
+			hasIn = true
+		}
+		if notInList {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	if query.Where != nil {
+		inList, notInList := exprHasInList(query.Where)
+		if inList {
+			hasIn = true
+		}
+		if notInList {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	if query.Having != nil {
+		inList, notInList := exprHasInList(query.Having)
+		if inList {
+			hasIn = true
+		}
+		if notInList {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	for _, expr := range query.GroupBy {
+		inList, notInList := exprHasInList(expr)
+		if inList {
+			hasIn = true
+		}
+		if notInList {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	for _, ob := range query.OrderBy {
+		inList, notInList := exprHasInList(ob.Expr)
+		if inList {
+			hasIn = true
+		}
+		if notInList {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	return hasIn, hasNotIn
+}
+
+func exprHasExistsSubquery(expr Expr) (hasExists bool, hasNotExists bool) {
+	switch e := expr.(type) {
+	case nil:
+		return false, false
+	case ExistsExpr:
+		return true, false
+	case UnaryExpr:
+		if strings.EqualFold(e.Op, "NOT") {
+			if _, ok := e.Expr.(ExistsExpr); ok {
+				return false, true
+			}
+		}
+		return exprHasExistsSubquery(e.Expr)
+	case BinaryExpr:
+		lex, lnot := exprHasExistsSubquery(e.Left)
+		rex, rnot := exprHasExistsSubquery(e.Right)
+		return lex || rex, lnot || rnot
+	case FuncExpr:
+		hasEx := false
+		hasNotEx := false
+		for _, arg := range e.Args {
+			ex, notEx := exprHasExistsSubquery(arg)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			if hasEx && hasNotEx {
+				break
+			}
+		}
+		return hasEx, hasNotEx
+	case CaseExpr:
+		hasEx := false
+		hasNotEx := false
+		for _, w := range e.Whens {
+			ex, notEx := exprHasExistsSubquery(w.When)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			ex, notEx = exprHasExistsSubquery(w.Then)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			if hasEx && hasNotEx {
+				return hasEx, hasNotEx
+			}
+		}
+		if e.Else != nil {
+			ex, notEx := exprHasExistsSubquery(e.Else)
+			hasEx = hasEx || ex
+			hasNotEx = hasNotEx || notEx
+		}
+		return hasEx, hasNotEx
+	case SubqueryExpr:
+		return exprHasExistsSubqueryQuery(e.Query)
+	case WindowExpr:
+		hasEx := false
+		hasNotEx := false
+		for _, arg := range e.Args {
+			ex, notEx := exprHasExistsSubquery(arg)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			if hasEx && hasNotEx {
+				return hasEx, hasNotEx
+			}
+		}
+		for _, part := range e.PartitionBy {
+			ex, notEx := exprHasExistsSubquery(part)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			if hasEx && hasNotEx {
+				return hasEx, hasNotEx
+			}
+		}
+		for _, ob := range e.OrderBy {
+			ex, notEx := exprHasExistsSubquery(ob.Expr)
+			if ex {
+				hasEx = true
+			}
+			if notEx {
+				hasNotEx = true
+			}
+			if hasEx && hasNotEx {
+				return hasEx, hasNotEx
+			}
+		}
+		return hasEx, hasNotEx
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false, false
+		}
+		return exprHasExistsSubquery(e.Expr)
+	default:
+		return false, false
+	}
+}
+
+func exprHasExistsSubqueryQuery(query *SelectQuery) (hasExists bool, hasNotExists bool) {
+	if query == nil {
+		return false, false
+	}
+	hasEx := false
+	hasNotEx := false
+	for _, item := range query.Items {
+		ex, notEx := exprHasExistsSubquery(item.Expr)
+		if ex {
+			hasEx = true
+		}
+		if notEx {
+			hasNotEx = true
+		}
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	if query.Where != nil {
+		ex, notEx := exprHasExistsSubquery(query.Where)
+		if ex {
+			hasEx = true
+		}
+		if notEx {
+			hasNotEx = true
+		}
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	if query.Having != nil {
+		ex, notEx := exprHasExistsSubquery(query.Having)
+		if ex {
+			hasEx = true
+		}
+		if notEx {
+			hasNotEx = true
+		}
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	for _, expr := range query.GroupBy {
+		ex, notEx := exprHasExistsSubquery(expr)
+		if ex {
+			hasEx = true
+		}
+		if notEx {
+			hasNotEx = true
+		}
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	for _, ob := range query.OrderBy {
+		ex, notEx := exprHasExistsSubquery(ob.Expr)
+		if ex {
+			hasEx = true
+		}
+		if notEx {
+			hasNotEx = true
+		}
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	return hasEx, hasNotEx
 }
 
 func exprHasInSubqueryQuery(query *SelectQuery) (hasInSubquery bool, hasNotInSubquery bool) {

@@ -21,30 +21,34 @@ import (
 
 // Runner orchestrates fuzzing, execution, and reporting.
 type Runner struct {
-	cfg                     config.Config
-	exec                    *db.DB
-	gen                     *generator.Generator
-	state                   *schema.State
-	baseDB                  string
-	validator               *validator.Validator
-	reporter                *report.Reporter
-	replayer                *replayer.Replayer
-	uploader                uploader.Uploader
-	oracles                 []oracle.Oracle
-	insertLog               []string
-	statsMu                 sync.Mutex
-	genMu                   sync.Mutex
-	qpgMu                   sync.Mutex
-	kqeMu                   sync.Mutex
-	sqlTotal                int64
-	sqlValid                int64
-	sqlExists               int64
-	sqlNotEx                int64
-	sqlIn                   int64
-	sqlNotIn                int64
-	sqlInSubquery           int64
-	sqlNotInSubquery        int64
-	sqlInSubqueryVariant    int64
+	cfg       config.Config
+	exec      *db.DB
+	gen       *generator.Generator
+	state     *schema.State
+	baseDB    string
+	validator *validator.Validator
+	reporter  *report.Reporter
+	replayer  *replayer.Replayer
+	uploader  uploader.Uploader
+	oracles   []oracle.Oracle
+	insertLog []string
+	statsMu   sync.Mutex
+	genMu     sync.Mutex
+	qpgMu     sync.Mutex
+	kqeMu     sync.Mutex
+	sqlTotal  int64
+	sqlValid  int64
+	sqlExists int64
+	sqlNotEx  int64
+	sqlIn     int64
+	sqlNotIn  int64
+	// sqlInSubquery tracks IN(subquery) occurrences from generator AST features.
+	sqlInSubquery int64
+	// sqlNotInSubquery tracks NOT IN(subquery) occurrences from generator AST features.
+	sqlNotInSubquery int64
+	// sqlInSubqueryVariant tracks IN(subquery) occurrences in oracle-variant SQL.
+	sqlInSubqueryVariant int64
+	// sqlNotInSubqueryVariant tracks NOT IN(subquery) occurrences in oracle-variant SQL.
 	sqlNotInSubqueryVariant int64
 	impoTotal               int64
 	impoSkips               int64

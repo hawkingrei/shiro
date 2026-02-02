@@ -8,31 +8,52 @@ import (
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 )
 
-// DetectInSubquerySQL reports whether the SQL contains IN/NOT IN with subquery.
-func DetectInSubquerySQL(sqlText string) (hasInSubquery bool, hasNotInSubquery bool) {
+// SQLSubqueryFeatures captures IN/EXISTS usage in a SQL statement.
+type SQLSubqueryFeatures struct {
+	HasInSubquery     bool
+	HasNotInSubquery  bool
+	HasInList         bool
+	HasNotInList      bool
+	HasExistsSubquery bool
+	HasNotExists      bool
+}
+
+// DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
+func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
 	if strings.TrimSpace(sqlText) == "" {
-		return false, false
+		return SQLSubqueryFeatures{}
 	}
 	p := parser.New()
 	stmt, err := p.ParseOneStmt(sqlText, "", "")
 	if err != nil {
-		return false, false
+		return SQLSubqueryFeatures{}
 	}
-	visitor := &inSubqueryVisitor{}
+	visitor := &subqueryFeatureVisitor{}
 	stmt.Accept(visitor)
-	return visitor.inSubquery, visitor.notInSubquery
+	return visitor.features
 }
 
-type inSubqueryVisitor struct {
-	inSubquery    bool
-	notInSubquery bool
+// DetectInSubquerySQL reports whether the SQL contains IN/NOT IN with subquery.
+func DetectInSubquerySQL(sqlText string) (hasInSubquery bool, hasNotInSubquery bool) {
+	features := DetectSubqueryFeaturesSQL(sqlText)
+	return features.HasInSubquery, features.HasNotInSubquery
 }
 
-func (v *inSubqueryVisitor) Enter(node ast.Node) (ast.Node, bool) {
-	if v.inSubquery && v.notInSubquery {
+type subqueryFeatureVisitor struct {
+	features SQLSubqueryFeatures
+}
+
+func (v *subqueryFeatureVisitor) Enter(node ast.Node) (ast.Node, bool) {
+	if v.features.HasInSubquery &&
+		v.features.HasNotInSubquery &&
+		v.features.HasInList &&
+		v.features.HasNotInList &&
+		v.features.HasExistsSubquery &&
+		v.features.HasNotExists {
 		return node, true
 	}
-	if expr, ok := node.(*ast.PatternInExpr); ok {
+	switch expr := node.(type) {
+	case *ast.PatternInExpr:
 		hasSubquery := expr.Sel != nil
 		if !hasSubquery {
 			for _, item := range expr.List {
@@ -44,15 +65,27 @@ func (v *inSubqueryVisitor) Enter(node ast.Node) (ast.Node, bool) {
 		}
 		if hasSubquery {
 			if expr.Not {
-				v.notInSubquery = true
+				v.features.HasNotInSubquery = true
 			} else {
-				v.inSubquery = true
+				v.features.HasInSubquery = true
 			}
+		} else {
+			if expr.Not {
+				v.features.HasNotInList = true
+			} else {
+				v.features.HasInList = true
+			}
+		}
+	case *ast.ExistsSubqueryExpr:
+		if expr.Not {
+			v.features.HasNotExists = true
+		} else {
+			v.features.HasExistsSubquery = true
 		}
 	}
 	return node, false
 }
 
-func (v *inSubqueryVisitor) Leave(node ast.Node) (ast.Node, bool) {
+func (v *subqueryFeatureVisitor) Leave(node ast.Node) (ast.Node, bool) {
 	return node, true
 }
