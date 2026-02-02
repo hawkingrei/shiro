@@ -18,8 +18,6 @@ var globalDBSeq atomic.Int64
 var notInWrappedPattern = regexp.MustCompile(`(?i)NOT\s*\([^)]*\bIN\s*\(`)
 var existsPattern = regexp.MustCompile(`(?i)\bEXISTS\b`)
 var notExistsPattern = regexp.MustCompile(`(?i)\bNOT\s+EXISTS\b`)
-var inSubqueryPattern = regexp.MustCompile(`(?i)\bIN\s*\(\s*SELECT\b`)
-var notInSubqueryPattern = regexp.MustCompile(`(?i)\bNOT\s+IN\s*\(\s*SELECT\b`)
 
 const topJoinSigN = 20
 const topOracleReasonsN = 10
@@ -68,11 +66,6 @@ func (r *Runner) observeSQL(sql string, err error) {
 		} else if existsPattern.MatchString(sql) {
 			r.sqlExists++
 		}
-		if notInSubqueryPattern.MatchString(upper) {
-			r.sqlNotInSubquery++
-		} else if inSubqueryPattern.MatchString(upper) {
-			r.sqlInSubquery++
-		}
 		if strings.Contains(upper, " NOT IN (") || notInWrappedPattern.MatchString(upper) {
 			r.sqlNotIn++
 		} else if strings.Contains(upper, " IN (") {
@@ -99,6 +92,12 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	}
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
+	if features.HasInSubquery {
+		r.sqlInSubquery++
+	}
+	if features.HasNotInSubquery {
+		r.sqlNotInSubquery++
+	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
 	}
@@ -164,6 +163,26 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 		perOracle.attempted += features.SubqueryAttempts
 		perOracle.built += features.SubqueryBuilt
 		perOracle.failed += features.SubqueryFailed
+	}
+}
+
+func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
+	if len(sqls) == 0 {
+		return
+	}
+	for _, sqlText := range sqls {
+		inSubquery, notInSubquery := oracle.DetectInSubquerySQL(sqlText)
+		if !inSubquery && !notInSubquery {
+			continue
+		}
+		r.statsMu.Lock()
+		if inSubquery {
+			r.sqlInSubqueryVariant++
+		}
+		if notInSubquery {
+			r.sqlNotInSubqueryVariant++
+		}
+		r.statsMu.Unlock()
 	}
 }
 
@@ -324,6 +343,8 @@ func (r *Runner) startStatsLogger() func() {
 		var lastNotIn int64
 		var lastInSubquery int64
 		var lastNotInSubquery int64
+		var lastInSubqueryVariant int64
+		var lastNotInSubqueryVariant int64
 		var lastImpoTotal int64
 		var lastImpoSkips int64
 		var lastImpoTrunc int64
@@ -373,6 +394,8 @@ func (r *Runner) startStatsLogger() func() {
 				notIn := r.sqlNotIn
 				inSubquery := r.sqlInSubquery
 				notInSubquery := r.sqlNotInSubquery
+				inSubqueryVariant := r.sqlInSubqueryVariant
+				notInSubqueryVariant := r.sqlNotInSubqueryVariant
 				impoTotal := r.impoTotal
 				impoSkips := r.impoSkips
 				impoTrunc := r.impoTrunc
@@ -479,6 +502,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaNotIn := notIn - lastNotIn
 				deltaInSubquery := inSubquery - lastInSubquery
 				deltaNotInSubquery := notInSubquery - lastNotInSubquery
+				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
+				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
 				deltaImpoTotal := impoTotal - lastImpoTotal
 				deltaImpoSkips := impoSkips - lastImpoSkips
 				deltaImpoTrunc := impoTrunc - lastImpoTrunc
@@ -551,6 +576,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastNotIn = notIn
 				lastInSubquery = inSubquery
 				lastNotInSubquery = notInSubquery
+				lastInSubqueryVariant = inSubqueryVariant
+				lastNotInSubqueryVariant = notInSubqueryVariant
 				lastImpoTotal = impoTotal
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
@@ -567,7 +594,7 @@ func (r *Runner) startStatsLogger() func() {
 					sqlValidRatio := float64(deltaValid) / float64(deltaTotal)
 					deltaInvalidSQL := deltaTotal - deltaValid
 					util.Infof(
-						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d",
+						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d in_subquery_variant=%d not_in_subquery_variant=%d",
 						deltaValid,
 						deltaTotal,
 						sqlValidRatio,
@@ -578,6 +605,8 @@ func (r *Runner) startStatsLogger() func() {
 						deltaNotIn,
 						deltaInSubquery,
 						deltaNotInSubquery,
+						deltaInSubqueryVariant,
+						deltaNotInSubqueryVariant,
 					)
 					var impoInvalidRatio float64
 					var impoBaseExecRatio float64

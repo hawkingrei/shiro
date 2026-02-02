@@ -120,6 +120,24 @@ func TestCreateTablePartitionedSQL(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQueryFeaturesInSubquery(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}},
+		From:  FromClause{BaseTable: "t0"},
+		Where: InExpr{Left: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, List: []Expr{SubqueryExpr{Query: &SelectQuery{Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}}, From: FromClause{BaseTable: "t1"}}}}},
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasInSubquery || features.HasNotInSubquery {
+		t.Fatalf("expected HasInSubquery only, got in=%v notIn=%v", features.HasInSubquery, features.HasNotInSubquery)
+	}
+
+	query.Where = UnaryExpr{Op: "NOT", Expr: query.Where}
+	features = AnalyzeQueryFeatures(query)
+	if features.HasInSubquery || !features.HasNotInSubquery {
+		t.Fatalf("expected HasNotInSubquery only, got in=%v notIn=%v", features.HasInSubquery, features.HasNotInSubquery)
+	}
+}
+
 func TestGroupByOrdinalExprBuild(t *testing.T) {
 	expr := GroupByOrdinalExpr{
 		Ordinal: 2,

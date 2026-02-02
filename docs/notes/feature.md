@@ -18,12 +18,14 @@
 ## Generator observability
 - Added subquery coverage logging (allowed/disabled/has/attempted/built/failed) plus disallow-reason stats per interval.
 - Added per-oracle subquery coverage logging to isolate DQP/TLP overrides.
-- Added IN(subquery)/NOT IN(subquery) counters in interval logs.
+- Added IN(subquery)/NOT IN(subquery) counters using generator AST features (not SQL regex).
+- Added oracle-variant IN(subquery) counters via SQL AST parsing.
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.
 - Relaxed EET/CODDTest builder subquery constraint; predicates still gate subquery forms.
 - Predicate guard allows EXISTS/IN subquery forms.
+- Skip EET cases with USING-qualified column references to avoid base signature errors.
 
 ## Generator tuning
 - Increased PredicateSubqueryScale and PredicateExistsProb to raise EXISTS coverage.

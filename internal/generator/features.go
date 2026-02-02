@@ -17,6 +17,8 @@ type QueryFeatures struct {
 	JoinTypeSeq            string
 	JoinGraphSig           string
 	HasSubquery            bool
+	HasInSubquery          bool
+	HasNotInSubquery       bool
 	HasAggregate           bool
 	ViewCount              int
 	PredicatePairsTotal    int64
@@ -45,22 +47,41 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		if exprHasSubquery(item.Expr) {
 			features.HasSubquery = true
 		}
+		inSub, notInSub := exprHasInSubquery(item.Expr)
+		features.HasInSubquery = features.HasInSubquery || inSub
+		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
 	if query.Where != nil && exprHasSubquery(query.Where) {
 		features.HasSubquery = true
 	}
+	if query.Where != nil {
+		inSub, notInSub := exprHasInSubquery(query.Where)
+		features.HasInSubquery = features.HasInSubquery || inSub
+		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
+	}
 	if query.Having != nil && exprHasSubquery(query.Having) {
 		features.HasSubquery = true
+	}
+	if query.Having != nil {
+		inSub, notInSub := exprHasInSubquery(query.Having)
+		features.HasInSubquery = features.HasInSubquery || inSub
+		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
 	for _, expr := range query.GroupBy {
 		if exprHasSubquery(expr) {
 			features.HasSubquery = true
 		}
+		inSub, notInSub := exprHasInSubquery(expr)
+		features.HasInSubquery = features.HasInSubquery || inSub
+		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
 	for _, ob := range query.OrderBy {
 		if exprHasSubquery(ob.Expr) {
 			features.HasSubquery = true
 		}
+		inSub, notInSub := exprHasInSubquery(ob.Expr)
+		features.HasInSubquery = features.HasInSubquery || inSub
+		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
 	return features
 }
@@ -203,6 +224,133 @@ func exprHasSubquery(expr Expr) bool {
 	default:
 		return false
 	}
+}
+
+func exprHasInSubquery(expr Expr) (bool, bool) {
+	switch e := expr.(type) {
+	case nil:
+		return false, false
+	case InExpr:
+		hasSub := false
+		for _, item := range e.List {
+			if exprHasSubquery(item) {
+				hasSub = true
+				break
+			}
+		}
+		return hasSub, false
+	case UnaryExpr:
+		if strings.EqualFold(e.Op, "NOT") {
+			if inner, ok := e.Expr.(InExpr); ok {
+				hasSub := false
+				for _, item := range inner.List {
+					if exprHasSubquery(item) {
+						hasSub = true
+						break
+					}
+				}
+				if hasSub {
+					return false, true
+				}
+			}
+		}
+		return exprHasInSubquery(e.Expr)
+	case BinaryExpr:
+		lin, lnot := exprHasInSubquery(e.Left)
+		rin, rnot := exprHasInSubquery(e.Right)
+		return lin || rin, lnot || rnot
+	case FuncExpr:
+		for _, arg := range e.Args {
+			inSub, notInSub := exprHasInSubquery(arg)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+		}
+		return false, false
+	case CaseExpr:
+		for _, w := range e.Whens {
+			inSub, notInSub := exprHasInSubquery(w.When)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+			inSub, notInSub = exprHasInSubquery(w.Then)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+		}
+		if e.Else != nil {
+			return exprHasInSubquery(e.Else)
+		}
+		return false, false
+	case SubqueryExpr:
+		return exprHasInSubqueryQuery(e.Query)
+	case ExistsExpr:
+		return exprHasInSubqueryQuery(e.Query)
+	case WindowExpr:
+		for _, arg := range e.Args {
+			inSub, notInSub := exprHasInSubquery(arg)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+		}
+		for _, part := range e.PartitionBy {
+			inSub, notInSub := exprHasInSubquery(part)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+		}
+		for _, ob := range e.OrderBy {
+			inSub, notInSub := exprHasInSubquery(ob.Expr)
+			if inSub || notInSub {
+				return inSub, notInSub
+			}
+		}
+		return false, false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false, false
+		}
+		return exprHasInSubquery(e.Expr)
+	default:
+		return false, false
+	}
+}
+
+func exprHasInSubqueryQuery(query *SelectQuery) (bool, bool) {
+	if query == nil {
+		return false, false
+	}
+	for _, item := range query.Items {
+		inSub, notInSub := exprHasInSubquery(item.Expr)
+		if inSub || notInSub {
+			return inSub, notInSub
+		}
+	}
+	if query.Where != nil {
+		inSub, notInSub := exprHasInSubquery(query.Where)
+		if inSub || notInSub {
+			return inSub, notInSub
+		}
+	}
+	if query.Having != nil {
+		inSub, notInSub := exprHasInSubquery(query.Having)
+		if inSub || notInSub {
+			return inSub, notInSub
+		}
+	}
+	for _, expr := range query.GroupBy {
+		inSub, notInSub := exprHasInSubquery(expr)
+		if inSub || notInSub {
+			return inSub, notInSub
+		}
+	}
+	for _, ob := range query.OrderBy {
+		inSub, notInSub := exprHasInSubquery(ob.Expr)
+		if inSub || notInSub {
+			return inSub, notInSub
+		}
+	}
+	return false, false
 }
 
 func isAggregateFunc(name string) bool {

@@ -44,6 +44,8 @@ type Runner struct {
 	sqlNotIn                int64
 	sqlInSubquery           int64
 	sqlNotInSubquery        int64
+	sqlInSubqueryVariant    int64
+	sqlNotInSubqueryVariant int64
 	impoTotal               int64
 	impoSkips               int64
 	impoTrunc               int64
@@ -578,6 +580,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	isPanic := isPanicError(result.Err)
 	reported := !result.OK || isPanic
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
+	r.observeVariantSubqueryCounts(result.SQL)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
 		r.observeJoinSignature(r.gen.LastFeatures, oracleName)

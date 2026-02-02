@@ -62,6 +62,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	if query.Having != nil && !predicateMatches(query.Having, policy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:having_guard"}}
 	}
+	if queryHasUsingQualifiedRefs(query) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
+	}
 	for _, join := range query.From.Joins {
 		if join.On != nil && !predicateMatches(join.On, policy) {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:on_guard"}}
@@ -158,6 +161,121 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 		return "", details, err
 	}
 	return restored, details, nil
+}
+
+func queryHasUsingQualifiedRefs(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	usingCols := make(map[string]struct{})
+	for _, join := range query.From.Joins {
+		if len(join.Using) == 0 {
+			continue
+		}
+		for _, col := range join.Using {
+			usingCols[col] = struct{}{}
+		}
+	}
+	if len(usingCols) == 0 {
+		return false
+	}
+	exprs := []generator.Expr{}
+	for _, item := range query.Items {
+		exprs = append(exprs, item.Expr)
+	}
+	if query.Where != nil {
+		exprs = append(exprs, query.Where)
+	}
+	if query.Having != nil {
+		exprs = append(exprs, query.Having)
+	}
+	exprs = append(exprs, query.GroupBy...)
+	for _, ob := range query.OrderBy {
+		exprs = append(exprs, ob.Expr)
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil {
+			exprs = append(exprs, join.On)
+		}
+	}
+	for _, expr := range exprs {
+		if hasUsingQualifiedRef(expr, usingCols) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUsingQualifiedRef(expr generator.Expr, usingCols map[string]struct{}) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case generator.ColumnExpr:
+		if e.Ref.Table == "" {
+			return false
+		}
+		_, ok := usingCols[e.Ref.Name]
+		return ok
+	case generator.UnaryExpr:
+		return hasUsingQualifiedRef(e.Expr, usingCols)
+	case generator.BinaryExpr:
+		return hasUsingQualifiedRef(e.Left, usingCols) || hasUsingQualifiedRef(e.Right, usingCols)
+	case generator.FuncExpr:
+		for _, arg := range e.Args {
+			if hasUsingQualifiedRef(arg, usingCols) {
+				return true
+			}
+		}
+		return false
+	case generator.CaseExpr:
+		for _, w := range e.Whens {
+			if hasUsingQualifiedRef(w.When, usingCols) || hasUsingQualifiedRef(w.Then, usingCols) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return hasUsingQualifiedRef(e.Else, usingCols)
+		}
+		return false
+	case generator.InExpr:
+		if hasUsingQualifiedRef(e.Left, usingCols) {
+			return true
+		}
+		for _, item := range e.List {
+			if hasUsingQualifiedRef(item, usingCols) {
+				return true
+			}
+		}
+		return false
+	case generator.SubqueryExpr:
+		return queryHasUsingQualifiedRefs(e.Query)
+	case generator.ExistsExpr:
+		return queryHasUsingQualifiedRefs(e.Query)
+	case generator.WindowExpr:
+		for _, arg := range e.Args {
+			if hasUsingQualifiedRef(arg, usingCols) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if hasUsingQualifiedRef(part, usingCols) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if hasUsingQualifiedRef(ob.Expr, usingCols) {
+				return true
+			}
+		}
+		return false
+	case generator.GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return hasUsingQualifiedRef(e.Expr, usingCols)
+	default:
+		return false
+	}
 }
 
 func orderByAllConstant(orderBy []generator.OrderBy) bool {
