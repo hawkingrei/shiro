@@ -49,9 +49,9 @@ type Runner struct {
 	genSQLNotIn         int64
 	genSQLInSubquery    int64
 	genSQLNotInSubquery int64
-	// sqlInSubquery tracks IN(subquery) occurrences from generator AST features.
+	// sqlInSubquery tracks IN(subquery) occurrences aggregated from plan-cache SQL parsing.
 	sqlInSubquery int64
-	// sqlNotInSubquery tracks NOT IN(subquery) occurrences from generator AST features.
+	// sqlNotInSubquery tracks NOT IN(subquery) occurrences aggregated from plan-cache SQL parsing.
 	sqlNotInSubquery int64
 	// sqlInSubqueryVariant tracks IN(subquery) occurrences in oracle-variant SQL.
 	sqlInSubqueryVariant int64
