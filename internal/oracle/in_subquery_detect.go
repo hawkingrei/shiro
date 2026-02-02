@@ -9,7 +9,7 @@ import (
 )
 
 // DetectInSubquerySQL reports whether the SQL contains IN/NOT IN with subquery.
-func DetectInSubquerySQL(sqlText string) (bool, bool) {
+func DetectInSubquerySQL(sqlText string) (hasInSubquery bool, hasNotInSubquery bool) {
 	if strings.TrimSpace(sqlText) == "" {
 		return false, false
 	}

@@ -226,7 +226,7 @@ func exprHasSubquery(expr Expr) bool {
 	}
 }
 
-func exprHasInSubquery(expr Expr) (bool, bool) {
+func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {
 	switch e := expr.(type) {
 	case nil:
 		return false, false
@@ -316,7 +316,7 @@ func exprHasInSubquery(expr Expr) (bool, bool) {
 	}
 }
 
-func exprHasInSubqueryQuery(query *SelectQuery) (bool, bool) {
+func exprHasInSubqueryQuery(query *SelectQuery) (hasInSubquery bool, hasNotInSubquery bool) {
 	if query == nil {
 		return false, false
 	}
