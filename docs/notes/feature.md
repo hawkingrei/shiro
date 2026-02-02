@@ -23,6 +23,7 @@
 - Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL paths.
 - Treat NOT (IN(subquery)) as NOT IN in SQL AST parsing for variant counts.
 - Split generator SQL feature counts into a separate interval log line to keep plan-cache ratios consistent.
+- Reused TiDB parser instances via a sync.Pool for subquery feature detection to reduce parse overhead.
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.

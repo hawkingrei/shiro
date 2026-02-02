@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -19,13 +20,20 @@ type SQLSubqueryFeatures struct {
 	HasNotExists      bool
 }
 
+var sqlParserPool = sync.Pool{
+	New: func() any {
+		return parser.New()
+	},
+}
+
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
 func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
 	if strings.TrimSpace(sqlText) == "" {
 		return SQLSubqueryFeatures{}
 	}
-	p := parser.New()
+	p := sqlParserPool.Get().(*parser.Parser)
 	stmt, err := p.ParseOneStmt(sqlText, "", "")
+	sqlParserPool.Put(p)
 	if err != nil {
 		return SQLSubqueryFeatures{}
 	}

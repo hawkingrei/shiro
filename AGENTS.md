@@ -54,4 +54,5 @@ Links:
 - Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL (2026-02-02).
 - Treated NOT (IN(subquery)) as NOT IN in SQL AST parsing and extended EET USING-qualified guard to CTEs (2026-02-02).
 - Split generator SQL feature counts into a dedicated interval log line to keep plan-cache ratios consistent (2026-02-02).
+- Reused TiDB parser instances via sync.Pool for subquery feature detection (2026-02-02).
 - Switched IN(subquery) counters to generator AST features, added oracle-variant AST counting, and skipped EET USING-qualified column cases (2026-02-02).
