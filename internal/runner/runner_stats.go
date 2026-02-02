@@ -96,23 +96,24 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	}
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
-	if features.HasInSubquery {
-		r.sqlInSubquery++
-	}
-	if features.HasNotInSubquery {
-		r.sqlNotInSubquery++
-	}
-	if features.HasInList || features.HasInSubquery {
-		r.sqlIn++
-	}
-	if features.HasNotInList || features.HasNotInSubquery {
-		r.sqlNotIn++
-	}
+	r.genSQLTotal++
 	if features.HasExistsSubquery {
-		r.sqlExists++
+		r.genSQLExists++
 	}
 	if features.HasNotExistsSubquery {
-		r.sqlNotEx++
+		r.genSQLNotEx++
+	}
+	if features.HasInList || features.HasInSubquery {
+		r.genSQLIn++
+	}
+	if features.HasNotInList || features.HasNotInSubquery {
+		r.genSQLNotIn++
+	}
+	if features.HasInSubquery {
+		r.genSQLInSubquery++
+	}
+	if features.HasNotInSubquery {
+		r.genSQLNotInSubquery++
 	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
@@ -366,6 +367,13 @@ func (r *Runner) startStatsLogger() func() {
 		var lastNotIn int64
 		var lastInSubquery int64
 		var lastNotInSubquery int64
+		var lastGenTotal int64
+		var lastGenExists int64
+		var lastGenNotEx int64
+		var lastGenIn int64
+		var lastGenNotIn int64
+		var lastGenInSubquery int64
+		var lastGenNotInSubquery int64
 		var lastInSubqueryVariant int64
 		var lastNotInSubqueryVariant int64
 		var lastImpoTotal int64
@@ -417,6 +425,13 @@ func (r *Runner) startStatsLogger() func() {
 				notIn := r.sqlNotIn
 				inSubquery := r.sqlInSubquery
 				notInSubquery := r.sqlNotInSubquery
+				genTotal := r.genSQLTotal
+				genExists := r.genSQLExists
+				genNotEx := r.genSQLNotEx
+				genIn := r.genSQLIn
+				genNotIn := r.genSQLNotIn
+				genInSubquery := r.genSQLInSubquery
+				genNotInSubquery := r.genSQLNotInSubquery
 				inSubqueryVariant := r.sqlInSubqueryVariant
 				notInSubqueryVariant := r.sqlNotInSubqueryVariant
 				impoTotal := r.impoTotal
@@ -525,6 +540,13 @@ func (r *Runner) startStatsLogger() func() {
 				deltaNotIn := notIn - lastNotIn
 				deltaInSubquery := inSubquery - lastInSubquery
 				deltaNotInSubquery := notInSubquery - lastNotInSubquery
+				deltaGenTotal := genTotal - lastGenTotal
+				deltaGenExists := genExists - lastGenExists
+				deltaGenNotEx := genNotEx - lastGenNotEx
+				deltaGenIn := genIn - lastGenIn
+				deltaGenNotIn := genNotIn - lastGenNotIn
+				deltaGenInSubquery := genInSubquery - lastGenInSubquery
+				deltaGenNotInSubquery := genNotInSubquery - lastGenNotInSubquery
 				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
 				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
 				deltaImpoTotal := impoTotal - lastImpoTotal
@@ -599,6 +621,13 @@ func (r *Runner) startStatsLogger() func() {
 				lastNotIn = notIn
 				lastInSubquery = inSubquery
 				lastNotInSubquery = notInSubquery
+				lastGenTotal = genTotal
+				lastGenExists = genExists
+				lastGenNotEx = genNotEx
+				lastGenIn = genIn
+				lastGenNotIn = genNotIn
+				lastGenInSubquery = genInSubquery
+				lastGenNotInSubquery = genNotInSubquery
 				lastInSubqueryVariant = inSubqueryVariant
 				lastNotInSubqueryVariant = notInSubqueryVariant
 				lastImpoTotal = impoTotal
@@ -631,6 +660,18 @@ func (r *Runner) startStatsLogger() func() {
 						deltaInSubqueryVariant,
 						deltaNotInSubqueryVariant,
 					)
+					if deltaGenTotal > 0 {
+						util.Infof(
+							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d",
+							deltaGenTotal,
+							deltaGenExists,
+							deltaGenNotEx,
+							deltaGenIn,
+							deltaGenNotIn,
+							deltaGenInSubquery,
+							deltaGenNotInSubquery,
+						)
+					}
 					var impoInvalidRatio float64
 					var impoBaseExecRatio float64
 					var predicateJoinRatio float64
