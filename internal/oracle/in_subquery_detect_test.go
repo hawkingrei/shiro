@@ -14,6 +14,7 @@ func TestDetectInSubquerySQL(t *testing.T) {
 		{sql: "SELECT 1 WHERE a NOT IN ((SELECT 1))", notInSubquery: true},
 		{sql: "SELECT 1 WHERE a IN (1,2,3)", inSubquery: false},
 		{sql: "SELECT 1 WHERE a NOT IN (1,2,3)", notInSubquery: false},
+		{sql: "SELECT 1 WHERE NOT (a IN (SELECT 1))", notInSubquery: true},
 	}
 	for _, c := range cases {
 		inSub, notInSub := DetectInSubquerySQL(c.sql)

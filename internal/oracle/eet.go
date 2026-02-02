@@ -167,6 +167,11 @@ func queryHasUsingQualifiedRefs(query *generator.SelectQuery) bool {
 	if query == nil {
 		return false
 	}
+	for _, cte := range query.With {
+		if queryHasUsingQualifiedRefs(cte.Query) {
+			return true
+		}
+	}
 	usingCols := make(map[string]struct{})
 	for _, join := range query.From.Joins {
 		if len(join.Using) == 0 {

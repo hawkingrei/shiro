@@ -5,6 +5,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/opcode"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 )
 
@@ -53,17 +54,17 @@ func (v *subqueryFeatureVisitor) Enter(node ast.Node) (ast.Node, bool) {
 		return node, true
 	}
 	switch expr := node.(type) {
-	case *ast.PatternInExpr:
-		hasSubquery := expr.Sel != nil
-		if !hasSubquery {
-			for _, item := range expr.List {
-				if _, ok := item.(*ast.SubqueryExpr); ok {
-					hasSubquery = true
-					break
+	case *ast.UnaryOperationExpr:
+		if expr.Op == opcode.Not {
+			if inExpr := unwrapPatternIn(expr.V); inExpr != nil {
+				if patternInHasSubquery(inExpr) {
+					v.features.HasNotInSubquery = true
+					return node, true
 				}
 			}
 		}
-		if hasSubquery {
+	case *ast.PatternInExpr:
+		if patternInHasSubquery(expr) {
 			if expr.Not {
 				v.features.HasNotInSubquery = true
 			} else {
@@ -88,4 +89,30 @@ func (v *subqueryFeatureVisitor) Enter(node ast.Node) (ast.Node, bool) {
 
 func (v *subqueryFeatureVisitor) Leave(node ast.Node) (ast.Node, bool) {
 	return node, true
+}
+
+func unwrapPatternIn(node ast.ExprNode) *ast.PatternInExpr {
+	switch expr := node.(type) {
+	case *ast.PatternInExpr:
+		return expr
+	case *ast.ParenthesesExpr:
+		return unwrapPatternIn(expr.Expr)
+	default:
+		return nil
+	}
+}
+
+func patternInHasSubquery(expr *ast.PatternInExpr) bool {
+	if expr == nil {
+		return false
+	}
+	if expr.Sel != nil {
+		return true
+	}
+	for _, item := range expr.List {
+		if _, ok := item.(*ast.SubqueryExpr); ok {
+			return true
+		}
+	}
+	return false
 }

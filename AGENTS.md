@@ -52,4 +52,5 @@ Links:
 - Added optional GROUP BY ordinals (GROUP BY 1,2) using ordinal wrappers; sampling is controlled by the feature bandit (2026-02-01).
 - Added GroupByOrdinalExpr build tests and stricter invalid-state guard (2026-02-01).
 - Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL (2026-02-02).
+- Treated NOT (IN(subquery)) as NOT IN in SQL AST parsing and extended EET USING-qualified guard to CTEs (2026-02-02).
 - Switched IN(subquery) counters to generator AST features, added oracle-variant AST counting, and skipped EET USING-qualified column cases (2026-02-02).
