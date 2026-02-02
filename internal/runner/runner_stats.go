@@ -170,20 +170,28 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 	if len(sqls) == 0 {
 		return
 	}
+	var inCount int64
+	var notInCount int64
 	for _, sqlText := range sqls {
-		inSubquery, notInSubquery := oracle.DetectInSubquerySQL(sqlText)
-		if !inSubquery && !notInSubquery {
+		upper := strings.ToUpper(sqlText)
+		if !strings.Contains(upper, " IN (") && !strings.Contains(upper, " NOT IN (") {
 			continue
 		}
-		r.statsMu.Lock()
+		inSubquery, notInSubquery := oracle.DetectInSubquerySQL(sqlText)
 		if inSubquery {
-			r.sqlInSubqueryVariant++
+			inCount++
 		}
 		if notInSubquery {
-			r.sqlNotInSubqueryVariant++
+			notInCount++
 		}
-		r.statsMu.Unlock()
 	}
+	if inCount == 0 && notInCount == 0 {
+		return
+	}
+	r.statsMu.Lock()
+	r.sqlInSubqueryVariant += inCount
+	r.sqlNotInSubqueryVariant += notInCount
+	r.statsMu.Unlock()
 }
 
 func (r *Runner) observeOracleRun(name string) {

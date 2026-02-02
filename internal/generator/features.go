@@ -51,18 +51,18 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
-	if query.Where != nil && exprHasSubquery(query.Where) {
-		features.HasSubquery = true
-	}
 	if query.Where != nil {
+		if exprHasSubquery(query.Where) {
+			features.HasSubquery = true
+		}
 		inSub, notInSub := exprHasInSubquery(query.Where)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
 	}
-	if query.Having != nil && exprHasSubquery(query.Having) {
-		features.HasSubquery = true
-	}
 	if query.Having != nil {
+		if exprHasSubquery(query.Having) {
+			features.HasSubquery = true
+		}
 		inSub, notInSub := exprHasInSubquery(query.Having)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
@@ -231,25 +231,11 @@ func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {
 	case nil:
 		return false, false
 	case InExpr:
-		hasSub := false
-		for _, item := range e.List {
-			if exprHasSubquery(item) {
-				hasSub = true
-				break
-			}
-		}
-		return hasSub, false
+		return inExprListHasSubquery(e.List), false
 	case UnaryExpr:
 		if strings.EqualFold(e.Op, "NOT") {
 			if inner, ok := e.Expr.(InExpr); ok {
-				hasSub := false
-				for _, item := range inner.List {
-					if exprHasSubquery(item) {
-						hasSub = true
-						break
-					}
-				}
-				if hasSub {
+				if inExprListHasSubquery(inner.List) {
 					return false, true
 				}
 			}
@@ -260,52 +246,93 @@ func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {
 		rin, rnot := exprHasInSubquery(e.Right)
 		return lin || rin, lnot || rnot
 	case FuncExpr:
+		hasInSub := false
+		hasNotInSub := false
 		for _, arg := range e.Args {
 			inSub, notInSub := exprHasInSubquery(arg)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
+			}
+			if hasInSub && hasNotInSub {
+				break
 			}
 		}
-		return false, false
+		return hasInSub, hasNotInSub
 	case CaseExpr:
+		hasInSub := false
+		hasNotInSub := false
 		for _, w := range e.Whens {
 			inSub, notInSub := exprHasInSubquery(w.When)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
 			}
 			inSub, notInSub = exprHasInSubquery(w.Then)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
+			}
+			if hasInSub && hasNotInSub {
+				return hasInSub, hasNotInSub
 			}
 		}
 		if e.Else != nil {
-			return exprHasInSubquery(e.Else)
+			inSub, notInSub := exprHasInSubquery(e.Else)
+			hasInSub = hasInSub || inSub
+			hasNotInSub = hasNotInSub || notInSub
 		}
-		return false, false
+		return hasInSub, hasNotInSub
 	case SubqueryExpr:
 		return exprHasInSubqueryQuery(e.Query)
 	case ExistsExpr:
 		return exprHasInSubqueryQuery(e.Query)
 	case WindowExpr:
+		hasInSub := false
+		hasNotInSub := false
 		for _, arg := range e.Args {
 			inSub, notInSub := exprHasInSubquery(arg)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
+			}
+			if hasInSub && hasNotInSub {
+				return hasInSub, hasNotInSub
 			}
 		}
 		for _, part := range e.PartitionBy {
 			inSub, notInSub := exprHasInSubquery(part)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
+			}
+			if hasInSub && hasNotInSub {
+				return hasInSub, hasNotInSub
 			}
 		}
 		for _, ob := range e.OrderBy {
 			inSub, notInSub := exprHasInSubquery(ob.Expr)
-			if inSub || notInSub {
-				return inSub, notInSub
+			if inSub {
+				hasInSub = true
+			}
+			if notInSub {
+				hasNotInSub = true
+			}
+			if hasInSub && hasNotInSub {
+				return hasInSub, hasNotInSub
 			}
 		}
-		return false, false
+		return hasInSub, hasNotInSub
 	case GroupByOrdinalExpr:
 		if e.Expr == nil {
 			return false, false
@@ -316,41 +343,82 @@ func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {
 	}
 }
 
+func inExprListHasSubquery(list []Expr) bool {
+	for _, item := range list {
+		if exprHasSubquery(item) {
+			return true
+		}
+	}
+	return false
+}
+
 func exprHasInSubqueryQuery(query *SelectQuery) (hasInSubquery bool, hasNotInSubquery bool) {
 	if query == nil {
 		return false, false
 	}
+	hasIn := false
+	hasNotIn := false
 	for _, item := range query.Items {
 		inSub, notInSub := exprHasInSubquery(item.Expr)
-		if inSub || notInSub {
-			return inSub, notInSub
+		if inSub {
+			hasIn = true
+		}
+		if notInSub {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
 		}
 	}
 	if query.Where != nil {
 		inSub, notInSub := exprHasInSubquery(query.Where)
-		if inSub || notInSub {
-			return inSub, notInSub
+		if inSub {
+			hasIn = true
+		}
+		if notInSub {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
 		}
 	}
 	if query.Having != nil {
 		inSub, notInSub := exprHasInSubquery(query.Having)
-		if inSub || notInSub {
-			return inSub, notInSub
+		if inSub {
+			hasIn = true
+		}
+		if notInSub {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
 		}
 	}
 	for _, expr := range query.GroupBy {
 		inSub, notInSub := exprHasInSubquery(expr)
-		if inSub || notInSub {
-			return inSub, notInSub
+		if inSub {
+			hasIn = true
+		}
+		if notInSub {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
 		}
 	}
 	for _, ob := range query.OrderBy {
 		inSub, notInSub := exprHasInSubquery(ob.Expr)
-		if inSub || notInSub {
-			return inSub, notInSub
+		if inSub {
+			hasIn = true
+		}
+		if notInSub {
+			hasNotIn = true
+		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
 		}
 	}
-	return false, false
+	return hasIn, hasNotIn
 }
 
 func isAggregateFunc(name string) bool {
