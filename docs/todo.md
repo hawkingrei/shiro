@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-03. Plan cache now treats unknown column errors in WHERE as whitelisted.
+Last review: 2026-02-03. Simplified join predicate unwrap to satisfy revive lint.
 
 ## Generator / Oracles
 

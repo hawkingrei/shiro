@@ -171,8 +171,8 @@ func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
 func unwrapJoinPredicate(expr generator.Expr) (generator.Expr, bool) {
 	notCount := 0
 	for {
-		switch e := expr.(type) {
-		case generator.UnaryExpr:
+		e, ok := expr.(generator.UnaryExpr)
+		if ok {
 			switch strings.ToUpper(e.Op) {
 			case "+":
 				expr = e.Expr
