@@ -372,7 +372,6 @@ func (r *Runner) preparedCacheExecute(ctx context.Context, conn *sql.Conn, stmt 
 	}
 }
 
-
 func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 	var total int
 	var invalid int

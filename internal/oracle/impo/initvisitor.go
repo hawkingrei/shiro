@@ -7,11 +7,11 @@ import (
 
 // InitVisitor normalizes unsupported constructs for later mutation.
 type InitVisitor struct {
-	DisableStage1 bool
-	KeepLRJoin    bool
-	keepAggStack  []bool
+	DisableStage1  bool
+	KeepLRJoin     bool
+	keepAggStack   []bool
 	keepLimitStack []bool
-	subqDepth     int
+	subqDepth      int
 }
 
 // Enter applies normalized rewrites and stops recursion for each node.

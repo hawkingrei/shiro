@@ -31,7 +31,6 @@ func TestInitKeepsHavingGroupBy(t *testing.T) {
 	}
 }
 
-
 func containsSQL(sql string, token string) bool {
 	return strings.Contains(strings.ToUpper(sql), strings.ToUpper(token))
 }
