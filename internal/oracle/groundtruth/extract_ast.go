@@ -1,6 +1,7 @@
 package groundtruth
 
 import (
+	"sort"
 	"strings"
 	"sync"
 
@@ -198,11 +199,17 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 	}
 	var pickedTable string
 	var picked []astJoinKeyPair
-	for table, list := range groups {
+	tables := make([]string, 0, len(groups))
+	for table := range groups {
+		tables = append(tables, table)
+	}
+	sort.Strings(tables)
+	for _, table := range tables {
+		list := groups[table]
 		if len(list) == 0 {
 			continue
 		}
-		if pickedTable == "" || len(list) > len(picked) {
+		if pickedTable == "" || len(list) > len(picked) || (len(list) == len(picked) && table < pickedTable) {
 			pickedTable = table
 			picked = list
 		}

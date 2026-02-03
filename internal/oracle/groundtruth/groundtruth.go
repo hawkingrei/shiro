@@ -305,6 +305,9 @@ func (e *JoinTruthExecutor) equalityJoin(leftTable string, leftKeys []string, ri
 	if len(leftKeys) == 0 || len(rightKeys) == 0 {
 		return Bitmap{}
 	}
+	if len(leftKeys) != len(rightKeys) {
+		return Bitmap{}
+	}
 	if len(leftKeys) == 1 && len(rightKeys) == 1 {
 		leftCol := e.tableColumn(leftTable, leftKeys[0])
 		rightCol := e.tableColumn(rightTable, rightKeys[0])
