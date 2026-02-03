@@ -124,6 +124,7 @@ type qpgState struct {
 	seenJoinOrder      map[string]struct{}
 	seenOpSig          map[string]struct{}
 	seenSQL            map[string]int64
+	seenSQLAdded       int
 	noNewPlan          int
 	noNewOp            int
 	noJoin             int
@@ -386,14 +387,15 @@ func (s *qpgState) observe(info planInfo) qpgObservation {
 	return obs
 }
 
-func (s *qpgState) stats() (plans int, shapes int, ops int, joins int, joinOrder int, opSig int, seenSQL int) {
+func (s *qpgState) stats() (plans int, shapes int, ops int, joins int, joinOrder int, opSig int, seenSQL int, seenSQLAdded int) {
 	return len(s.seenPlans),
 		len(s.seenShapes),
 		len(s.seenOps),
 		len(s.seenJoins),
 		len(s.seenJoinOrder),
 		len(s.seenOpSig),
-		len(s.seenSQL)
+		len(s.seenSQL),
+		s.seenSQLAdded
 }
 
 func (r *Runner) applyQPGWeights() bool {
@@ -614,6 +616,7 @@ func (s *qpgState) shouldSkipExplain(sqlText string) bool {
 		return true
 	}
 	s.seenSQL[hash] = now
+	s.seenSQLAdded++
 	if len(s.seenSQL) > s.seenSQLMax {
 		for k, v := range s.seenSQL {
 			if now-v > s.seenSQLSweep {

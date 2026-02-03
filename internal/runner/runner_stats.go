@@ -387,7 +387,7 @@ func (r *Runner) startStatsLogger() func() {
 		var lastJoins int
 		var lastJoinOrders int
 		var lastOpSigs int
-		var lastSeenSQL int
+		var lastSeenSQLAdded int
 		var lastTQSSteps int64
 		var lastTQSCovered int
 		var lastTQSEdges int
@@ -1086,23 +1086,23 @@ func (r *Runner) startStatsLogger() func() {
 					lastOracleStats = oracleStats
 					if r.cfg.QPG.Enabled && r.cfg.Logging.Verbose && r.qpgState != nil {
 						r.qpgMu.Lock()
-						plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
+						plans, shapes, ops, joins, joinOrders, opSigs, seenSQL, seenSQLAdded := r.qpgState.stats()
 						deltaPlans := plans - lastPlans
 						deltaShapes := shapes - lastShapes
 						deltaOps := ops - lastOps
 						deltaJoins := joins - lastJoins
 						deltaJoinOrders := joinOrders - lastJoinOrders
 						deltaOpSigs := opSigs - lastOpSigs
-						deltaSeenSQL := seenSQL - lastSeenSQL
+						deltaSeenSQLAdded := seenSQLAdded - lastSeenSQLAdded
 						lastPlans = plans
 						lastShapes = shapes
 						lastOps = ops
 						lastJoins = joins
 						lastJoinOrders = joinOrders
 						lastOpSigs = opSigs
-						lastSeenSQL = seenSQL
+						lastSeenSQLAdded = seenSQLAdded
 						util.Detailf(
-							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d(+%d)",
+							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d added=%d(+%d)",
 							plans,
 							deltaPlans,
 							shapes,
@@ -1116,7 +1116,8 @@ func (r *Runner) startStatsLogger() func() {
 							opSigs,
 							deltaOpSigs,
 							seenSQL,
-							deltaSeenSQL,
+							seenSQLAdded,
+							deltaSeenSQLAdded,
 						)
 						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
 							util.Detailf("qpg override=%s", r.qpgState.lastOverride)

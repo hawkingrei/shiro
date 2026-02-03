@@ -38,7 +38,7 @@ func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 
 // Run builds a query, applies an equivalent predicate rewrite, and compares
 // signatures for mismatches.
-func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
+func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	policy := eetPredicatePolicy(gen)
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireDeterministic().
@@ -53,22 +53,18 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *
 	if query == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("eet", reason), "builder_reason": reason, "builder_attempts": attempts}}
 	}
+	query = query.Clone()
+	if state != nil {
+		rewriteUsingToOn(query, state)
+	}
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:nondeterministic"}}
 	}
-	if query.Where != nil && !predicateMatches(query.Where, policy) {
+	if !queryHasPredicateMatch(query, policy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:predicate_guard"}}
-	}
-	if query.Having != nil && !predicateMatches(query.Having, policy) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:having_guard"}}
 	}
 	if queryHasUsingQualifiedRefs(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
-	}
-	for _, join := range query.From.Joins {
-		if join.On != nil && !predicateMatches(join.On, policy) {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:on_guard"}}
-		}
 	}
 	if query.Limit != nil && orderByAllConstant(query.OrderBy) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
@@ -1034,6 +1030,24 @@ func eetQueryHasPredicate(query *generator.SelectQuery) bool {
 	}
 	for _, join := range query.From.Joins {
 		if join.On != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func queryHasPredicateMatch(query *generator.SelectQuery, policy predicatePolicy) bool {
+	if query == nil {
+		return false
+	}
+	if query.Where != nil && predicateMatches(query.Where, policy) {
+		return true
+	}
+	if query.Having != nil && predicateMatches(query.Having, policy) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && predicateMatches(join.On, policy) {
 			return true
 		}
 	}

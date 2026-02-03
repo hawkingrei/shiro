@@ -185,7 +185,8 @@ func (g *Generator) templatePredicate(tables []schema.Table) Expr {
 	case PredicateModeSimpleColumns:
 		return g.GenerateSimplePredicateColumns(tables, g.maxDepth)
 	default:
-		return g.GeneratePredicate(tables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+		allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+		return g.GeneratePredicate(tables, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	}
 }
 

@@ -33,6 +33,9 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	if maxRows <= 0 {
 		maxRows = 50
 	}
+	if gen.Config.MaxRowsPerTable > 0 && maxRows < gen.Config.MaxRowsPerTable {
+		maxRows = gen.Config.MaxRowsPerTable
+	}
 	if gen.Truth != nil {
 		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
 			return o.runWithTruth(ctx, exec, truth, query, state, gen.Config.Features.DSG, maxRows)

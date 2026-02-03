@@ -23,6 +23,7 @@
 - Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL paths.
 - Treat NOT (IN(subquery)) as NOT IN in SQL AST parsing for variant counts.
 - Split generator SQL feature counts into a separate interval log line to keep plan-cache ratios consistent.
+- Ensured scalar subquery disallow flags are respected when generating predicates and template predicates.
 
 ## EET oracle
 - Skip EET cases where ORDER BY is constant under LIMIT to avoid nondeterministic sampling.
@@ -30,6 +31,7 @@
 - Predicate guard allows EXISTS/IN subquery forms.
 - Skip EET cases with USING-qualified column references to avoid base signature errors.
 - EET USING-qualified guard now checks CTEs as well.
+- EET now rewrites USING to ON before applying guards, and only requires one predicate target to match the guard.
 
 ## Generator tuning
 - Increased PredicateSubqueryScale and PredicateExistsProb to raise EXISTS coverage.
@@ -41,3 +43,6 @@
 
 ## Report UI
 - Added a flaky tag when expected/actual EXPLAIN match but signatures differ.
+
+## QPG stats
+- Added a monotonic seen SQL counter to avoid negative deltas from TTL-based sweeps.

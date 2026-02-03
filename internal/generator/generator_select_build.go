@@ -85,7 +85,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	case PredicateModeSimpleColumns:
 		query.Where = g.GenerateSimplePredicateColumns(queryTables, min(2, g.maxDepth))
 	default:
-		query.Where = g.GeneratePredicate(queryTables, g.maxDepth, g.Config.Features.Subqueries, g.maxSubqDepth)
+		query.Where = g.GeneratePredicate(queryTables, g.maxDepth, allowSubquery, g.maxSubqDepth)
 	}
 
 	if g.Config.Features.Aggregates && util.Chance(g.Rand, g.aggProb()) {
