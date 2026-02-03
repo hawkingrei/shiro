@@ -38,7 +38,7 @@ func TestEqualityJoin(t *testing.T) {
 	truth.AddColumnValue("t2", "b", "int", "3", 3)
 
 	exec := JoinTruthExecutor{Truth: truth}
-	rows := exec.equalityJoin("t1", "a", "t2", "b")
+	rows := exec.equalityJoin("t1", []string{"a"}, "t2", []string{"b"})
 	if !rows.Has(2) || rows.Has(1) || rows.Has(3) {
 		t.Fatalf("unexpected join rows")
 	}

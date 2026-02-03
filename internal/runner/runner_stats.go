@@ -287,6 +287,11 @@ func oracleSkipReason(result oracle.Result) string {
 		return ""
 	}
 	if v, ok := result.Details["skip_reason"].(string); ok && v != "" {
+		if v == "groundtruth:key_missing" {
+			if reason, ok := result.Details["groundtruth_key_missing_reason"].(string); ok && reason != "" {
+				return v + ":" + reason
+			}
+		}
 		return v
 	}
 	if v, ok := result.Details["groundtruth_skip"].(string); ok && v != "" {

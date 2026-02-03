@@ -58,3 +58,7 @@ Links:
 - Ensured scalar subquery disallow flags are respected in predicate generation and template predicates (2026-02-03).
 - EET now rewrites USING to ON before guards and accepts any predicate target that matches the policy (2026-02-03).
 - QPG seen SQL stats now use a monotonic added counter to avoid negative deltas (2026-02-03).
+- GroundTruth join key extraction now handles USING/AND and unqualified columns; added tests (2026-02-03).
+- GroundTruth now falls back to AST parsing for join keys (alias-aware) to reduce key_missing (2026-02-03).
+- GroundTruth now supports composite join keys in truth evaluation and SQL joins (2026-02-03).
+- GroundTruth key_missing now logs per-reason breakdown in oracle_skip_reasons (2026-02-03).

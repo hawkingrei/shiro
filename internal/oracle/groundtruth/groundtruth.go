@@ -1,5 +1,7 @@
 package groundtruth
 
+import "strings"
+
 // Package groundtruth implements join truth computation for TQS.
 //
 // RowID is a stable identifier for a row in the wide table. Each normalized
@@ -38,7 +40,32 @@ type JoinEdge struct {
 	RightTable string
 	LeftKey    string
 	RightKey   string
+	LeftKeys   []string
+	RightKeys  []string
 	JoinType   JoinType
+	KeyReason  string
+}
+
+// LeftKeyList returns the join key list for the left table.
+func (e JoinEdge) LeftKeyList() []string {
+	if len(e.LeftKeys) > 0 {
+		return e.LeftKeys
+	}
+	if e.LeftKey != "" {
+		return []string{e.LeftKey}
+	}
+	return nil
+}
+
+// RightKeyList returns the join key list for the right table.
+func (e JoinEdge) RightKeyList() []string {
+	if len(e.RightKeys) > 0 {
+		return e.RightKeys
+	}
+	if e.RightKey != "" {
+		return []string{e.RightKey}
+	}
+	return nil
 }
 
 // JoinType enumerates join semantics used by truth executor.
@@ -84,7 +111,7 @@ func (e *JoinTruthExecutor) EvalJoinChain(baseTable string, edges []JoinEdge) Bi
 		// from the wide-table universe.
 		leftAll := e.tableAllRows(edge.LeftTable)
 		rightAll := e.tableAllRows(edge.RightTable)
-		joinRows := e.equalityJoin(edge.LeftTable, edge.LeftKey, edge.RightTable, edge.RightKey)
+		joinRows := e.equalityJoin(edge.LeftTable, edge.LeftKeyList(), edge.RightTable, edge.RightKeyList())
 		switch edge.JoinType {
 		case JoinInner:
 			result = result.And(joinRows)
@@ -162,10 +189,10 @@ func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdg
 				}
 			}
 		case JoinRight:
-			leftIndex := buildCompositeIndex(composite, edge.LeftTable, edge.LeftKey)
+			leftIndex := buildCompositeIndex(composite, edge.LeftTable, edge.LeftKeyList())
 			next = make([]map[string]map[string]TypedValue, 0, len(rightRows))
 			for _, rightRow := range rightRows {
-				key, ok := rowKey(rightRow, edge.RightKey)
+				key, ok := compositeRowKeyTyped(rightRow, edge.RightKeyList())
 				if !ok {
 					if joinCap > 0 && len(next) >= joinCap {
 						return 0, false, "join_rows_exceeded"
@@ -191,11 +218,11 @@ func (e *JoinTruthExecutor) EvalJoinChainExact(baseTable string, edges []JoinEdg
 				}
 			}
 		case JoinLeft, JoinSemi, JoinAnti, JoinInner:
-			index := buildRowIndex(rightRows, edge.RightKey)
+			index := buildRowIndex(rightRows, edge.RightKeyList())
 			next = make([]map[string]map[string]TypedValue, 0, len(composite))
 			for _, leftRow := range composite {
 				lrow := leftRow[edge.LeftTable]
-				key, ok := rowKey(lrow, edge.LeftKey)
+				key, ok := compositeRowKeyTyped(lrow, edge.LeftKeyList())
 				if !ok {
 					if edge.JoinType == JoinLeft || edge.JoinType == JoinAnti {
 						if joinCap > 0 && len(next) >= joinCap {
@@ -275,15 +302,42 @@ func (e *JoinTruthExecutor) tableAllRows(table string) Bitmap {
 	return out
 }
 
-func (e *JoinTruthExecutor) equalityJoin(leftTable, leftKey, rightTable, rightKey string) Bitmap {
-	leftCol := e.tableColumn(leftTable, leftKey)
-	rightCol := e.tableColumn(rightTable, rightKey)
-	if leftCol == nil || rightCol == nil {
+func (e *JoinTruthExecutor) equalityJoin(leftTable string, leftKeys []string, rightTable string, rightKeys []string) Bitmap {
+	if len(leftKeys) == 0 || len(rightKeys) == 0 {
+		return Bitmap{}
+	}
+	if len(leftKeys) != len(rightKeys) {
+		return Bitmap{}
+	}
+	if len(leftKeys) == 1 && len(rightKeys) == 1 {
+		leftCol := e.tableColumn(leftTable, leftKeys[0])
+		rightCol := e.tableColumn(rightTable, rightKeys[0])
+		if leftCol == nil || rightCol == nil {
+			return Bitmap{}
+		}
+		var out Bitmap
+		for key, leftBM := range leftCol {
+			rightBM, ok := rightCol[key]
+			if !ok {
+				continue
+			}
+			inter := leftBM.And(rightBM)
+			if out.words == nil {
+				out = inter
+				continue
+			}
+			out.OrWith(inter)
+		}
+		return out
+	}
+	leftComposite := e.tableCompositeRowIDs(leftTable, leftKeys)
+	rightComposite := e.tableCompositeRowIDs(rightTable, rightKeys)
+	if leftComposite == nil || rightComposite == nil {
 		return Bitmap{}
 	}
 	var out Bitmap
-	for key, leftBM := range leftCol {
-		rightBM, ok := rightCol[key]
+	for key, leftBM := range leftComposite {
+		rightBM, ok := rightComposite[key]
 		if !ok {
 			continue
 		}
@@ -349,10 +403,10 @@ func rowKey(row map[string]TypedValue, col string) (string, bool) {
 	return NewKey(tv.Type, tv.Value), true
 }
 
-func buildRowIndex(rows []map[string]TypedValue, col string) map[string][]map[string]TypedValue {
+func buildRowIndex(rows []map[string]TypedValue, cols []string) map[string][]map[string]TypedValue {
 	index := make(map[string][]map[string]TypedValue, len(rows))
 	for _, row := range rows {
-		key, ok := rowKey(row, col)
+		key, ok := compositeRowKeyTyped(row, cols)
 		if !ok {
 			continue
 		}
@@ -369,17 +423,53 @@ func copyComposite(src map[string]map[string]TypedValue) map[string]map[string]T
 	return out
 }
 
-func buildCompositeIndex(rows []map[string]map[string]TypedValue, table, col string) map[string][]map[string]map[string]TypedValue {
+func buildCompositeIndex(rows []map[string]map[string]TypedValue, table string, cols []string) map[string][]map[string]map[string]TypedValue {
 	index := make(map[string][]map[string]map[string]TypedValue, len(rows))
 	for _, row := range rows {
 		tr := row[table]
-		key, ok := rowKey(tr, col)
+		key, ok := compositeRowKeyTyped(tr, cols)
 		if !ok {
 			continue
 		}
 		index[key] = append(index[key], row)
 	}
 	return index
+}
+
+func compositeRowKeyTyped(row map[string]TypedValue, cols []string) (string, bool) {
+	if len(cols) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(cols))
+	for _, col := range cols {
+		key, ok := rowKey(row, col)
+		if !ok {
+			return "", false
+		}
+		parts = append(parts, key)
+	}
+	return strings.Join(parts, "\x1f"), true
+}
+
+func (e *JoinTruthExecutor) tableCompositeRowIDs(table string, cols []string) RowIDMap {
+	if len(cols) == 0 {
+		return nil
+	}
+	tbl, ok := e.Truth.Tables[table]
+	if !ok || len(tbl.RowsData) == 0 {
+		return nil
+	}
+	out := make(RowIDMap, len(tbl.RowsData))
+	for id, row := range tbl.RowsData {
+		key, ok := compositeRowKeyTyped(row, cols)
+		if !ok {
+			continue
+		}
+		bm := out[key]
+		bm.Set(RowID(id))
+		out[key] = bm
+	}
+	return out
 }
 
 // NewKey encodes a join key from typed values for RowIDMap lookup.

@@ -73,7 +73,7 @@ func TestJoinRowsNullAndLimit(t *testing.T) {
 			"t1.id": {Null: true},
 		},
 	}
-	rows, ok := joinRows(left, right, "t0", "id", "t1", "id", 0)
+	rows, ok := joinRows(left, right, "t0", []string{"id"}, "t1", []string{"id"}, 0)
 	if !ok {
 		t.Fatalf("expected join to succeed without limit")
 	}
@@ -86,7 +86,7 @@ func TestJoinRowsNullAndLimit(t *testing.T) {
 	if _, ok := rows[0]["t1.id"]; !ok {
 		t.Fatalf("expected merged row to include right table columns")
 	}
-	_, ok = joinRows(left, right, "t0", "id", "t1", "id", 1)
+	_, ok = joinRows(left, right, "t0", []string{"id"}, "t1", []string{"id"}, 1)
 	if ok {
 		t.Fatalf("expected join to exceed maxRows limit")
 	}
