@@ -61,3 +61,4 @@ Links:
 - GroundTruth join key extraction now handles USING/AND and unqualified columns; added tests (2026-02-03).
 - GroundTruth now falls back to AST parsing for join keys (alias-aware) to reduce key_missing (2026-02-03).
 - GroundTruth now supports composite join keys in truth evaluation and SQL joins (2026-02-03).
+- GroundTruth key_missing now logs per-reason breakdown in oracle_skip_reasons (2026-02-03).
