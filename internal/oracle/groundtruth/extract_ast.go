@@ -183,6 +183,9 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 	groups := make(map[string][]astJoinKeyPair)
 	candidates := collectJoinKeyCandidatesAST(expr)
 	if len(candidates) == 0 {
+		if !astExprHasColumnRef(expr) {
+			return "", "", nil, nil, "no_equal_candidates:no_columns", false
+		}
 		return "", "", nil, nil, "no_equal_candidates", false
 	}
 	for _, cand := range candidates {
@@ -238,6 +241,10 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 }
 
 func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
+	expr, ok := unwrapASTJoinPredicate(expr)
+	if !ok {
+		return nil
+	}
 	switch node := expr.(type) {
 	case *ast.ParenthesesExpr:
 		return collectJoinKeyCandidatesAST(node.Expr)
@@ -247,7 +254,7 @@ func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
 			left := collectJoinKeyCandidatesAST(node.L)
 			right := collectJoinKeyCandidatesAST(node.R)
 			return append(left, right...)
-		case opcode.EQ:
+		case opcode.EQ, opcode.NullEQ:
 			leftExpr := unwrapASTColumnName(node.L)
 			rightExpr := unwrapASTColumnName(node.R)
 			if leftExpr == nil || rightExpr == nil {
@@ -260,6 +267,32 @@ func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
 	default:
 		return nil
 	}
+}
+
+func unwrapASTJoinPredicate(expr ast.ExprNode) (ast.ExprNode, bool) {
+	notCount := 0
+	for {
+		switch node := expr.(type) {
+		case *ast.ParenthesesExpr:
+			expr = node.Expr
+			continue
+		case *ast.UnaryOperationExpr:
+			switch node.Op {
+			case opcode.Plus:
+				expr = node.V
+				continue
+			case opcode.Not:
+				notCount++
+				expr = node.V
+				continue
+			}
+		}
+		break
+	}
+	if notCount%2 == 1 {
+		return nil, false
+	}
+	return expr, true
 }
 
 func unwrapASTColumnName(expr ast.ExprNode) *ast.ColumnNameExpr {
@@ -360,4 +393,32 @@ func hasColumn(state *schema.State, table string, col string) bool {
 	}
 	_, ok = tbl.ColumnByName(col)
 	return ok
+}
+
+type columnRefVisitor struct {
+	found bool
+}
+
+func (v *columnRefVisitor) Enter(n ast.Node) (ast.Node, bool) {
+	if v.found {
+		return n, true
+	}
+	if _, ok := n.(*ast.ColumnNameExpr); ok {
+		v.found = true
+		return n, true
+	}
+	return n, false
+}
+
+func (v *columnRefVisitor) Leave(n ast.Node) (ast.Node, bool) {
+	return n, true
+}
+
+func astExprHasColumnRef(expr ast.ExprNode) bool {
+	if expr == nil {
+		return false
+	}
+	v := &columnRefVisitor{}
+	expr.Accept(v)
+	return v.found
 }

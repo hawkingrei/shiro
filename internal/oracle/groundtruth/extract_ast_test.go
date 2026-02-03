@@ -59,3 +59,20 @@ func TestJoinEdgesFromSQLUsingCompositeKeys(t *testing.T) {
 		t.Fatalf("expected composite keys, got %d/%d", len(edges[0].LeftKeys), len(edges[0].RightKeys))
 	}
 }
+
+func TestJoinEdgesFromSQLWithDoubleNotAndNullEQ(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{Name: "t0", Columns: []schema.Column{{Name: "k0", Type: schema.TypeInt}}},
+			{Name: "t1", Columns: []schema.Column{{Name: "k0", Type: schema.TypeInt}}},
+		},
+	}
+	sqlText := "SELECT * FROM t0 JOIN t1 ON NOT NOT (t0.k0 <=> t1.k0)"
+	edges := JoinEdgesFromSQL(sqlText, state)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].LeftKey != "k0" || edges[0].RightKey != "k0" {
+		t.Fatalf("expected join key k0, got %s=%s", edges[0].LeftKey, edges[0].RightKey)
+	}
+}

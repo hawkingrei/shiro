@@ -347,6 +347,13 @@ func (g *Generator) groupByOrdinalProb() int {
 	return GroupByOrdinalBaseProb
 }
 
+func (g *Generator) joinUsingProb() int {
+	if g.Config.Oracles.JoinUsingProb >= 0 {
+		return g.Config.Oracles.JoinUsingProb
+	}
+	return UsingJoinProb
+}
+
 func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
@@ -374,7 +381,7 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 		join := Join{Type: joinType, Table: tables[i].Name}
 		if joinType != JoinCross {
 			using := g.pickUsingColumns(tables[:i], tables[i])
-			if len(using) > 0 && util.Chance(g.Rand, UsingJoinProb) {
+			if len(using) > 0 && util.Chance(g.Rand, g.joinUsingProb()) {
 				join.Using = using
 			} else {
 				join.On = g.joinCondition(tables[:i], tables[i])
@@ -453,9 +460,52 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 
 func (g *Generator) joinCondition(left []schema.Table, right schema.Table) Expr {
 	if l, r, ok := g.pickJoinColumnPair(left, right); ok {
-		return BinaryExpr{Left: ColumnExpr{Ref: l}, Op: "=", Right: ColumnExpr{Ref: r}}
+		eq := BinaryExpr{Left: ColumnExpr{Ref: l}, Op: "=", Right: ColumnExpr{Ref: r}}
+		policy := strings.ToLower(strings.TrimSpace(g.Config.Oracles.JoinOnPolicy))
+		if policy == "complex" {
+			tables := append([]schema.Table{}, left...)
+			tables = append(tables, right)
+			extra := g.GeneratePredicate(tables, 1, false, 0)
+			if extra != nil {
+				return BinaryExpr{Left: eq, Op: "AND", Right: extra}
+			}
+		}
+		return eq
+	}
+	if names := g.pickUsingColumns(left, right); len(names) > 0 {
+		if expr := joinConditionFromUsing(left, right, names); expr != nil {
+			return expr
+		}
 	}
 	return g.falseExpr()
+}
+
+func joinConditionFromUsing(left []schema.Table, right schema.Table, names []string) Expr {
+	if len(names) == 0 {
+		return nil
+	}
+	name := names[0]
+	leftTable := findTableWithColumn(left, name)
+	if leftTable == "" {
+		return nil
+	}
+	return BinaryExpr{
+		Left:  ColumnExpr{Ref: ColumnRef{Table: leftTable, Name: name}},
+		Op:    "=",
+		Right: ColumnExpr{Ref: ColumnRef{Table: right.Name, Name: name}},
+	}
+}
+
+func findTableWithColumn(tables []schema.Table, column string) string {
+	if column == "" {
+		return ""
+	}
+	for _, tbl := range tables {
+		if _, ok := tbl.ColumnByName(column); ok {
+			return tbl.Name
+		}
+	}
+	return ""
 }
 
 func (g *Generator) collectColumns(tables []schema.Table) []ColumnRef {

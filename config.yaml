@@ -108,6 +108,10 @@ logging:
 oracles:
   # When true, TLP/CODDTest use simpler predicates to reduce false positives.
   strict_predicates: true
+  # join_on_policy: "simple" keeps ON clauses as column equalities; "complex" adds extra predicates.
+  join_on_policy: "complex"
+  # join_using_prob overrides USING selection when set to 0-100; -1 keeps defaults.
+  join_using_prob: -1
   cert_min_base_rows: 30
   groundtruth_max_rows: 50
   impo_max_rows: 200

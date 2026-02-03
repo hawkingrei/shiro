@@ -23,7 +23,7 @@ Links:
 - Fixed JOIN ON scope validation, added CERT scope checks, and updated tests (2026-01-30).
 - TLP: added error_reason/whitelist skips, fixed UNION/ORDER BY 1221, rewrote USING to ON with column qualification, removed unused helpers, and updated tests/logging (2026-01-30).
 - CERT sampling: removed weight config, fixed sampling at a constant rate, added sampling ratio logs, and refined bandit/lock handling with safe fallbacks (2026-01-30).
-- DQP: treat LEADING mismatches as TiDB bugs; subqueries remain disabled via oracle overrides (2026-01-30).
+- DQP: treat LEADING mismatches as TiDB bugs (2026-01-30).
 - EXISTS metrics: regex matching for whitespace/newlines; TODO to improve EXISTS/NOT EXISTS coverage (2026-01-30).
 - Reviewed logs/reports, captured CERT/TLP/DQP examples, and fixed PR description line breaks (2026-01-30).
 - Ran `go test ./...` (2026-01-29, 2026-01-30).
@@ -62,3 +62,10 @@ Links:
 - GroundTruth now falls back to AST parsing for join keys (alias-aware) to reduce key_missing (2026-02-03).
 - GroundTruth now supports composite join keys in truth evaluation and SQL joins (2026-02-03).
 - GroundTruth key_missing now logs per-reason breakdown in oracle_skip_reasons (2026-02-03).
+- Enabled subqueries for DQP/TLP via oracle overrides (2026-02-03).
+- GroundTruth join key extraction now accepts NOT NOT and NULL-safe equality for ON clauses (2026-02-03).
+- Added join_on_policy/join_using_prob config knobs and GroundTruth bias toward USING; key-missing now distinguishes no-column ON predicates (2026-02-03).
+- Forced TLP to use complex JOIN ON while keeping GroundTruth simple (2026-02-03).
+- Join ON now falls back to USING-derived equality before emitting constant false predicates (2026-02-03).
+- Added joinConditionFromUsing fallback test for USING-derived ON equality (2026-02-03).
+- Plan cache now treats unknown column errors in WHERE as whitelisted (2026-02-03).
