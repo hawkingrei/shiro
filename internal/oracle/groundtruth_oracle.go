@@ -448,6 +448,9 @@ func joinRows(left []rowData, right []rowData, leftTable string, leftKeys []stri
 	if len(leftKeys) == 0 || len(rightKeys) == 0 {
 		return nil, true
 	}
+	if len(leftKeys) != len(rightKeys) {
+		return nil, false
+	}
 	lk := qualifyKeys(leftTable, leftKeys)
 	rk := qualifyKeys(rightTable, rightKeys)
 	rightIndex := make(map[string][]rowData)

@@ -235,6 +235,13 @@ func extractUsingEdge(state *schema.State, leftTables []string, rightTable strin
 	leftKeys := make([]string, 0, len(using))
 	rightKeys := make([]string, 0, len(using))
 	for _, name := range using {
+		if state != nil && rightTable != "" {
+			if tbl, ok := state.TableByName(rightTable); ok {
+				if _, ok := tbl.ColumnByName(name); !ok {
+					continue
+				}
+			}
+		}
 		table := pickUsingLeftTable(state, leftTables, name)
 		if table == "" {
 			continue
