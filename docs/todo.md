@@ -1,14 +1,13 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-02. Switched EXISTS/IN counters to AST parsing and retained variant IN(subquery) tracking.
+Last review: 2026-02-03. GroundTruth join key extraction now supports composite keys.
 
 ## Generator / Oracles
 
 1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
 2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
 3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics.
-4. GroundTruth: reduce edge_mismatch by aligning join edge extraction with generator (USING/AND handling).
 4. Consider making `CTECountMax` configurable for resource-sensitive runs.
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.

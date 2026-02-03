@@ -42,6 +42,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 		}
 	}
 	edges := groundtruth.JoinEdgesFromQuery(query, state)
+	edges = groundtruth.RefineJoinEdgesWithSQL(query.SQLString(), state, edges, len(query.From.Joins))
 	if len(edges) != len(query.From.Joins) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
 	}
@@ -49,7 +50,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 		if edge.JoinType != groundtruth.JoinInner {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:join_type"}}
 		}
-		if edge.LeftKey == "" || edge.RightKey == "" {
+		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:key_missing"}}
 		}
 	}
@@ -85,7 +86,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 			}
 			return Result{OK: true, Oracle: o.Name(), Err: err}
 		}
-		rows, ok = joinRows(rows, rightRows, edge.LeftTable, edge.LeftKey, edge.RightTable, edge.RightKey, maxRows)
+		rows, ok = joinRows(rows, rightRows, edge.LeftTable, edge.LeftKeyList(), edge.RightTable, edge.RightKeyList(), maxRows)
 		if !ok {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
 				"groundtruth_skip": "join_rows_exceeded",
@@ -132,11 +133,12 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:truth_missing"}}
 	}
 	edges := groundtruth.JoinEdgesFromQuery(query, state)
+	edges = groundtruth.RefineJoinEdgesWithSQL(query.SQLString(), state, edges, len(query.From.Joins))
 	if len(edges) != len(query.From.Joins) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
 	}
 	for _, edge := range edges {
-		if edge.LeftKey == "" || edge.RightKey == "" {
+		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:key_missing"}}
 		}
 	}
@@ -155,6 +157,13 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 	for _, edge := range edges {
 		if edge.JoinType != groundtruth.JoinInner {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:join_type"}}
+		}
+	}
+	for _, edge := range edges {
+		if len(edge.LeftKeyList()) > 1 || len(edge.RightKeyList()) > 1 {
+			if !truthHasRowsData(truth, edge.LeftTable) || !truthHasRowsData(truth, edge.RightTable) {
+				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:composite_key_rows_missing"}}
+			}
 		}
 	}
 	executor := groundtruth.JoinTruthExecutor{Truth: *truth}
@@ -303,8 +312,12 @@ func joinKeyColumns(state *schema.State, edges []groundtruth.JoinEdge, base stri
 		}
 	}
 	for _, edge := range edges {
-		add(edge.LeftTable, edge.LeftKey)
-		add(edge.RightTable, edge.RightKey)
+		for _, key := range edge.LeftKeyList() {
+			add(edge.LeftTable, key)
+		}
+		for _, key := range edge.RightKeyList() {
+			add(edge.RightTable, key)
+		}
 	}
 	result := make(map[string][]string)
 	for table, cols := range out {
@@ -315,6 +328,17 @@ func joinKeyColumns(state *schema.State, edges []groundtruth.JoinEdge, base stri
 		result[table] = list
 	}
 	return result
+}
+
+func truthHasRowsData(truth *groundtruth.SchemaTruth, table string) bool {
+	if truth == nil || table == "" {
+		return false
+	}
+	tbl, ok := truth.Tables[table]
+	if !ok {
+		return false
+	}
+	return len(tbl.RowsData) > 0
 }
 
 func shouldSkipGroundTruthByRowCount(ctx context.Context, exec *db.DB, query *generator.SelectQuery, maxRows int) bool {
@@ -399,27 +423,30 @@ func fetchRows(ctx context.Context, exec *db.DB, table string, cols []string, li
 	return out, query, nil
 }
 
-func joinRows(left []rowData, right []rowData, leftTable, leftKey, rightTable, rightKey string, maxRows int) ([]rowData, bool) {
+func joinRows(left []rowData, right []rowData, leftTable string, leftKeys []string, rightTable string, rightKeys []string, maxRows int) ([]rowData, bool) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, true
 	}
-	lk := fmt.Sprintf("%s.%s", leftTable, leftKey)
-	rk := fmt.Sprintf("%s.%s", rightTable, rightKey)
+	if len(leftKeys) == 0 || len(rightKeys) == 0 {
+		return nil, true
+	}
+	lk := qualifyKeys(leftTable, leftKeys)
+	rk := qualifyKeys(rightTable, rightKeys)
 	rightIndex := make(map[string][]rowData)
 	for _, row := range right {
-		cell := row[rk]
-		if cell.Null {
+		key, ok := compositeRowKey(row, rk)
+		if !ok {
 			continue
 		}
-		rightIndex[cell.Val] = append(rightIndex[cell.Val], row)
+		rightIndex[key] = append(rightIndex[key], row)
 	}
 	out := make([]rowData, 0)
 	for _, lrow := range left {
-		cell := lrow[lk]
-		if cell.Null {
+		key, ok := compositeRowKey(lrow, lk)
+		if !ok {
 			continue
 		}
-		matches := rightIndex[cell.Val]
+		matches := rightIndex[key]
 		for _, rrow := range matches {
 			if maxRows > 0 && len(out) >= maxRows {
 				return nil, false
@@ -435,6 +462,29 @@ func joinRows(left []rowData, right []rowData, leftTable, leftKey, rightTable, r
 		}
 	}
 	return out, true
+}
+
+func qualifyKeys(table string, keys []string) []string {
+	qualified := make([]string, 0, len(keys))
+	for _, key := range keys {
+		qualified = append(qualified, fmt.Sprintf("%s.%s", table, key))
+	}
+	return qualified
+}
+
+func compositeRowKey(row rowData, qualifiedKeys []string) (string, bool) {
+	if len(qualifiedKeys) == 0 {
+		return "", false
+	}
+	parts := make([]string, 0, len(qualifiedKeys))
+	for _, key := range qualifiedKeys {
+		cell, ok := row[key]
+		if !ok || cell.Null {
+			return "", false
+		}
+		parts = append(parts, cell.Val)
+	}
+	return strings.Join(parts, "\x1f"), true
 }
 
 func joinSignature(query *generator.SelectQuery) string {

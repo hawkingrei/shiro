@@ -6,7 +6,7 @@ import (
 )
 
 // JoinEdgesFromQuery extracts join edges from a generated query.
-// It supports USING and simple equality ON conditions.
+// It supports USING, and simple equality ON conditions with ANDs.
 func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdge {
 	if q == nil || state == nil {
 		return nil
@@ -28,38 +28,29 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 			continue
 		}
 		if len(join.Using) > 0 {
-			for _, name := range join.Using {
-				leftTable := pickUsingLeftTable(state, leftTables, name)
-				if leftTable == "" {
-					continue
-				}
-				edges = append(edges, JoinEdge{
-					LeftTable:  leftTable,
-					RightTable: join.Table,
-					LeftKey:    name,
-					RightKey:   name,
-					JoinType:   joinType,
-				})
-				break
+			if edge, ok := extractUsingEdge(state, leftTables, join.Table, join.Using, joinType); ok {
+				edges = append(edges, edge)
 			}
 			leftTables = append(leftTables, join.Table)
 			continue
 		}
 		if join.On != nil {
-			l, r, ok := extractJoinKey(join.On, join.Table)
+			leftTable, rightTable, leftKeys, rightKeys, ok := extractJoinKeys(join.On, state, leftTables, join.Table)
 			if ok {
-				left := l
-				right := r
-				if l.Table == join.Table {
-					left, right = r, l
-				}
-				edges = append(edges, JoinEdge{
-					LeftTable:  left.Table,
-					RightTable: right.Table,
-					LeftKey:    left.Name,
-					RightKey:   right.Name,
+				edge := JoinEdge{
+					LeftTable:  leftTable,
+					RightTable: rightTable,
+					LeftKeys:   leftKeys,
+					RightKeys:  rightKeys,
 					JoinType:   joinType,
-				})
+				}
+				if len(leftKeys) > 0 {
+					edge.LeftKey = leftKeys[0]
+				}
+				if len(rightKeys) > 0 {
+					edge.RightKey = rightKeys[0]
+				}
+				edges = append(edges, edge)
 			} else {
 				leftTable := pickUsingLeftTable(state, leftTables, "")
 				edges = append(edges, JoinEdge{
@@ -74,33 +65,159 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 	return edges
 }
 
-func extractJoinKey(expr generator.Expr, joinTable string) (left generator.ColumnRef, right generator.ColumnRef, ok bool) {
+func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []string, joinTable string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, ok bool) {
+	candidates := collectJoinKeyCandidates(expr)
+	groups := make(map[string][]joinKeyCandidate)
+	for _, cand := range candidates {
+		lcol, lok := resolveJoinColumn(state, leftTables, joinTable, cand.left)
+		rcol, rok := resolveJoinColumn(state, leftTables, joinTable, cand.right)
+		if !lok || !rok {
+			continue
+		}
+		if joinTable != "" && lcol.Table == joinTable && rcol.Table != joinTable {
+			lcol, rcol = rcol, lcol
+		}
+		if joinTable != "" && rcol.Table != joinTable {
+			continue
+		}
+		if joinTable != "" && lcol.Table == joinTable {
+			continue
+		}
+		if !leftTablesContain(leftTables, lcol.Table) {
+			continue
+		}
+		groups[lcol.Table] = append(groups[lcol.Table], joinKeyCandidate{left: lcol, right: rcol})
+	}
+	var pickedTable string
+	var picked []joinKeyCandidate
+	for table, list := range groups {
+		if len(list) == 0 {
+			continue
+		}
+		if pickedTable == "" || len(list) > len(picked) {
+			pickedTable = table
+			picked = list
+		}
+	}
+	if pickedTable == "" {
+		return "", "", nil, nil, false
+	}
+	leftKeys = make([]string, 0, len(picked))
+	rightKeys = make([]string, 0, len(picked))
+	for _, cand := range picked {
+		leftKeys = append(leftKeys, cand.left.Name)
+		rightKeys = append(rightKeys, cand.right.Name)
+	}
+	return pickedTable, joinTable, leftKeys, rightKeys, true
+}
+
+type joinKeyCandidate struct {
+	left  generator.ColumnRef
+	right generator.ColumnRef
+}
+
+func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
 	bin, ok := expr.(generator.BinaryExpr)
 	if !ok {
-		return generator.ColumnRef{}, generator.ColumnRef{}, false
+		return nil
 	}
 	switch bin.Op {
 	case "AND":
-		if l, r, ok := extractJoinKey(bin.Left, joinTable); ok {
-			return l, r, ok
-		}
-		return extractJoinKey(bin.Right, joinTable)
+		left := collectJoinKeyCandidates(bin.Left)
+		right := collectJoinKeyCandidates(bin.Right)
+		return append(left, right...)
 	case "=":
 		leftExpr, okLeft := bin.Left.(generator.ColumnExpr)
 		rightExpr, okRight := bin.Right.(generator.ColumnExpr)
 		if !okLeft || !okRight {
-			return generator.ColumnRef{}, generator.ColumnRef{}, false
+			return nil
 		}
-		if leftExpr.Ref.Table == "" || rightExpr.Ref.Table == "" {
-			return generator.ColumnRef{}, generator.ColumnRef{}, false
-		}
-		if joinTable != "" && leftExpr.Ref.Table != joinTable && rightExpr.Ref.Table != joinTable {
-			return generator.ColumnRef{}, generator.ColumnRef{}, false
-		}
-		return leftExpr.Ref, rightExpr.Ref, true
+		return []joinKeyCandidate{{left: leftExpr.Ref, right: rightExpr.Ref}}
 	default:
-		return generator.ColumnRef{}, generator.ColumnRef{}, false
+		return nil
 	}
+}
+
+func resolveJoinColumn(state *schema.State, leftTables []string, joinTable string, ref generator.ColumnRef) (generator.ColumnRef, bool) {
+	if ref.Name == "" {
+		return generator.ColumnRef{}, false
+	}
+	if ref.Table != "" {
+		return ref, true
+	}
+	candidates := make([]string, 0, len(leftTables)+1)
+	candidates = append(candidates, leftTables...)
+	if joinTable != "" {
+		candidates = append(candidates, joinTable)
+	}
+	var resolved string
+	for _, table := range candidates {
+		if state == nil {
+			if resolved != "" {
+				return generator.ColumnRef{}, false
+			}
+			resolved = table
+			continue
+		}
+		tbl, ok := state.TableByName(table)
+		if !ok {
+			continue
+		}
+		if _, ok := tbl.ColumnByName(ref.Name); !ok {
+			continue
+		}
+		if resolved != "" && resolved != table {
+			return generator.ColumnRef{}, false
+		}
+		resolved = table
+	}
+	if resolved == "" {
+		return generator.ColumnRef{}, false
+	}
+	ref.Table = resolved
+	return ref, true
+}
+
+func extractUsingEdge(state *schema.State, leftTables []string, rightTable string, using []string, joinType JoinType) (JoinEdge, bool) {
+	var leftTable string
+	leftKeys := make([]string, 0, len(using))
+	rightKeys := make([]string, 0, len(using))
+	for _, name := range using {
+		table := pickUsingLeftTable(state, leftTables, name)
+		if table == "" {
+			continue
+		}
+		if leftTable == "" {
+			leftTable = table
+		}
+		if table != leftTable {
+			continue
+		}
+		leftKeys = append(leftKeys, name)
+		rightKeys = append(rightKeys, name)
+	}
+	if leftTable == "" || len(leftKeys) == 0 {
+		return JoinEdge{}, false
+	}
+	edge := JoinEdge{
+		LeftTable:  leftTable,
+		RightTable: rightTable,
+		LeftKeys:   leftKeys,
+		RightKeys:  rightKeys,
+		JoinType:   joinType,
+	}
+	edge.LeftKey = leftKeys[0]
+	edge.RightKey = rightKeys[0]
+	return edge, true
+}
+
+func leftTablesContain(tables []string, name string) bool {
+	for _, table := range tables {
+		if table == name {
+			return true
+		}
+	}
+	return false
 }
 
 func pickUsingLeftTable(state *schema.State, tables []string, col string) string {

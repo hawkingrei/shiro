@@ -66,3 +66,38 @@ func TestEvalJoinChainExactLeftRightSemiAnti(t *testing.T) {
 		t.Fatalf("anti join expected 1, got ok=%v count=%d reason=%s", ok, count, reason)
 	}
 }
+
+func TestEvalJoinChainExactCompositeKeys(t *testing.T) {
+	truth := NewSchemaTruth(0)
+	truth.AddTable("t1")
+	truth.AddTable("t2")
+	truth.AddRowData("t1", map[string]TypedValue{
+		"a": {Type: "int", Value: "1"},
+		"b": {Type: "int", Value: "2"},
+	})
+	truth.AddRowData("t1", map[string]TypedValue{
+		"a": {Type: "int", Value: "1"},
+		"b": {Type: "int", Value: "3"},
+	})
+	truth.AddRowData("t2", map[string]TypedValue{
+		"a": {Type: "int", Value: "1"},
+		"b": {Type: "int", Value: "2"},
+	})
+	exec := JoinTruthExecutor{Truth: truth}
+	edges := []JoinEdge{{
+		LeftTable:  "t1",
+		RightTable: "t2",
+		LeftKeys:   []string{"a", "b"},
+		RightKeys:  []string{"a", "b"},
+		LeftKey:    "a",
+		RightKey:   "a",
+		JoinType:   JoinInner,
+	}}
+	count, ok, reason := exec.EvalJoinChainExact("t1", edges, 10, 10)
+	if !ok || reason != "" {
+		t.Fatalf("expected ok, got ok=%v reason=%s", ok, reason)
+	}
+	if count != 1 {
+		t.Fatalf("expected count=1, got %d", count)
+	}
+}
