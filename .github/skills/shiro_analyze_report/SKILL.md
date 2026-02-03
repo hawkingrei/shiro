@@ -43,3 +43,4 @@ Produce a TiDB bug issue body from a Shiro report, then add a concise **Analysis
 - Issue body must be in English.
 - Keep Analysis short and evidence-backed.
 - If `plan_replayer.zip` exists, mention it in repro steps.
+- For wrong-result bugs, add labels: `sig/planner`, `severity/major`, `AI-Testing`, `fuzz/shiro`, and the affected release labels (`affects-7.5`, `affects-8.1`, `affects-8.5`).
