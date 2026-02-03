@@ -43,6 +43,7 @@ type JoinEdge struct {
 	LeftKeys   []string
 	RightKeys  []string
 	JoinType   JoinType
+	KeyReason  string
 }
 
 // LeftKeyList returns the join key list for the left table.

@@ -2,6 +2,7 @@ package groundtruth
 
 import (
 	"sort"
+	"strings"
 
 	"shiro/internal/generator"
 	"shiro/internal/schema"
@@ -30,14 +31,21 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 			continue
 		}
 		if len(join.Using) > 0 {
-			if edge, ok := extractUsingEdge(state, leftTables, join.Table, join.Using, joinType); ok {
+			if edge, ok, reason := extractUsingEdge(state, leftTables, join.Table, join.Using, joinType); ok {
 				edges = append(edges, edge)
+			} else if reason != "" {
+				edges = append(edges, JoinEdge{
+					LeftTable:  pickUsingLeftTable(state, leftTables, ""),
+					RightTable: join.Table,
+					JoinType:   joinType,
+					KeyReason:  reason,
+				})
 			}
 			leftTables = append(leftTables, join.Table)
 			continue
 		}
 		if join.On != nil {
-			leftTable, rightTable, leftKeys, rightKeys, ok := extractJoinKeys(join.On, state, leftTables, join.Table)
+			leftTable, rightTable, leftKeys, rightKeys, reason, ok := extractJoinKeys(join.On, state, leftTables, join.Table)
 			if ok {
 				edge := JoinEdge{
 					LeftTable:  leftTable,
@@ -59,6 +67,7 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 					LeftTable:  leftTable,
 					RightTable: join.Table,
 					JoinType:   joinType,
+					KeyReason:  reason,
 				})
 			}
 		}
@@ -67,8 +76,11 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 	return edges
 }
 
-func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []string, joinTable string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, ok bool) {
+func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []string, joinTable string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, reason string, ok bool) {
 	candidates := collectJoinKeyCandidates(expr)
+	if len(candidates) == 0 {
+		return "", "", nil, nil, "no_equal_candidates", false
+	}
 	groups := make(map[string][]joinKeyCandidate)
 	for _, cand := range candidates {
 		lcol, lok := resolveJoinColumn(state, leftTables, joinTable, cand.left)
@@ -90,6 +102,9 @@ func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []stri
 		}
 		groups[lcol.Table] = append(groups[lcol.Table], joinKeyCandidate{left: lcol, right: rcol})
 	}
+	if len(groups) == 0 {
+		return "", "", nil, nil, "unresolved_columns", false
+	}
 	var pickedTable string
 	var picked []joinKeyCandidate
 	tables := make([]string, 0, len(groups))
@@ -108,7 +123,7 @@ func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []stri
 		}
 	}
 	if pickedTable == "" {
-		return "", "", nil, nil, false
+		return "", "", nil, nil, "empty_group", false
 	}
 	leftKeys = make([]string, 0, len(picked))
 	rightKeys = make([]string, 0, len(picked))
@@ -116,7 +131,7 @@ func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []stri
 		leftKeys = append(leftKeys, cand.left.Name)
 		rightKeys = append(rightKeys, cand.right.Name)
 	}
-	return pickedTable, joinTable, leftKeys, rightKeys, true
+	return pickedTable, joinTable, leftKeys, rightKeys, "", true
 }
 
 type joinKeyCandidate struct {
@@ -135,14 +150,43 @@ func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
 		right := collectJoinKeyCandidates(bin.Right)
 		return append(left, right...)
 	case "=":
-		leftExpr, okLeft := bin.Left.(generator.ColumnExpr)
-		rightExpr, okRight := bin.Right.(generator.ColumnExpr)
+		leftRef, okLeft := unwrapColumnExpr(bin.Left)
+		rightRef, okRight := unwrapColumnExpr(bin.Right)
 		if !okLeft || !okRight {
 			return nil
 		}
-		return []joinKeyCandidate{{left: leftExpr.Ref, right: rightExpr.Ref}}
+		return []joinKeyCandidate{{left: leftRef, right: rightRef}}
 	default:
 		return nil
+	}
+}
+
+func unwrapColumnExpr(expr generator.Expr) (generator.ColumnRef, bool) {
+	switch e := expr.(type) {
+	case generator.ColumnExpr:
+		return e.Ref, true
+	case generator.UnaryExpr:
+		if e.Op == "+" {
+			return unwrapColumnExpr(e.Expr)
+		}
+	case generator.FuncExpr:
+		if len(e.Args) != 1 {
+			return generator.ColumnRef{}, false
+		}
+		if !isAllowedJoinFunc(e.Name) {
+			return generator.ColumnRef{}, false
+		}
+		return unwrapColumnExpr(e.Args[0])
+	}
+	return generator.ColumnRef{}, false
+}
+
+func isAllowedJoinFunc(name string) bool {
+	switch strings.ToUpper(name) {
+	case "CAST", "CONVERT", "BINARY":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -186,7 +230,7 @@ func resolveJoinColumn(state *schema.State, leftTables []string, joinTable strin
 	return ref, true
 }
 
-func extractUsingEdge(state *schema.State, leftTables []string, rightTable string, using []string, joinType JoinType) (JoinEdge, bool) {
+func extractUsingEdge(state *schema.State, leftTables []string, rightTable string, using []string, joinType JoinType) (JoinEdge, bool, string) {
 	var leftTable string
 	leftKeys := make([]string, 0, len(using))
 	rightKeys := make([]string, 0, len(using))
@@ -205,7 +249,7 @@ func extractUsingEdge(state *schema.State, leftTables []string, rightTable strin
 		rightKeys = append(rightKeys, name)
 	}
 	if leftTable == "" || len(leftKeys) == 0 {
-		return JoinEdge{}, false
+		return JoinEdge{}, false, "using_no_match"
 	}
 	edge := JoinEdge{
 		LeftTable:  leftTable,
@@ -216,7 +260,7 @@ func extractUsingEdge(state *schema.State, leftTables []string, rightTable strin
 	}
 	edge.LeftKey = leftKeys[0]
 	edge.RightKey = rightKeys[0]
-	return edge, true
+	return edge, true, ""
 }
 
 func leftTablesContain(tables []string, name string) bool {

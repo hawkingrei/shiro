@@ -51,7 +51,10 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:join_type"}}
 		}
 		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:key_missing"}}
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+				"skip_reason":                    "groundtruth:key_missing",
+				"groundtruth_key_missing_reason": firstKeyMissingReason(edges),
+			}}
 		}
 	}
 	if gen != nil && gen.Config.Features.DSG && !validDSGTruthJoin(query.From.BaseTable, edges) {
@@ -139,7 +142,10 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 	}
 	for _, edge := range edges {
 		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:key_missing"}}
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+				"skip_reason":                    "groundtruth:key_missing",
+				"groundtruth_key_missing_reason": firstKeyMissingReason(edges),
+			}}
 		}
 	}
 	if dsgEnabled && !validDSGTruthJoin(query.From.BaseTable, edges) {
@@ -339,6 +345,18 @@ func truthHasRowsData(truth *groundtruth.SchemaTruth, table string) bool {
 		return false
 	}
 	return len(tbl.RowsData) > 0
+}
+
+func firstKeyMissingReason(edges []groundtruth.JoinEdge) string {
+	for _, edge := range edges {
+		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
+			if edge.KeyReason != "" {
+				return edge.KeyReason
+			}
+			return "unknown"
+		}
+	}
+	return ""
 }
 
 func shouldSkipGroundTruthByRowCount(ctx context.Context, exec *db.DB, query *generator.SelectQuery, maxRows int) bool {

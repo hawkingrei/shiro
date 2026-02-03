@@ -98,7 +98,7 @@ func extractJoinEdgesFromResultSet(node ast.ResultSetNode, state *schema.State, 
 			JoinType:   mapJoinTypeFromAST(v.Tp),
 		}
 		if len(v.Using) > 0 {
-			if leftTable, leftKeys, rightKeys, ok := extractJoinKeyFromASTUsing(state, leftTables, rightTable, v.Using); ok {
+			if leftTable, leftKeys, rightKeys, reason, ok := extractJoinKeyFromASTUsing(state, leftTables, rightTable, v.Using); ok {
 				edge.LeftTable = leftTable
 				edge.LeftKeys = leftKeys
 				edge.RightKeys = rightKeys
@@ -108,9 +108,11 @@ func extractJoinEdgesFromResultSet(node ast.ResultSetNode, state *schema.State, 
 				if len(rightKeys) > 0 {
 					edge.RightKey = rightKeys[0]
 				}
+			} else if reason != "" {
+				edge.KeyReason = reason
 			}
 		} else if v.On != nil && v.On.Expr != nil {
-			if leftTable, rightTable, leftKeys, rightKeys, ok := extractJoinKeysFromASTExpr(v.On.Expr, state, leftTables, rightTable, aliases); ok {
+			if leftTable, rightTable, leftKeys, rightKeys, reason, ok := extractJoinKeysFromASTExpr(v.On.Expr, state, leftTables, rightTable, aliases); ok {
 				edge.LeftTable = leftTable
 				edge.RightTable = rightTable
 				edge.LeftKeys = leftKeys
@@ -121,6 +123,8 @@ func extractJoinEdgesFromResultSet(node ast.ResultSetNode, state *schema.State, 
 				if len(rightKeys) > 0 {
 					edge.RightKey = rightKeys[0]
 				}
+			} else if reason != "" {
+				edge.KeyReason = reason
 			}
 		}
 		edges := append(leftEdges, edge)
@@ -175,9 +179,13 @@ type astJoinKeyPair struct {
 	right astJoinKey
 }
 
-func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTables []string, joinTable string, aliases map[string]string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, ok bool) {
+func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTables []string, joinTable string, aliases map[string]string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, reason string, ok bool) {
 	groups := make(map[string][]astJoinKeyPair)
-	for _, cand := range collectJoinKeyCandidatesAST(expr) {
+	candidates := collectJoinKeyCandidatesAST(expr)
+	if len(candidates) == 0 {
+		return "", "", nil, nil, "no_equal_candidates", false
+	}
+	for _, cand := range candidates {
 		lcol, lok := resolveASTColumn(state, leftTables, joinTable, aliases, cand.left)
 		rcol, rok := resolveASTColumn(state, leftTables, joinTable, aliases, cand.right)
 		if !lok || !rok {
@@ -197,6 +205,9 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 		}
 		groups[lcol.table] = append(groups[lcol.table], astJoinKeyPair{left: lcol, right: rcol})
 	}
+	if len(groups) == 0 {
+		return "", "", nil, nil, "unresolved_columns", false
+	}
 	var pickedTable string
 	var picked []astJoinKeyPair
 	tables := make([]string, 0, len(groups))
@@ -215,7 +226,7 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 		}
 	}
 	if pickedTable == "" {
-		return "", "", nil, nil, false
+		return "", "", nil, nil, "empty_group", false
 	}
 	leftKeys = make([]string, 0, len(picked))
 	rightKeys = make([]string, 0, len(picked))
@@ -223,7 +234,7 @@ func extractJoinKeysFromASTExpr(expr ast.ExprNode, state *schema.State, leftTabl
 		leftKeys = append(leftKeys, cand.left.name)
 		rightKeys = append(rightKeys, cand.right.name)
 	}
-	return pickedTable, joinTable, leftKeys, rightKeys, len(leftKeys) > 0
+	return pickedTable, joinTable, leftKeys, rightKeys, "", len(leftKeys) > 0
 }
 
 func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
@@ -237,9 +248,9 @@ func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
 			right := collectJoinKeyCandidatesAST(node.R)
 			return append(left, right...)
 		case opcode.EQ:
-			leftExpr, okLeft := node.L.(*ast.ColumnNameExpr)
-			rightExpr, okRight := node.R.(*ast.ColumnNameExpr)
-			if !okLeft || !okRight || leftExpr.Name == nil || rightExpr.Name == nil {
+			leftExpr := unwrapASTColumnName(node.L)
+			rightExpr := unwrapASTColumnName(node.R)
+			if leftExpr == nil || rightExpr == nil {
 				return nil
 			}
 			return []astJoinCandidate{{left: leftExpr.Name, right: rightExpr.Name}}
@@ -249,6 +260,22 @@ func collectJoinKeyCandidatesAST(expr ast.ExprNode) []astJoinCandidate {
 	default:
 		return nil
 	}
+}
+
+func unwrapASTColumnName(expr ast.ExprNode) *ast.ColumnNameExpr {
+	switch node := expr.(type) {
+	case *ast.ColumnNameExpr:
+		return node
+	case *ast.ParenthesesExpr:
+		return unwrapASTColumnName(node.Expr)
+	case *ast.UnaryOperationExpr:
+		if node.Op == opcode.Plus {
+			return unwrapASTColumnName(node.V)
+		}
+	case *ast.FuncCastExpr:
+		return unwrapASTColumnName(node.Expr)
+	}
+	return nil
 }
 
 func resolveASTColumn(state *schema.State, leftTables []string, rightTable string, aliases map[string]string, name *ast.ColumnName) (astJoinKey, bool) {
@@ -283,9 +310,9 @@ func resolveASTColumn(state *schema.State, leftTables []string, rightTable strin
 	return astJoinKey{table: resolved, name: name.Name.O}, true
 }
 
-func extractJoinKeyFromASTUsing(state *schema.State, leftTables []string, rightTable string, using []*ast.ColumnName) (leftTable string, leftKeys []string, rightKeys []string, ok bool) {
+func extractJoinKeyFromASTUsing(state *schema.State, leftTables []string, rightTable string, using []*ast.ColumnName) (leftTable string, leftKeys []string, rightKeys []string, reason string, ok bool) {
 	if rightTable == "" {
-		return "", nil, nil, false
+		return "", nil, nil, "using_no_match", false
 	}
 	for _, col := range using {
 		if col == nil || col.Name.O == "" {
@@ -308,9 +335,9 @@ func extractJoinKeyFromASTUsing(state *schema.State, leftTables []string, rightT
 		rightKeys = append(rightKeys, col.Name.O)
 	}
 	if leftTable == "" || len(leftKeys) == 0 {
-		return "", nil, nil, false
+		return "", nil, nil, "using_no_match", false
 	}
-	return leftTable, leftKeys, rightKeys, true
+	return leftTable, leftKeys, rightKeys, "", true
 }
 
 func resolveAlias(aliases map[string]string, table string) string {
