@@ -54,3 +54,7 @@ Good at catching optimizer bugs in predicate evaluation and simplification witho
 - Expand rewrite set beyond current boolean and literal identities (e.g., arithmetic simplifications, predicate normalization).
 - Broaden type-aware expression rewrites to non-literal expressions with schema-aware type inference.
 - Consider safe rewrites involving `IS TRUE/FALSE` and `CASE` within existing guardrails.
+- Implement Table 2 rules from the EET paper:
+  - Determined boolean expressions (`false_expr` / `true_expr` constructions).
+  - CASE WHEN redundant branch structures (No.3–6) with `rand_expr(type(expr))` and `copy_expr(expr)` safeguards.
+  - Origin fallback rule for non-boolean expressions where CASE WHEN is inapplicable.
