@@ -53,4 +53,8 @@ Links:
 - Added GroupByOrdinalExpr build tests and stricter invalid-state guard (2026-02-01).
 - Switched EXISTS/NOT EXISTS and IN(list) counters to AST parsing for generator and plan-cache SQL (2026-02-02).
 - Treated NOT (IN(subquery)) as NOT IN in SQL AST parsing and extended EET USING-qualified guard to CTEs (2026-02-02).
+- Split generator SQL feature counts into a dedicated interval log line to keep plan-cache ratios consistent (2026-02-02).
 - Switched IN(subquery) counters to generator AST features, added oracle-variant AST counting, and skipped EET USING-qualified column cases (2026-02-02).
+- Ensured scalar subquery disallow flags are respected in predicate generation and template predicates (2026-02-03).
+- EET now rewrites USING to ON before guards and accepts any predicate target that matches the policy (2026-02-03).
+- QPG seen SQL stats now use a monotonic added counter to avoid negative deltas (2026-02-03).

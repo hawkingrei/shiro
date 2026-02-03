@@ -55,6 +55,7 @@ type qpgDump struct {
 	SeenJoinOrders int                        `json:"seen_join_orders"`
 	SeenOpSigs     int                        `json:"seen_op_sigs"`
 	SeenSQL        int                        `json:"seen_sql"`
+	SeenSQLAdded   int                        `json:"seen_sql_added"`
 	NoNewPlan      int                        `json:"no_new_plan"`
 	NoNewOp        int                        `json:"no_new_op"`
 	NoNewJoinType  int                        `json:"no_new_join_type"`
@@ -147,7 +148,7 @@ func (r *Runner) snapshotQPG() *qpgDump {
 	}
 	r.qpgMu.Lock()
 	defer r.qpgMu.Unlock()
-	plans, shapes, ops, joins, joinOrders, opSigs, seenSQL := r.qpgState.stats()
+	plans, shapes, ops, joins, joinOrders, opSigs, seenSQL, seenSQLAdded := r.qpgState.stats()
 	var override *generator.AdaptiveWeights
 	if r.qpgState.override != nil {
 		overrideCopy := *r.qpgState.override
@@ -161,6 +162,7 @@ func (r *Runner) snapshotQPG() *qpgDump {
 		SeenJoinOrders: joinOrders,
 		SeenOpSigs:     opSigs,
 		SeenSQL:        seenSQL,
+		SeenSQLAdded:   seenSQLAdded,
 		NoNewPlan:      r.qpgState.noNewPlan,
 		NoNewOp:        r.qpgState.noNewOp,
 		NoNewJoinType:  r.qpgState.noNewJoinType,
