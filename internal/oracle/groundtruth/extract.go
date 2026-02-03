@@ -79,6 +79,9 @@ func JoinEdgesFromQuery(q *generator.SelectQuery, state *schema.State) []JoinEdg
 func extractJoinKeys(expr generator.Expr, state *schema.State, leftTables []string, joinTable string) (leftTable string, rightTable string, leftKeys []string, rightKeys []string, reason string, ok bool) {
 	candidates := collectJoinKeyCandidates(expr)
 	if len(candidates) == 0 {
+		if expr == nil || len(expr.Columns()) == 0 {
+			return "", "", nil, nil, "no_equal_candidates:no_columns", false
+		}
 		return "", "", nil, nil, "no_equal_candidates", false
 	}
 	groups := make(map[string][]joinKeyCandidate)
@@ -140,6 +143,10 @@ type joinKeyCandidate struct {
 }
 
 func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
+	expr, ok := unwrapJoinPredicate(expr)
+	if !ok {
+		return nil
+	}
 	bin, ok := expr.(generator.BinaryExpr)
 	if !ok {
 		return nil
@@ -149,7 +156,7 @@ func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
 		left := collectJoinKeyCandidates(bin.Left)
 		right := collectJoinKeyCandidates(bin.Right)
 		return append(left, right...)
-	case "=":
+	case "=", "<=>":
 		leftRef, okLeft := unwrapColumnExpr(bin.Left)
 		rightRef, okRight := unwrapColumnExpr(bin.Right)
 		if !okLeft || !okRight {
@@ -159,6 +166,29 @@ func collectJoinKeyCandidates(expr generator.Expr) []joinKeyCandidate {
 	default:
 		return nil
 	}
+}
+
+func unwrapJoinPredicate(expr generator.Expr) (generator.Expr, bool) {
+	notCount := 0
+	for {
+		e, ok := expr.(generator.UnaryExpr)
+		if ok {
+			switch strings.ToUpper(e.Op) {
+			case "+":
+				expr = e.Expr
+				continue
+			case "NOT":
+				notCount++
+				expr = e.Expr
+				continue
+			}
+		}
+		break
+	}
+	if notCount%2 == 1 {
+		return nil, false
+	}
+	return expr, true
 }
 
 func unwrapColumnExpr(expr generator.Expr) (generator.ColumnRef, bool) {

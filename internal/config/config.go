@@ -159,6 +159,8 @@ type MetricsThresholds struct {
 type OracleConfig struct {
 	StrictPredicates   bool              `yaml:"strict_predicates"`
 	PredicateLevel     string            `yaml:"predicate_level"`
+	JoinOnPolicy       string            `yaml:"join_on_policy"`
+	JoinUsingProb      int               `yaml:"join_using_prob"`
 	CertMinBaseRows    float64           `yaml:"cert_min_base_rows"`
 	GroundTruthMaxRows int               `yaml:"groundtruth_max_rows"`
 	ImpoMaxRows        int               `yaml:"impo_max_rows"`
@@ -397,6 +399,8 @@ func defaultConfig() Config {
 		Oracles: OracleConfig{
 			StrictPredicates:   true,
 			PredicateLevel:     "strict",
+			JoinOnPolicy:       "simple",
+			JoinUsingProb:      -1,
 			CertMinBaseRows:    20,
 			GroundTruthMaxRows: 50,
 			ImpoMaxRows:        50,

@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-03. GroundTruth key_missing reasons are now logged by skip reason.
+Last review: 2026-02-03. Simplified join predicate unwrap to satisfy revive lint.
 
 ## Generator / Oracles
 

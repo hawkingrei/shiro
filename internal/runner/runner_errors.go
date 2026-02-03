@@ -42,6 +42,12 @@ func isWhitelistedSQLError(err error) (uint16, bool) {
 }
 
 func logWhitelistedSQLError(sqlText string, err error, verbose bool) bool {
+	if isUnknownColumnWhereErr(err) {
+		if verbose {
+			util.Detailf("sql error whitelisted reason=unknown_column_where sql=%s err=%v", sqlText, err)
+		}
+		return true
+	}
 	code, ok := isWhitelistedSQLError(err)
 	if !ok {
 		return false

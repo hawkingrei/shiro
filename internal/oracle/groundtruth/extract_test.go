@@ -144,6 +144,39 @@ func TestJoinEdgesFromQueryOnUnqualifiedAmbiguousColumns(t *testing.T) {
 	}
 }
 
+func TestJoinEdgesFromQueryOnDoubleNotAndNullEQ(t *testing.T) {
+	state := makeState(map[string][]string{
+		"t0": {"k0"},
+		"t1": {"k0"},
+	})
+	on := generator.UnaryExpr{
+		Op: "NOT",
+		Expr: generator.UnaryExpr{
+			Op: "NOT",
+			Expr: generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+				Op:    "<=>",
+				Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "k0"}},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", On: on},
+			},
+		},
+	}
+	edges := JoinEdgesFromQuery(query, state)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].LeftKey != "k0" || edges[0].RightKey != "k0" {
+		t.Fatalf("expected join key k0, got %s=%s", edges[0].LeftKey, edges[0].RightKey)
+	}
+}
+
 func makeState(tables map[string][]string) *schema.State {
 	out := &schema.State{Tables: make([]schema.Table, 0, len(tables))}
 	for name, cols := range tables {

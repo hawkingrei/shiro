@@ -31,3 +31,33 @@ func TestCollectJoinColumnsDSGFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestJoinConditionFromUsingFallback(t *testing.T) {
+	left := []schema.Table{
+		{Name: "t0", Columns: []schema.Column{{Name: "a", Type: schema.TypeInt}}},
+	}
+	right := schema.Table{Name: "t1", Columns: []schema.Column{{Name: "a", Type: schema.TypeInt}}}
+
+	expr := joinConditionFromUsing(left, right, []string{"a"})
+	bin, ok := expr.(BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr, got %T", expr)
+	}
+	leftExpr, ok := bin.Left.(ColumnExpr)
+	if !ok {
+		t.Fatalf("expected left ColumnExpr, got %T", bin.Left)
+	}
+	rightExpr, ok := bin.Right.(ColumnExpr)
+	if !ok {
+		t.Fatalf("expected right ColumnExpr, got %T", bin.Right)
+	}
+	if leftExpr.Ref.Table != "t0" || leftExpr.Ref.Name != "a" {
+		t.Fatalf("unexpected left ref %s.%s", leftExpr.Ref.Table, leftExpr.Ref.Name)
+	}
+	if rightExpr.Ref.Table != "t1" || rightExpr.Ref.Name != "a" {
+		t.Fatalf("unexpected right ref %s.%s", rightExpr.Ref.Table, rightExpr.Ref.Name)
+	}
+	if bin.Op != "=" {
+		t.Fatalf("unexpected op %s", bin.Op)
+	}
+}

@@ -26,7 +26,13 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 	}
 
 	cfg := origCfg
-	allowSubquery := name != "DQP" && name != "TLP"
+	maxInt := func(a, b int) int {
+		if a > b {
+			return a
+		}
+		return b
+	}
+	allowSubquery := true
 	switch name {
 	case "GroundTruth":
 		cfg.Features.CTE = false
@@ -37,6 +43,8 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.OrderBy = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
+		cfg.Oracles.JoinOnPolicy = "simple"
+		cfg.Oracles.JoinUsingProb = maxInt(cfg.Oracles.JoinUsingProb, 80)
 		r.gen.SetPredicateMode(generator.PredicateModeNone)
 		r.gen.SetJoinTypeOverride(generator.JoinInner)
 		r.gen.SetMinJoinTables(2)
@@ -55,7 +63,6 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetPredicateMode(generator.PredicateModeSimple)
 	case "TLP":
 		cfg.Features.CTE = false
-		cfg.Features.Subqueries = false
 		cfg.Features.Aggregates = false
 		cfg.Features.GroupBy = false
 		cfg.Features.Having = false
@@ -63,20 +70,16 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.OrderBy = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
+		cfg.Oracles.JoinOnPolicy = "complex"
 		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
 	case "DQP":
 		cfg.Features.CTE = false
-		cfg.Features.Subqueries = false
 		cfg.Features.Aggregates = false
 		cfg.Features.GroupBy = false
 		cfg.Features.Having = false
 		cfg.Features.Distinct = false
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
 		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
 		r.gen.SetMinJoinTables(2)
 	default:
