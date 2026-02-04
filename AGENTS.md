@@ -70,3 +70,5 @@ Links:
 - Added joinConditionFromUsing fallback test for USING-derived ON equality (2026-02-03).
 - Plan cache now treats unknown column errors in WHERE as whitelisted (2026-02-03).
 - Simplified join predicate unwrap to satisfy revive lint (2026-02-03).
+- Added generator window feature counters in interval logs and split DQP window skip reasons (2026-02-03).
+- EET now classifies signature missing-column errors separately for clearer reporting (2026-02-04).

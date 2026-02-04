@@ -175,6 +175,22 @@ func TestAnalyzeQueryFeaturesExistsAndInList(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQueryFeaturesWindow(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{
+			Expr: WindowExpr{
+				Name:        "ROW_NUMBER",
+				PartitionBy: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}},
+			},
+		}},
+		From: FromClause{BaseTable: "t0"},
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasWindow {
+		t.Fatalf("expected HasWindow true")
+	}
+}
+
 func TestGroupByOrdinalExprBuild(t *testing.T) {
 	expr := GroupByOrdinalExpr{
 		Ordinal: 2,

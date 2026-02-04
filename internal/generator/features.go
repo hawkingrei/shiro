@@ -24,6 +24,7 @@ type QueryFeatures struct {
 	HasInList              bool
 	HasNotInList           bool
 	HasAggregate           bool
+	HasWindow              bool
 	ViewCount              int
 	PredicatePairsTotal    int64
 	PredicatePairsJoin     int64
@@ -48,6 +49,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		if ExprHasAggregate(item.Expr) {
 			features.HasAggregate = true
 		}
+		if exprHasWindow(item.Expr) {
+			features.HasWindow = true
+		}
 		if exprHasSubquery(item.Expr) {
 			features.HasSubquery = true
 		}
@@ -62,6 +66,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	if query.Where != nil {
+		if exprHasWindow(query.Where) {
+			features.HasWindow = true
+		}
 		if exprHasSubquery(query.Where) {
 			features.HasSubquery = true
 		}
@@ -76,6 +83,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	if query.Having != nil {
+		if exprHasWindow(query.Having) {
+			features.HasWindow = true
+		}
 		if exprHasSubquery(query.Having) {
 			features.HasSubquery = true
 		}
@@ -90,6 +100,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, expr := range query.GroupBy {
+		if exprHasWindow(expr) {
+			features.HasWindow = true
+		}
 		if exprHasSubquery(expr) {
 			features.HasSubquery = true
 		}
@@ -104,6 +117,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, ob := range query.OrderBy {
+		if exprHasWindow(ob.Expr) {
+			features.HasWindow = true
+		}
 		if exprHasSubquery(ob.Expr) {
 			features.HasSubquery = true
 		}
@@ -116,6 +132,11 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		inList, notInList := exprHasInList(ob.Expr)
 		features.HasInList = features.HasInList || inList
 		features.HasNotInList = features.HasNotInList || notInList
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && exprHasWindow(join.On) {
+			features.HasWindow = true
+		}
 	}
 	return features
 }
@@ -258,6 +279,88 @@ func exprHasSubquery(expr Expr) bool {
 	default:
 		return false
 	}
+}
+
+func exprHasWindow(expr Expr) bool {
+	switch e := expr.(type) {
+	case WindowExpr:
+		return true
+	case SubqueryExpr:
+		return exprHasWindowQuery(e.Query)
+	case ExistsExpr:
+		return exprHasWindowQuery(e.Query)
+	case UnaryExpr:
+		return exprHasWindow(e.Expr)
+	case BinaryExpr:
+		return exprHasWindow(e.Left) || exprHasWindow(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasWindow(w.When) || exprHasWindow(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasWindow(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasWindow(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasWindow(item) {
+				return true
+			}
+		}
+		return false
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasWindow(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasWindow(e.Expr)
+	default:
+		return false
+	}
+}
+
+func exprHasWindowQuery(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if exprHasWindow(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasWindow(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasWindow(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasWindow(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasWindow(ob.Expr) {
+			return true
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && exprHasWindow(join.On) {
+			return true
+		}
+	}
+	return false
 }
 
 func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {

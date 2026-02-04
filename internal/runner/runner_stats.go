@@ -115,6 +115,9 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	if features.HasNotInSubquery {
 		r.genSQLNotInSubquery++
 	}
+	if features.HasWindow {
+		r.genSQLWindow++
+	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
 	}
@@ -379,6 +382,7 @@ func (r *Runner) startStatsLogger() func() {
 		var lastGenNotIn int64
 		var lastGenInSubquery int64
 		var lastGenNotInSubquery int64
+		var lastGenWindow int64
 		var lastInSubqueryVariant int64
 		var lastNotInSubqueryVariant int64
 		var lastImpoTotal int64
@@ -437,6 +441,7 @@ func (r *Runner) startStatsLogger() func() {
 				genNotIn := r.genSQLNotIn
 				genInSubquery := r.genSQLInSubquery
 				genNotInSubquery := r.genSQLNotInSubquery
+				genWindow := r.genSQLWindow
 				inSubqueryVariant := r.sqlInSubqueryVariant
 				notInSubqueryVariant := r.sqlNotInSubqueryVariant
 				impoTotal := r.impoTotal
@@ -552,6 +557,7 @@ func (r *Runner) startStatsLogger() func() {
 				deltaGenNotIn := genNotIn - lastGenNotIn
 				deltaGenInSubquery := genInSubquery - lastGenInSubquery
 				deltaGenNotInSubquery := genNotInSubquery - lastGenNotInSubquery
+				deltaGenWindow := genWindow - lastGenWindow
 				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
 				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
 				deltaImpoTotal := impoTotal - lastImpoTotal
@@ -633,6 +639,7 @@ func (r *Runner) startStatsLogger() func() {
 				lastGenNotIn = genNotIn
 				lastGenInSubquery = genInSubquery
 				lastGenNotInSubquery = genNotInSubquery
+				lastGenWindow = genWindow
 				lastInSubqueryVariant = inSubqueryVariant
 				lastNotInSubqueryVariant = notInSubqueryVariant
 				lastImpoTotal = impoTotal
@@ -667,7 +674,7 @@ func (r *Runner) startStatsLogger() func() {
 					)
 					if deltaGenTotal > 0 {
 						util.Infof(
-							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d",
+							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d window=%d",
 							deltaGenTotal,
 							deltaGenExists,
 							deltaGenNotEx,
@@ -675,6 +682,7 @@ func (r *Runner) startStatsLogger() func() {
 							deltaGenNotIn,
 							deltaGenInSubquery,
 							deltaGenNotInSubquery,
+							deltaGenWindow,
 						)
 					}
 					var impoInvalidRatio float64

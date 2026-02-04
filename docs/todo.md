@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-03. Simplified join predicate unwrap to satisfy revive lint.
+Last review: 2026-02-04. Added EET signature missing-column error classification.
 
 ## Generator / Oracles
 
