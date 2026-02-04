@@ -20,6 +20,7 @@ Last review: 2026-02-04. Reduced view selection probabilities.
 1. Add frontend aggregation views (commit/bug type) and export.
 2. Add S3/report incremental merging and multi-source aggregation.
 3. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+4. Consider surfacing row-sample truncation flags in the report summary view.
 
 ## Coverage / Guidance
 

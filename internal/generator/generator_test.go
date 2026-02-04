@@ -86,10 +86,8 @@ func TestGeneratorQueryConstraints(t *testing.T) {
 				if items[exprString(ob.Expr)] {
 					continue
 				}
-				if ord, ok := orderByOrdinalExpr(ob.Expr, itemCount); ok {
-					if ord >= 1 && ord <= itemCount {
-						continue
-					}
+				if ord, ok := OrderByOrdinalIndex(ob.Expr, itemCount); ok && ord >= 1 && ord <= itemCount {
+					continue
 				}
 				t.Fatalf("order by not in select list: %s", q.SQLString())
 			}
@@ -312,64 +310,6 @@ func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
 	ord1, ok1 := orderBy[1].Expr.(LiteralExpr)
 	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 2 {
 		t.Fatalf("expected ordinals 1,2, got %v", orderBy)
-	}
-}
-
-func orderByOrdinalExpr(expr Expr, itemCount int) (int, bool) {
-	if itemCount <= 0 {
-		return 0, false
-	}
-	lit, ok := expr.(LiteralExpr)
-	if !ok {
-		return 0, false
-	}
-	value, ok := literalIntTest(lit.Value)
-	if !ok {
-		return 0, false
-	}
-	if value < 1 || value > itemCount {
-		return 0, false
-	}
-	return value, true
-}
-
-func literalIntTest(value any) (int, bool) {
-	maxInt := int(^uint(0) >> 1)
-	switch v := value.(type) {
-	case int:
-		return v, true
-	case int8:
-		return int(v), true
-	case int16:
-		return int(v), true
-	case int32:
-		return int(v), true
-	case int64:
-		if v > int64(maxInt) || v < -int64(maxInt)-1 {
-			return 0, false
-		}
-		return int(v), true
-	case uint:
-		if v > uint(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	case uint8:
-		return int(v), true
-	case uint16:
-		return int(v), true
-	case uint32:
-		if v > uint32(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	case uint64:
-		if v > uint64(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	default:
-		return 0, false
 	}
 }
 

@@ -246,7 +246,10 @@ func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows in
 		return "", false, nil
 	}
 	trimmed = strings.TrimSuffix(trimmed, ";")
-	query := fmt.Sprintf("SELECT * FROM (%s) q LIMIT %d", trimmed, maxRows)
+	// NOTE: sqlText is produced by internal query generation and signature replay,
+	// not user input. We also restrict to SELECT/WITH and strip trailing semicolons,
+	// so wrapping it as a subquery is safe in this context.
+	query := fmt.Sprintf("SELECT * FROM (%s) q LIMIT %d", trimmed, maxRows+1)
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	rows, err := r.exec.QueryContext(qctx, query)
@@ -267,9 +270,14 @@ func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows in
 	b.WriteString(strings.Join(cols, "\t"))
 	b.WriteString("\n")
 	rowCount := 0
+	truncated := false
 	for rows.Next() {
 		if err := rows.Scan(scanArgs...); err != nil {
 			return "", false, err
+		}
+		if rowCount >= maxRows {
+			truncated = true
+			break
 		}
 		row := make([]string, 0, len(cols))
 		for _, v := range values {
@@ -282,13 +290,8 @@ func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows in
 		b.WriteString(strings.Join(row, "\t"))
 		b.WriteString("\n")
 		rowCount++
-		if rowCount >= maxRows {
-			break
-		}
 	}
-	truncated := false
-	if rowCount >= maxRows && rows.Next() {
-		truncated = true
+	if truncated {
 		_ = drainRows(rows)
 	}
 	if err := rows.Err(); err != nil {

@@ -249,6 +249,8 @@ func (g *Generator) deterministicOrderBy(tables []schema.Table) []OrderBy {
 		return nil
 	}
 	if len(cols) == 1 {
+		// Single-column tables cannot satisfy the "two distinct keys" policy.
+		// Return the only column as the deterministic ordering fallback.
 		return []OrderBy{{
 			Expr: ColumnExpr{Ref: cols[0]},
 			Desc: false,

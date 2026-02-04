@@ -329,71 +329,12 @@ func orderByDistinctKeys(orderBy []generator.OrderBy, itemCount int) int {
 }
 
 func orderByOrdinal(expr generator.Expr, itemCount int) bool {
-	_, ok := orderByOrdinalIndex(expr, itemCount)
+	_, ok := generator.OrderByOrdinalIndex(expr, itemCount)
 	return ok
 }
 
 func orderByOrdinalIndex(expr generator.Expr, itemCount int) (int, bool) {
-	if itemCount <= 0 {
-		return 0, false
-	}
-	lit, ok := expr.(generator.LiteralExpr)
-	if !ok {
-		return 0, false
-	}
-	value := lit.Value
-	ordinal, ok := literalInt(value)
-	if !ok {
-		return 0, false
-	}
-	return validOrderByOrdinal(ordinal, itemCount)
-}
-
-func literalInt(value any) (int, bool) {
-	maxInt := int(^uint(0) >> 1)
-	switch v := value.(type) {
-	case int:
-		return v, true
-	case int8:
-		return int(v), true
-	case int16:
-		return int(v), true
-	case int32:
-		return int(v), true
-	case int64:
-		if v > int64(maxInt) || v < -int64(maxInt)-1 {
-			return 0, false
-		}
-		return int(v), true
-	case uint:
-		if v > uint(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	case uint8:
-		return int(v), true
-	case uint16:
-		return int(v), true
-	case uint32:
-		if v > uint32(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	case uint64:
-		if v > uint64(maxInt) {
-			return 0, false
-		}
-		return int(v), true
-	default:
-		return 0, false
-	}
-}
-
-func validOrderByOrdinal(value int, itemCount int) (int, bool) {
-	if value < 1 || value > itemCount {
-		return 0, false
-	}
-	return value, true
+	return generator.OrderByOrdinalIndex(expr, itemCount)
 }
 
 func exprIsConstant(expr generator.Expr) bool {
