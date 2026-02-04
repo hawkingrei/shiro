@@ -728,11 +728,13 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					util.Infof(
-						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f",
+						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f predicate_join_pairs=%d/%d",
 						sqlValidRatio,
 						impoInvalidRatio,
 						impoBaseExecRatio,
 						predicateJoinRatio,
+						deltaPredicatePairsJoin,
+						deltaPredicatePairsTotal,
 					)
 					deltaSubqueryDisallowReasons := make(map[string]int64, len(subqueryDisallowReasons))
 					for reason, total := range subqueryDisallowReasons {

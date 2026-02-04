@@ -78,3 +78,4 @@ Links:
 - Generator ORDER BY now prefers stable distinct columns and falls back to ordinals (2026-02-04).
 - Report summaries now include limited result-set snapshots instead of checksum strings (2026-02-04).
 - GroundTruth retries query generation when join ON has no columns to reduce key_missing noise (2026-02-04).
+- Metrics log now includes predicate join pair counts alongside the ratio (2026-02-04).
