@@ -113,11 +113,22 @@ func (g *Generator) GenerateAggregateSelectList(tables []schema.Table, groupBy [
 
 // GenerateGroupBy selects a single grouping expression.
 func (g *Generator) GenerateGroupBy(tables []schema.Table) []Expr {
-	col := g.randomColumn(tables)
-	if col.Table == "" {
+	cols := g.uniqueColumns(tables)
+	if len(cols) == 0 {
 		return nil
 	}
-	return []Expr{ColumnExpr{Ref: col}}
+	if len(cols) == 1 {
+		return []Expr{ColumnExpr{Ref: cols[0]}}
+	}
+	idx1 := g.Rand.Intn(len(cols))
+	idx2 := g.Rand.Intn(len(cols) - 1)
+	if idx2 >= idx1 {
+		idx2++
+	}
+	return []Expr{
+		ColumnExpr{Ref: cols[idx1]},
+		ColumnExpr{Ref: cols[idx2]},
+	}
 }
 
 // wrapGroupByOrdinals converts GROUP BY expressions into ordinal positions.
@@ -166,6 +177,58 @@ func (g *Generator) GenerateOrderByFromItems(items []SelectItem) []OrderBy {
 	return orders
 }
 
+func (g *Generator) orderByFromItemsStable(items []SelectItem) []OrderBy {
+	if len(items) == 0 {
+		return nil
+	}
+	orderBy := g.GenerateOrderByFromItems(items)
+	if orderByDistinctColumns(orderBy) >= 2 {
+		return orderBy
+	}
+	if len(items) >= 2 {
+		return []OrderBy{
+			{Expr: LiteralExpr{Value: 1}, Desc: util.Chance(g.Rand, OrderByDescProb)},
+			{Expr: LiteralExpr{Value: 2}, Desc: util.Chance(g.Rand, OrderByDescProb)},
+		}
+	}
+	return orderBy
+}
+
+func orderByDistinctColumns(orderBy []OrderBy) int {
+	seen := make(map[string]struct{})
+	for _, ob := range orderBy {
+		for _, col := range ob.Expr.Columns() {
+			if col.Table == "" || col.Name == "" {
+				continue
+			}
+			seen[col.Table+"."+col.Name] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func (g *Generator) ensureOrderByDistinctColumns(orderBy []OrderBy, tables []schema.Table) []OrderBy {
+	if len(orderBy) == 0 {
+		return orderBy
+	}
+	if orderByDistinctColumns(orderBy) >= 2 {
+		return orderBy
+	}
+	cols := g.uniqueColumns(tables)
+	if len(cols) < 2 {
+		return orderBy
+	}
+	idx1 := g.Rand.Intn(len(cols))
+	idx2 := g.Rand.Intn(len(cols) - 1)
+	if idx2 >= idx1 {
+		idx2++
+	}
+	return []OrderBy{
+		{Expr: ColumnExpr{Ref: cols[idx1]}, Desc: util.Chance(g.Rand, OrderByDescProb)},
+		{Expr: ColumnExpr{Ref: cols[idx2]}, Desc: util.Chance(g.Rand, OrderByDescProb)},
+	}
+}
+
 func (g *Generator) warnAggOnDouble(name string, arg Expr) {
 	col, ok := arg.(ColumnExpr)
 	if !ok {
@@ -181,24 +244,40 @@ func (g *Generator) deterministicOrderBy(tables []schema.Table) []OrderBy {
 	if len(tables) == 0 {
 		return nil
 	}
+	cols := g.uniqueColumns(tables)
+	if len(cols) == 0 {
+		return nil
+	}
+	if len(cols) == 1 {
+		// Single-column tables cannot satisfy the "two distinct keys" policy.
+		// Return the only column as the deterministic ordering fallback.
+		return []OrderBy{{
+			Expr: ColumnExpr{Ref: cols[0]},
+			Desc: false,
+		}}
+	}
 	base := tables[0]
-	var col schema.Column
+	var primary ColumnRef
 	found := false
 	for _, c := range base.Columns {
 		if c.Name == "id" {
-			col = c
+			primary = ColumnRef{Table: base.Name, Name: c.Name, Type: c.Type}
 			found = true
 			break
 		}
 	}
 	if !found {
-		if len(base.Columns) == 0 {
-			return nil
-		}
-		col = base.Columns[0]
+		primary = cols[0]
 	}
-	return []OrderBy{{
-		Expr: ColumnExpr{Ref: ColumnRef{Table: base.Name, Name: col.Name, Type: col.Type}},
-		Desc: false,
-	}}
+	secondary := cols[0]
+	for _, col := range cols {
+		if col.Table != primary.Table || col.Name != primary.Name {
+			secondary = col
+			break
+		}
+	}
+	return []OrderBy{
+		{Expr: ColumnExpr{Ref: primary}, Desc: false},
+		{Expr: ColumnExpr{Ref: secondary}, Desc: false},
+	}
 }

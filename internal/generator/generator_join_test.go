@@ -61,3 +61,6 @@ func TestJoinConditionFromUsingFallback(t *testing.T) {
 		t.Fatalf("unexpected op %s", bin.Op)
 	}
 }
+
+// GroundTruth retries queries when no join columns are present, so we do not
+// relax join column pairing here.

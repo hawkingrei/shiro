@@ -101,14 +101,58 @@ func TestOrderByAllConstant(t *testing.T) {
 			Right: generator.LiteralExpr{Value: 2},
 		}},
 	}
-	if !orderByAllConstant(orderBy) {
+	if !orderByAllConstant(orderBy, 0) {
 		t.Fatalf("expected orderByAllConstant to be true")
 	}
 	orderBy = []generator.OrderBy{
 		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}},
 	}
-	if orderByAllConstant(orderBy) {
+	if orderByAllConstant(orderBy, 1) {
 		t.Fatalf("expected orderByAllConstant to be false")
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.LiteralExpr{Value: 1}},
+	}
+	if orderByAllConstant(orderBy, 2) {
+		t.Fatalf("expected orderByAllConstant to be false for ordinal")
+	}
+}
+
+func TestOrderByDistinctKeys(t *testing.T) {
+	orderBy := []generator.OrderBy{
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}},
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c1"}}},
+	}
+	if got := orderByDistinctKeys(orderBy, 2); got != 2 {
+		t.Fatalf("expected 2 distinct columns, got %d", got)
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}},
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}},
+	}
+	if got := orderByDistinctKeys(orderBy, 2); got != 1 {
+		t.Fatalf("expected 1 distinct column, got %d", got)
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.SubqueryExpr{Query: &generator.SelectQuery{}}},
+		{Expr: generator.LiteralExpr{Value: 1}},
+	}
+	if got := orderByDistinctKeys(orderBy, 2); got != 1 {
+		t.Fatalf("expected 1 distinct ordinal, got %d", got)
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.SubqueryExpr{Query: &generator.SelectQuery{}}},
+		{Expr: generator.LiteralExpr{Value: 1}},
+		{Expr: generator.LiteralExpr{Value: 2}},
+	}
+	if got := orderByDistinctKeys(orderBy, 2); got != 2 {
+		t.Fatalf("expected 2 distinct ordinals, got %d", got)
+	}
+	orderBy = []generator.OrderBy{
+		{Expr: generator.SubqueryExpr{Query: &generator.SelectQuery{}}},
+	}
+	if got := orderByDistinctKeys(orderBy, 1); got != 0 {
+		t.Fatalf("expected 0 distinct columns, got %d", got)
 	}
 }
 

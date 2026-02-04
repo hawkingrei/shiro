@@ -72,3 +72,13 @@ Links:
 - Simplified join predicate unwrap to satisfy revive lint (2026-02-03).
 - Added generator window feature counters in interval logs and split DQP window skip reasons (2026-02-03).
 - EET now classifies signature missing-column errors separately for clearer reporting (2026-02-04).
+- GroupBy generation now emits at least two columns when available to avoid single-key instability (2026-02-04).
+- EET now skips ORDER BY with constants or fewer than two distinct columns (2026-02-04).
+- Generator ORDER BY now enforces at least two distinct columns when available (2026-02-04).
+- Generator ORDER BY now prefers stable distinct columns and falls back to ordinals (2026-02-04).
+- Report summaries now include limited result-set snapshots instead of checksum strings (2026-02-04).
+- GroundTruth retries query generation when join ON has no columns to reduce key_missing noise (2026-02-04).
+- Metrics log now includes predicate join pair counts alongside the ratio (2026-02-04).
+- Lowered view selection probabilities to reduce view frequency (2026-02-04).
+- Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
+- Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).
