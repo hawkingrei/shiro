@@ -113,9 +113,9 @@ const (
 	// UsingColumnExtraProb is the chance to use two USING columns.
 	UsingColumnExtraProb = 30
 	// ViewPickProb is the chance to pick a view for single-table queries.
-	ViewPickProb = 60
+	ViewPickProb = 30
 	// ViewJoinReplaceProb is the chance to replace one join table with a view.
-	ViewJoinReplaceProb = 40
+	ViewJoinReplaceProb = 20
 )
 
 const (
