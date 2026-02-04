@@ -50,7 +50,7 @@ features:
   limit: true
   distinct: true
   plan_cache: true
-  window_funcs: false
+  window_funcs: true
   correlated_subqueries: true
   views: true
   view_max: 5
