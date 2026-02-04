@@ -182,7 +182,7 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 	return o.compareTruthCount(ctx, exec, query, truthCount)
 }
 
-func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (*generator.SelectQuery, []groundtruth.JoinEdge, string, string) {
+func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query *generator.SelectQuery, edges []groundtruth.JoinEdge, skipReason string, keyReason string) {
 	if gen == nil {
 		return nil, nil, "groundtruth:empty_query", ""
 	}
