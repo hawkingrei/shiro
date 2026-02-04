@@ -83,11 +83,11 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: map[string]any{"error_reason": "eet:base_signature_error"}}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: map[string]any{"error_reason": eetSignatureErrorReason(err, "base")}}
 	}
 	transformedSig, err := exec.QuerySignature(ctx, signatureSQLFor(transformedSQL, query.ColumnAliases()))
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, Err: err, Details: map[string]any{"error_reason": "eet:transform_signature_error"}}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, Err: err, Details: map[string]any{"error_reason": eetSignatureErrorReason(err, "transform")}}
 	}
 
 	if origSig != transformedSig {
@@ -113,6 +113,17 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+}
+
+func eetSignatureErrorReason(err error, stage string) string {
+	if err == nil {
+		return fmt.Sprintf("eet:%s_signature_error", stage)
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "Can't find column") || strings.Contains(msg, "Unknown column") {
+		return "eet:signature_missing_column"
+	}
+	return fmt.Sprintf("eet:%s_signature_error", stage)
 }
 
 type eetRewriteKind string
