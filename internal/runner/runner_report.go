@@ -245,9 +245,7 @@ func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows in
 	if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
 		return "", false, nil
 	}
-	if strings.HasSuffix(trimmed, ";") {
-		trimmed = strings.TrimSuffix(trimmed, ";")
-	}
+	trimmed = strings.TrimSuffix(trimmed, ";")
 	query := fmt.Sprintf("SELECT * FROM (%s) q LIMIT %d", trimmed, maxRows)
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
