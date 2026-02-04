@@ -49,6 +49,7 @@ type Runner struct {
 	genSQLNotIn         int64
 	genSQLInSubquery    int64
 	genSQLNotInSubquery int64
+	genSQLWindow        int64
 	// sqlInSubquery tracks IN(subquery) occurrences aggregated from plan-cache SQL parsing.
 	sqlInSubquery int64
 	// sqlNotInSubquery tracks NOT IN(subquery) occurrences aggregated from plan-cache SQL parsing.

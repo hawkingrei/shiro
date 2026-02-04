@@ -45,8 +45,11 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if query == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("dqp", reason), "builder_reason": reason, "builder_attempts": attempts}}
 	}
-	if query.Limit != nil || queryHasWindow(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:limit_or_window"}}
+	if query.Limit != nil {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:limit"}}
+	}
+	if queryHasWindow(query) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:window"}}
 	}
 	if !queryDeterministic(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:nondeterministic"}}
