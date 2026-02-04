@@ -66,8 +66,13 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if queryHasUsingQualifiedRefs(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
 	}
-	if query.Limit != nil && orderByAllConstant(query.OrderBy) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
+	if len(query.OrderBy) > 0 {
+		if orderByAllConstant(query.OrderBy, len(query.Items)) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
+		}
+		if orderByDistinctKeys(query.OrderBy, len(query.Items)) < 2 {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_insufficient_columns"}}
+		}
 	}
 
 	baseSQL := query.SQLString()
@@ -290,16 +295,105 @@ func hasUsingQualifiedRef(expr generator.Expr, usingCols map[string]struct{}) bo
 	}
 }
 
-func orderByAllConstant(orderBy []generator.OrderBy) bool {
+func orderByAllConstant(orderBy []generator.OrderBy, itemCount int) bool {
 	if len(orderBy) == 0 {
 		return false
 	}
 	for _, ob := range orderBy {
+		if orderByOrdinal(ob.Expr, itemCount) {
+			return false
+		}
 		if !exprIsConstant(ob.Expr) {
 			return false
 		}
 	}
 	return true
+}
+
+func orderByDistinctKeys(orderBy []generator.OrderBy, itemCount int) int {
+	seen := make(map[string]struct{})
+	for _, ob := range orderBy {
+		if ordinal, ok := orderByOrdinalIndex(ob.Expr, itemCount); ok {
+			seen[fmt.Sprintf("ord:%d", ordinal)] = struct{}{}
+			continue
+		}
+		for _, col := range ob.Expr.Columns() {
+			if col.Table == "" || col.Name == "" {
+				continue
+			}
+			key := col.Table + "." + col.Name
+			seen[key] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func orderByOrdinal(expr generator.Expr, itemCount int) bool {
+	_, ok := orderByOrdinalIndex(expr, itemCount)
+	return ok
+}
+
+func orderByOrdinalIndex(expr generator.Expr, itemCount int) (int, bool) {
+	if itemCount <= 0 {
+		return 0, false
+	}
+	lit, ok := expr.(generator.LiteralExpr)
+	if !ok {
+		return 0, false
+	}
+	value := lit.Value
+	ordinal, ok := literalInt(value)
+	if !ok {
+		return 0, false
+	}
+	return validOrderByOrdinal(ordinal, itemCount)
+}
+
+func literalInt(value any) (int, bool) {
+	maxInt := int(^uint(0) >> 1)
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int8:
+		return int(v), true
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		if v > int64(maxInt) || v < -int64(maxInt)-1 {
+			return 0, false
+		}
+		return int(v), true
+	case uint:
+		if v > uint(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		if v > uint32(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	case uint64:
+		if v > uint64(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+func validOrderByOrdinal(value int, itemCount int) (int, bool) {
+	if value < 1 || value > itemCount {
+		return 0, false
+	}
+	return value, true
 }
 
 func exprIsConstant(expr generator.Expr) bool {

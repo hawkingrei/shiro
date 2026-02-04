@@ -72,3 +72,8 @@ Links:
 - Simplified join predicate unwrap to satisfy revive lint (2026-02-03).
 - Added generator window feature counters in interval logs and split DQP window skip reasons (2026-02-03).
 - EET now classifies signature missing-column errors separately for clearer reporting (2026-02-04).
+- GroupBy generation now emits at least two columns when available to avoid single-key instability (2026-02-04).
+- EET now skips ORDER BY with constants or fewer than two distinct columns (2026-02-04).
+- Generator ORDER BY now enforces at least two distinct columns when available (2026-02-04).
+- Generator ORDER BY now prefers stable distinct columns and falls back to ordinals (2026-02-04).
+- Report summaries now include limited result-set snapshots instead of checksum strings (2026-02-04).

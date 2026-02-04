@@ -144,11 +144,11 @@ func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []sche
 		return nil
 	}
 	if g.queryRequiresSelectOrder(query) {
-		if ob := g.GenerateOrderByFromItems(query.Items); len(ob) > 0 {
+		if ob := g.orderByFromItemsStable(query.Items); len(ob) > 0 {
 			return ob
 		}
 	}
-	return g.deterministicOrderBy(tables)
+	return g.ensureOrderByDistinctColumns(g.deterministicOrderBy(tables), tables)
 }
 
 func (g *Generator) orderByForQuery(query *SelectQuery, tables []schema.Table) []OrderBy {
@@ -156,9 +156,9 @@ func (g *Generator) orderByForQuery(query *SelectQuery, tables []schema.Table) [
 		return nil
 	}
 	if g.queryRequiresSelectOrder(query) {
-		return g.GenerateOrderByFromItems(query.Items)
+		return g.orderByFromItemsStable(query.Items)
 	}
-	return g.GenerateOrderBy(tables)
+	return g.ensureOrderByDistinctColumns(g.GenerateOrderBy(tables), tables)
 }
 
 func (g *Generator) queryRequiresSelectOrder(query *SelectQuery) bool {

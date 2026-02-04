@@ -108,6 +108,18 @@ func (r *Reporter) WriteSQL(c Case, name string, statements []string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
+// WriteText writes raw text content into the case directory.
+func (r *Reporter) WriteText(c Case, name string, content string) error {
+	path := filepath.Join(c.Dir, name)
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 // DumpSchema writes schema.sql for the current state.
 func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *schema.State) error {
 	var b strings.Builder

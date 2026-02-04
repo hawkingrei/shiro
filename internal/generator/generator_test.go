@@ -81,10 +81,17 @@ func TestGeneratorQueryConstraints(t *testing.T) {
 		}
 		if len(q.OrderBy) > 0 && gen.queryRequiresSelectOrder(q) {
 			items := exprSet(selectItemExprs(q.Items))
+			itemCount := len(q.Items)
 			for _, ob := range q.OrderBy {
-				if !items[exprString(ob.Expr)] {
-					t.Fatalf("order by not in select list: %s", q.SQLString())
+				if items[exprString(ob.Expr)] {
+					continue
 				}
+				if ord, ok := orderByOrdinalExpr(ob.Expr, itemCount); ok {
+					if ord >= 1 && ord <= itemCount {
+						continue
+					}
+				}
+				t.Fatalf("order by not in select list: %s", q.SQLString())
 			}
 		}
 		checkExprTree(t, gen, q)
@@ -216,6 +223,154 @@ func TestGroupByOrdinalExprBuild(t *testing.T) {
 		var b SQLBuilder
 		empty.Build(&b)
 	})
+}
+
+func TestGenerateGroupByMultipleColumns(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+					{Name: "c2", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 1)
+	groupBy := gen.GenerateGroupBy(state.Tables)
+	if len(groupBy) != 2 {
+		t.Fatalf("expected 2 group by columns, got %d", len(groupBy))
+	}
+	col0, ok0 := groupBy[0].(ColumnExpr)
+	col1, ok1 := groupBy[1].(ColumnExpr)
+	if !ok0 || !ok1 {
+		t.Fatalf("expected column expressions in group by")
+	}
+	if col0.Ref.Table == "" || col0.Ref.Name == "" || col1.Ref.Table == "" || col1.Ref.Name == "" {
+		t.Fatalf("expected non-empty group by columns")
+	}
+	if col0.Ref.Table == col1.Ref.Table && col0.Ref.Name == col1.Ref.Name {
+		t.Fatalf("expected distinct group by columns")
+	}
+}
+
+func TestEnsureOrderByDistinctColumns(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 1)
+	orderBy := []OrderBy{{Expr: LiteralExpr{Value: 1}}}
+	out := gen.ensureOrderByDistinctColumns(orderBy, state.Tables)
+	if got := orderByDistinctColumns(out); got != 2 {
+		t.Fatalf("expected 2 distinct columns, got %d", got)
+	}
+}
+
+func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 1)
+	items := []SelectItem{
+		{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "c0"},
+		{Expr: LiteralExpr{Value: 1}, Alias: "c1"},
+	}
+	orderBy := gen.orderByFromItemsStable(items)
+	if len(orderBy) < 2 {
+		t.Fatalf("expected ordinal order by, got %v", orderBy)
+	}
+	ord0, ok0 := orderBy[0].Expr.(LiteralExpr)
+	ord1, ok1 := orderBy[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 2 {
+		t.Fatalf("expected ordinals 1,2, got %v", orderBy)
+	}
+}
+
+func orderByOrdinalExpr(expr Expr, itemCount int) (int, bool) {
+	if itemCount <= 0 {
+		return 0, false
+	}
+	lit, ok := expr.(LiteralExpr)
+	if !ok {
+		return 0, false
+	}
+	value, ok := literalIntTest(lit.Value)
+	if !ok {
+		return 0, false
+	}
+	if value < 1 || value > itemCount {
+		return 0, false
+	}
+	return value, true
+}
+
+func literalIntTest(value any) (int, bool) {
+	maxInt := int(^uint(0) >> 1)
+	switch v := value.(type) {
+	case int:
+		return v, true
+	case int8:
+		return int(v), true
+	case int16:
+		return int(v), true
+	case int32:
+		return int(v), true
+	case int64:
+		if v > int64(maxInt) || v < -int64(maxInt)-1 {
+			return 0, false
+		}
+		return int(v), true
+	case uint:
+		if v > uint(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	case uint8:
+		return int(v), true
+	case uint16:
+		return int(v), true
+	case uint32:
+		if v > uint32(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	case uint64:
+		if v > uint64(maxInt) {
+			return 0, false
+		}
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
 func assertPanic(t *testing.T, fn func()) {

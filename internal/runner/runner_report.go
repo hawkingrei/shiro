@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -154,6 +155,26 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if result.Err != nil {
 		summary.Error = result.Err.Error()
 	}
+	if shouldReportRows(result) {
+		maxRows := r.cfg.MaxRowsPerTable
+		if maxRows <= 0 {
+			maxRows = 50
+		}
+		expectedRows, expectedTrunc, expectedErr := r.queryResultRows(ctx, result.SQL[0], maxRows)
+		actualRows, actualTrunc, actualErr := r.queryResultRows(ctx, result.SQL[1], maxRows)
+		if expectedErr == nil && expectedRows != "" {
+			details["signature_expected"] = result.Expected
+			summary.Expected = expectedRows
+			details["expected_rows_truncated"] = expectedTrunc
+			_ = r.reporter.WriteText(caseData, "expected.tsv", expectedRows)
+		}
+		if actualErr == nil && actualRows != "" {
+			details["signature_actual"] = result.Actual
+			summary.Actual = actualRows
+			details["actual_rows_truncated"] = actualTrunc
+			_ = r.reporter.WriteText(caseData, "actual.tsv", actualRows)
+		}
+	}
 	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
@@ -196,6 +217,86 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
 		util.Errorf("rotate database after bug failed: %v", err)
 	}
+}
+
+func shouldReportRows(result oracle.Result) bool {
+	if strings.TrimSpace(result.Expected) == "" && strings.TrimSpace(result.Actual) == "" {
+		return false
+	}
+	if result.Details == nil {
+		return false
+	}
+	kind, ok := result.Details["replay_kind"].(string)
+	if !ok || kind != "signature" {
+		return false
+	}
+	if len(result.SQL) < 2 {
+		return false
+	}
+	return true
+}
+
+func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows int) (string, bool, error) {
+	trimmed := strings.TrimSpace(sqlText)
+	if trimmed == "" {
+		return "", false, nil
+	}
+	upper := strings.ToUpper(trimmed)
+	if !strings.HasPrefix(upper, "SELECT") && !strings.HasPrefix(upper, "WITH") {
+		return "", false, nil
+	}
+	if strings.HasSuffix(trimmed, ";") {
+		trimmed = strings.TrimSuffix(trimmed, ";")
+	}
+	query := fmt.Sprintf("SELECT * FROM (%s) q LIMIT %d", trimmed, maxRows)
+	qctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	rows, err := r.exec.QueryContext(qctx, query)
+	if err != nil {
+		return "", false, err
+	}
+	defer util.CloseWithErr(rows, "report rows")
+	cols, err := rows.Columns()
+	if err != nil {
+		return "", false, err
+	}
+	values := make([][]byte, len(cols))
+	scanArgs := make([]any, len(cols))
+	for i := range values {
+		scanArgs[i] = &values[i]
+	}
+	var b strings.Builder
+	b.WriteString(strings.Join(cols, "\t"))
+	b.WriteString("\n")
+	rowCount := 0
+	for rows.Next() {
+		if err := rows.Scan(scanArgs...); err != nil {
+			return "", false, err
+		}
+		row := make([]string, 0, len(cols))
+		for _, v := range values {
+			if v == nil {
+				row = append(row, "NULL")
+			} else {
+				row = append(row, string(v))
+			}
+		}
+		b.WriteString(strings.Join(row, "\t"))
+		b.WriteString("\n")
+		rowCount++
+		if rowCount >= maxRows {
+			break
+		}
+	}
+	truncated := false
+	if rowCount >= maxRows && rows.Next() {
+		truncated = true
+		_ = drainRows(rows)
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, err
+	}
+	return b.String(), truncated, nil
 }
 
 func isFlakyExplain(details map[string]any) bool {
