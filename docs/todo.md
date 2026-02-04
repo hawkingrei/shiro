@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-04. Report summaries now show limited result sets instead of checksums.
+Last review: 2026-02-04. GroundTruth now retries queries when join ON has no columns.
 
 ## Generator / Oracles
 
