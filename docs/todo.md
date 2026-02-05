@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. No TODO changes from EET details/date identity fix.
+Last review: 2026-02-05. Added detailed fuzz-efficiency refactor plan.
 
 ## Generator / Oracles
 
@@ -33,3 +33,13 @@ Last review: 2026-02-05. No TODO changes from EET details/date identity fix.
 3. Add KQE-lite join-graph coverage guidance to bias join generation toward under-covered structures.
 4. Unify expression rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
 5. Refine type compatibility and implicit cast rules using SQL standard guidance to reduce benign type errors.
+
+## Fuzz Efficiency Refactor Plan
+
+1. Introduce a `QueryAnalysis` struct in `internal/generator` that captures deterministic/aggregate/window/subquery/limit/group-by/order-by flags, join counts/signatures, predicate stats, and subquery allowance plus disallow reasons. Compute it once in `GenerateSelectQuery` and attach it to `Generator.LastFeatures`.
+2. Replace duplicated query walkers in `internal/oracle/sql.go` (e.g., `queryDeterministic`, `queryHasSubquery`, `queryHasAggregate`, `queryHasWindow`) with the `QueryAnalysis` fields when the query is generator-produced. Keep lightweight helpers only for SQL-only paths.
+3. Define `OracleSpec` or `QuerySpec` (generator constraints + predicate policy) and extend `SelectQueryBuilder` to build queries that satisfy these constraints up front. Move oracle guardrails (limit/window/nondeterministic/predicate guard/min join/require predicate match) from oracle `Run` methods into specs.
+4. Replace `internal/runner/runner_oracle_overrides.go` hard-coded toggles with data-driven capability profiles (e.g., `OracleProfile` map). Profiles should include feature toggles, predicate mode, join policy, min join tables, and subquery allowances, then apply a single profile per oracle.
+5. Reduce TiDB parser overhead in `observeSQL` by adding a keyword fast-path and allowing precomputed analysis from generator/oracle paths. Optionally add a tiny LRU cache for repeated SQL parse results.
+6. Add efficiency metrics: `builder_attempts` distribution, per-oracle skip ratio, parser-call counters, and effective runs (non-skip and error-free) per interval.
+7. Validation: update tests for builder/spec equivalence and ensure oracle semantics remain unchanged; run targeted oracle/generator tests to confirm skip reduction and coverage stability.

@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Added a detailed fuzz-efficiency refactor plan to TODO and synced follow-ups (2026-02-05).
 - EET: reuse details map for error cases and switch date identity to DATE_ADD (2026-02-05).
 - Renamed abbrevSQL parameter to avoid predeclared identifier lint (2026-02-05).
 - Fixed minimize replay compile error from reusing := with existing err (2026-02-05).

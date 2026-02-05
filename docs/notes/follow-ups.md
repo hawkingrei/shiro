@@ -15,3 +15,4 @@
 - Add KQE-lite join-graph coverage guidance to bias join generation toward under-covered structures.
 - Unify expression rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
 - Refine type compatibility and implicit cast rules using SQL standard guidance to reduce benign type errors.
+- Fuzz efficiency refactor: add `QueryAnalysis` in generator, move oracle guardrails into `OracleSpec`/`QuerySpec`, replace hard-coded oracle overrides with capability profiles, reduce SQL parse overhead with fast paths or caching, and add efficiency metrics (builder attempts, skip ratios, parser calls, effective runs).
