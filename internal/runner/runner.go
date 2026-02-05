@@ -575,7 +575,6 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	r.gen.ResetBuilderStats()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
 	builderStats := r.gen.BuilderStats()
-	r.gen.ResetBuilderStats()
 	r.observeBuilderStats(oracleName, builderStats)
 	if result.Err != nil {
 		if tbl, ok := missingTableName(result.Err); ok && r.removeViewFromState(tbl) {
