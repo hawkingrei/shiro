@@ -19,6 +19,9 @@ Links:
 
 ## Recent updates
 
+- Named return values in `eetSignatureErrorDetails` to satisfy revive lint (2026-02-05).
+- Reviewed refactor candidates and synced TODO/follow-ups (join predicate strategies, GroundTruth JoinEdge wiring, oracle override profiles) (2026-02-05).
+- Reviewed .paper/paper docs and added refactor candidates (adaptive capability model, shared plan parsing, KQE-lite, unified rewrite registry, type-compat refinement) to TODO/follow-ups (2026-02-05).
 - Added a constraints-based SelectQueryBuilder, tightened DSG join alignment, and improved GroundTruth/CERT generation guardrails (2026-01-30).
 - Fixed JOIN ON scope validation, added CERT scope checks, and updated tests (2026-01-30).
 - TLP: added error_reason/whitelist skips, fixed UNION/ORDER BY 1221, rewrote USING to ON with column qualification, removed unused helpers, and updated tests/logging (2026-01-30).

@@ -130,7 +130,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
 }
 
-func eetSignatureErrorDetails(err error, stage string) (string, string) {
+func eetSignatureErrorDetails(err error, stage string) (reason string, classification string) {
 	if err == nil {
 		return fmt.Sprintf("eet:%s_signature_error", stage), ""
 	}

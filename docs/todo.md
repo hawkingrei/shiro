@@ -1,26 +1,31 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-04. Added mismatch/groundtruth/existence metrics and CERT guardrails.
+Last review: 2026-02-05. No TODO changes from the revive lint fix.
 
 ## Generator / Oracles
 
 1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
 2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
-3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics. (done)
-4. Consider making `CTECountMax` configurable for resource-sensitive runs. (done: `weights.features.cte_count_max`)
-5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
-7. Improve EXISTS/NOT EXISTS coverage; validate whether DMLSubqueryProb=30 and PredicateExistsProb=60 move the counters, otherwise add DQE-specific EXISTS forcing. (done: DQE retries for EXISTS)
-8. EET: add broader expression-level rewrites with schema-aware type inference and safety checks. (done)
-9. EET: add per-rewrite skip reason counters and coverage logging to validate weighting. (done: per-rewrite skip reasons in details)
+3. DQP: expand plan-hint coverage and add optimizer variables if needed.
+4. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
+5. Consider lowering DSG per-table row counts to stay under the GroundTruth cap.
+6. Split join-only vs join+filter predicates into explicit strategies with separate weights and observability.
+7. Wire GroundTruth join key extraction into oracle execution for JoinEdge building.
+8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles.
 
 ## Reporting / Aggregation
 
-1. Add frontend aggregation views (commit/bug type) and export. (done: summary panel with reason/oracle counts)
-2. Add S3/report incremental merging and multi-source aggregation. (done: `shiro-report` supports s3:// input)
-3. Consider column-aware EXPLAIN diff once table parsing stabilizes.
-4. Consider surfacing row-sample truncation flags in the report summary view. (done)
+1. Consider column-aware EXPLAIN diff once table parsing stabilizes.
 
 ## Coverage / Guidance
 
 1. Centralize tuning knobs for template sampling weights and QPG template overrides (enable prob/weights/TTLs/thresholds).
+
+## Architecture / Refactor
+
+1. Add an adaptive feature capability model (SQLancer++ style) to learn DBMS support and auto-tune generator/oracle gating.
+2. Centralize query feature analysis + EXPLAIN parsing to avoid duplicated AST walks and plan parsing (shared by QPG/DQP/CERT/report).
+3. Add KQE-lite join-graph coverage guidance to bias join generation toward under-covered structures.
+4. Unify expression rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
+5. Refine type compatibility and implicit cast rules using SQL standard guidance to reduce benign type errors.
