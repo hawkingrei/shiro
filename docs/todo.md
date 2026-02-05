@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. No TODO changes from report UI flaky field fix.
+Last review: 2026-02-05. Removed builder-attempt metrics from TODO (now logged).
 
 ## Generator / Oracles
 
@@ -41,5 +41,5 @@ Last review: 2026-02-05. No TODO changes from report UI flaky field fix.
 3. Define `OracleSpec` or `QuerySpec` (generator constraints + predicate policy) and extend `SelectQueryBuilder` to build queries that satisfy these constraints up front. Move oracle guardrails (limit/window/nondeterministic/predicate guard/min join/require predicate match) from oracle `Run` methods into specs.
 4. Replace `internal/runner/runner_oracle_overrides.go` hard-coded toggles with data-driven capability profiles (e.g., `OracleProfile` map). Profiles should include feature toggles, predicate mode, join policy, min join tables, and subquery allowances, then apply a single profile per oracle.
 5. Reduce TiDB parser overhead in `observeSQL` by adding a keyword fast-path and allowing precomputed analysis from generator/oracle paths. Optionally add a tiny LRU cache for repeated SQL parse results.
-6. Add efficiency metrics: `builder_attempts` distribution, per-oracle skip ratio, parser-call counters, and effective runs (non-skip and error-free) per interval.
+6. Add efficiency metrics: per-oracle skip ratio, parser-call counters, and effective runs (non-skip and error-free) per interval.
 7. Validation: update tests for builder/spec equivalence and ensure oracle semantics remain unchanged; run targeted oracle/generator tests to confirm skip reduction and coverage stability.
