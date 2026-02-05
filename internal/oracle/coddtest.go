@@ -134,7 +134,7 @@ func (o CODDTest) noNullsInQuery(ctx context.Context, exec *db.DB, state *schema
 		return false
 	}
 	if len(columns) == 0 {
-		return false
+		return true
 	}
 	byTable := make(map[string][]generator.ColumnRef)
 	for _, col := range columns {

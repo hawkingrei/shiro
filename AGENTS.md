@@ -63,6 +63,7 @@ Links:
 - GroundTruth now supports composite join keys in truth evaluation and SQL joins (2026-02-03).
 - GroundTruth key_missing now logs per-reason breakdown in oracle_skip_reasons (2026-02-03).
 - Report UI: added summary aggregation panel and truncation pills for expected/actual rows (2026-02-05).
+- CODDTest: treat predicates without column dependencies as valid for no-null guard (2026-02-05).
 - Enabled subqueries for DQP/TLP via oracle overrides (2026-02-03).
 - GroundTruth join key extraction now accepts NOT NOT and NULL-safe equality for ON clauses (2026-02-03).
 - Added join_on_policy/join_using_prob config knobs and GroundTruth bias toward USING; key-missing now distinguishes no-column ON predicates (2026-02-03).
