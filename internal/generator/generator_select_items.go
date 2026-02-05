@@ -18,6 +18,16 @@ func (g *Generator) GenerateSelectList(tables []schema.Table) []SelectItem {
 	return items
 }
 
+func (g *Generator) cteCountMax() int {
+	if g == nil {
+		return 0
+	}
+	if g.Config.Weights.Features.CTECountMax > 0 {
+		return g.Config.Weights.Features.CTECountMax
+	}
+	return 0
+}
+
 // GenerateSelectExpr builds a scalar or window expression for SELECT.
 func (g *Generator) GenerateSelectExpr(tables []schema.Table, depth int) Expr {
 	if g.Config.Features.WindowFuncs && util.Chance(g.Rand, g.Config.Weights.Features.WindowProb) {
