@@ -91,6 +91,12 @@ type Runner struct {
 	subqueryDisallowReasons map[string]int64
 	subqueryOracleStats     map[string]*subqueryOracleStats
 	truthMismatches         int64
+	mismatchTotal           int64
+	mismatchExplainSame     int64
+	groundtruthSkipKeyMiss  int64
+	groundtruthSkipRowcount int64
+	groundtruthSkipJoinRows int64
+	groundtruthSkipTblRows  int64
 	qpgState                *qpgState
 	kqeState                *kqeState
 	tqsHistory              *tqs.History
@@ -298,12 +304,26 @@ func (r *Runner) initState(ctx context.Context) error {
 func (r *Runner) initStateDSG(ctx context.Context) error {
 	cfg := r.cfg
 	adjusted := false
+	minWideRows := 80
+	if cfg.Weights.Oracles.GroundTruth > 0 {
+		gtMax := cfg.Oracles.GroundTruthMaxRows
+		if gtMax <= 0 {
+			gtMax = cfg.MaxRowsPerTable
+		}
+		if gtMax > 0 && gtMax < minWideRows {
+			minWideRows = gtMax
+		}
+		if gtMax > 0 && cfg.TQS.WideRows > gtMax {
+			cfg.TQS.WideRows = gtMax
+			adjusted = true
+		}
+	}
 	if cfg.TQS.DimTables > 0 && cfg.TQS.DimTables < 4 {
 		cfg.TQS.DimTables = 4
 		adjusted = true
 	}
-	if cfg.TQS.WideRows > 0 && cfg.TQS.WideRows < 80 {
-		cfg.TQS.WideRows = 80
+	if cfg.TQS.WideRows > 0 && cfg.TQS.WideRows < minWideRows {
+		cfg.TQS.WideRows = minWideRows
 		adjusted = true
 	}
 	if adjusted {
@@ -560,6 +580,15 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 			result.OK = true
 			result.Err = nil
 		}
+	}
+	if result.Err != nil && isRuntimeError(result.Err) {
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "runtime_error"
+		}
+		result.OK = false
 	}
 	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
 		if result.Details == nil {

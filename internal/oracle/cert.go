@@ -87,7 +87,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		base.Having = nil
 		base.GroupBy = nil
 		base.Distinct = false
-		base.Items = gen.GenerateSelectList(baseTables)
+		base.Items = buildCertSelectList(gen, baseTables)
 		var cteTable *schema.Table
 		if len(base.With) > 0 {
 			for _, tbl := range gen.TablesForQueryScope(base) {
@@ -240,6 +240,54 @@ func certBaseTables(tables []schema.Table, state *schema.State) []schema.Table {
 		}
 	}
 	return out
+}
+
+func buildCertSelectList(gen *generator.Generator, tables []schema.Table) []generator.SelectItem {
+	cols := certSelectColumns(tables)
+	if len(cols) == 0 {
+		return []generator.SelectItem{
+			{Expr: generator.FuncExpr{Name: "COUNT", Args: []generator.Expr{generator.LiteralExpr{Value: 1}}}, Alias: "cnt"},
+		}
+	}
+	count := gen.Rand.Intn(3) + 1
+	if count > len(cols) {
+		count = len(cols)
+	}
+	gen.Rand.Shuffle(len(cols), func(i, j int) { cols[i], cols[j] = cols[j], cols[i] })
+	items := make([]generator.SelectItem, 0, count)
+	for i := 0; i < count; i++ {
+		items = append(items, generator.SelectItem{
+			Expr:  generator.ColumnExpr{Ref: cols[i]},
+			Alias: fmt.Sprintf("c%d", i),
+		})
+	}
+	return items
+}
+
+func certSelectColumns(tables []schema.Table) []generator.ColumnRef {
+	seen := make(map[string]struct{})
+	cols := make([]generator.ColumnRef, 0)
+	for _, tbl := range tables {
+		if tbl.Name == "" {
+			continue
+		}
+		for _, col := range tbl.Columns {
+			if col.Name == "" {
+				continue
+			}
+			key := tbl.Name + "." + col.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			cols = append(cols, generator.ColumnRef{
+				Table: tbl.Name,
+				Name:  col.Name,
+				Type:  col.Type,
+			})
+		}
+	}
+	return cols
 }
 
 func buildBaseFromClause(tables []schema.Table, cte *schema.Table) generator.FromClause {

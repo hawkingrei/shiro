@@ -38,7 +38,7 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	choice := gen.Rand.Intn(2)
 
 	if choice == 0 {
-		updateSQL, predicate, setExpr, colRef := gen.UpdateSQL(tbl)
+		updateSQL, predicate, setExpr, colRef := pickDQEUpdate(gen, tbl)
 		if updateSQL == "" || predicate == nil || setExpr == nil || colRef.Table == "" {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:update_guard"}}
 		}
@@ -80,7 +80,7 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{updateSQL, countSQL}}
 	}
 
-	deleteSQL, predicate := gen.DeleteSQL(tbl)
+	deleteSQL, predicate := pickDQEDelete(gen, tbl)
 	if deleteSQL == "" || predicate == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqe:delete_guard"}}
 	}
@@ -118,4 +118,46 @@ func (o DQE) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{deleteSQL, countSQL}}
+}
+
+func pickDQEUpdate(gen *generator.Generator, tbl schema.Table) (sql string, predicate generator.Expr, setExpr generator.Expr, colRef generator.ColumnRef) {
+	const maxTries = 5
+	var firstSQL string
+	var firstPred generator.Expr
+	var firstSet generator.Expr
+	var firstRef generator.ColumnRef
+	for i := 0; i < maxTries; i++ {
+		sql, predicate, setExpr, colRef = gen.UpdateSQL(tbl)
+		if i == 0 {
+			firstSQL, firstPred, firstSet, firstRef = sql, predicate, setExpr, colRef
+		}
+		if predicate == nil {
+			continue
+		}
+		hasExists, hasNotExists := generator.ExprHasExistsSubquery(predicate)
+		if hasExists || hasNotExists {
+			return sql, predicate, setExpr, colRef
+		}
+	}
+	return firstSQL, firstPred, firstSet, firstRef
+}
+
+func pickDQEDelete(gen *generator.Generator, tbl schema.Table) (sql string, predicate generator.Expr) {
+	const maxTries = 5
+	var firstSQL string
+	var firstPred generator.Expr
+	for i := 0; i < maxTries; i++ {
+		sql, predicate = gen.DeleteSQL(tbl)
+		if i == 0 {
+			firstSQL, firstPred = sql, predicate
+		}
+		if predicate == nil {
+			continue
+		}
+		hasExists, hasNotExists := generator.ExprHasExistsSubquery(predicate)
+		if hasExists || hasNotExists {
+			return sql, predicate
+		}
+	}
+	return firstSQL, firstPred
 }

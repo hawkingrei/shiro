@@ -19,6 +19,17 @@ Links:
 
 ## Recent updates
 
+- Report UI: add optional flaky field to CaseEntry type (2026-02-05).
+- Added a detailed fuzz-efficiency refactor plan to TODO and synced follow-ups (2026-02-05).
+- EET: reuse details map for error cases and switch date identity to DATE_ADD (2026-02-05).
+- Renamed abbrevSQL parameter to avoid predeclared identifier lint (2026-02-05).
+- Fixed minimize replay compile error from reusing := with existing err (2026-02-05).
+- Documented the report index/on-demand loading plan in TODO and follow-ups (2026-02-05).
+- Added minimize replay tracing to log last SQL/err on connection close warnings; classified runtime query errors as bugs (2026-02-05).
+- CODDTest: allow empty-column predicates to run independent path before type guard (2026-02-05).
+- Named return values in `eetSignatureErrorDetails` to satisfy revive lint (2026-02-05).
+- Reviewed refactor candidates and synced TODO/follow-ups (join predicate strategies, GroundTruth JoinEdge wiring, oracle override profiles) (2026-02-05).
+- Reviewed .paper/paper docs and added refactor candidates (adaptive capability model, shared plan parsing, KQE-lite, unified rewrite registry, type-compat refinement) to TODO/follow-ups (2026-02-05).
 - Added a constraints-based SelectQueryBuilder, tightened DSG join alignment, and improved GroundTruth/CERT generation guardrails (2026-01-30).
 - Fixed JOIN ON scope validation, added CERT scope checks, and updated tests (2026-01-30).
 - TLP: added error_reason/whitelist skips, fixed UNION/ORDER BY 1221, rewrote USING to ON with column qualification, removed unused helpers, and updated tests/logging (2026-01-30).
@@ -62,6 +73,10 @@ Links:
 - GroundTruth now falls back to AST parsing for join keys (alias-aware) to reduce key_missing (2026-02-03).
 - GroundTruth now supports composite join keys in truth evaluation and SQL joins (2026-02-03).
 - GroundTruth key_missing now logs per-reason breakdown in oracle_skip_reasons (2026-02-03).
+- Report UI: added summary aggregation panel and truncation pills for expected/actual rows (2026-02-05).
+- CODDTest: treat predicates without column dependencies as valid for no-null guard (2026-02-05).
+- EET: classify signature errors as TiDB bugs for missing schema/plan references (2026-02-05).
+- GroundTruth: force USING join preference under oracle override to reduce complex join shapes (2026-02-05).
 - Enabled subqueries for DQP/TLP via oracle overrides (2026-02-03).
 - GroundTruth join key extraction now accepts NOT NOT and NULL-safe equality for ON clauses (2026-02-03).
 - Added join_on_policy/join_using_prob config knobs and GroundTruth bias toward USING; key-missing now distinguishes no-column ON predicates (2026-02-03).
@@ -80,5 +95,14 @@ Links:
 - GroundTruth retries query generation when join ON has no columns to reduce key_missing noise (2026-02-04).
 - Metrics log now includes predicate join pair counts alongside the ratio (2026-02-04).
 - Lowered view selection probabilities to reduce view frequency (2026-02-04).
+- CERT now uses column-only select lists to avoid ONLY_FULL_GROUP_BY and DISTINCT/ORDER BY instability (2026-02-04).
+- DQP/TLP predicate guards now allow NOT/IS NULL to reduce skip rate without changing core semantics (2026-02-04).
+- Added mismatch/explain-same and GroundTruth skip counters to interval metrics (2026-02-04).
+- DSG wide_rows now respects GroundTruth row caps to reduce table_rows_exceeded skips (2026-02-04).
+- Added `weights.features.cte_count_max` to cap CTE generation for resource-sensitive runs (2026-02-04).
+- CODDTest now supports multi-table dependent mappings with join-aware column binding (2026-02-04).
+- DQE now retries predicate generation to bias EXISTS/NOT EXISTS coverage (2026-02-05).
+- EET now records per-rewrite skip reasons for coverage accounting (2026-02-05).
+- EET now supports type-aware column identity rewrites using schema-based inference (2026-02-05).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).

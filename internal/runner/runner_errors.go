@@ -17,6 +17,13 @@ func isPanicError(err error) bool {
 	return strings.Contains(msg, "panic") || strings.Contains(msg, "assert") || strings.Contains(msg, "internal error")
 }
 
+func isRuntimeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "runtime error")
+}
+
 // sqlErrorWhitelist lists MySQL error codes considered fuzz-tool faults.
 // 1064 is the generic SQL syntax error, common for malformed generated SQL.
 // 1292 is a type truncation error triggered by type-mismatched predicates.

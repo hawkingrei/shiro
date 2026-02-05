@@ -46,7 +46,11 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	queryTables := append([]schema.Table{}, baseTables...)
 
 	if g.Config.Features.CTE && (util.Chance(g.Rand, g.Config.Weights.Features.CTECount*10) || (len(baseTables) > 1 && util.Chance(g.Rand, CTEExtraProb))) {
-		cteCount := g.Rand.Intn(CTECountMax) + 1
+		maxCTE := g.cteCountMax()
+		if maxCTE <= 0 {
+			maxCTE = CTECountMax
+		}
+		cteCount := g.Rand.Intn(maxCTE) + 1
 		cteTables := make([]schema.Table, 0, cteCount)
 		for i := 0; i < cteCount; i++ {
 			cteBase := baseTables[g.Rand.Intn(len(baseTables))]

@@ -22,6 +22,7 @@ type CaseEntry = {
   expected: string;
   actual: string;
   error: string;
+  flaky?: boolean;
   norec_optimized_sql: string;
   norec_unoptimized_sql: string;
   norec_predicate: string;
@@ -43,6 +44,18 @@ const detailString = (details: Record<string, unknown> | null, key: string): str
   if (!details) return "";
   const value = details[key];
   return typeof value === "string" ? value : "";
+};
+
+const detailBool = (details: Record<string, unknown> | null, key: string): boolean => {
+  if (!details) return false;
+  const value = details[key];
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.toLowerCase() === "true";
+  return false;
+};
+
+const caseHasTruncation = (c: CaseEntry): boolean => {
+  return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
 };
 
 const copyText = async (label: string, text: string) => {
@@ -198,7 +211,6 @@ export default function Page() {
     return Array.from(new Set(cases.map((c) => reasonForCase(c)))).sort();
   }, [cases]);
 
-  // TODO(hawkingrei): add a summary panel for reason counts (e.g., cache miss vs mismatch).
   const filtered = useMemo(() => {
     return cases.filter((c) => {
       if (oracle && c.oracle !== oracle) return false;
@@ -232,6 +244,35 @@ export default function Page() {
       return hay.includes(q);
     });
   }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, q]);
+
+  const summary = useMemo(() => {
+    const byReason = new Map<string, number>();
+    const byOracle = new Map<string, number>();
+    let errorCount = 0;
+    let flakyCount = 0;
+    let truncCount = 0;
+    filtered.forEach((c) => {
+      const reasonLabel = reasonForCase(c);
+      byReason.set(reasonLabel, (byReason.get(reasonLabel) || 0) + 1);
+      if (c.oracle) {
+        byOracle.set(c.oracle, (byOracle.get(c.oracle) || 0) + 1);
+      }
+      if (c.error) errorCount += 1;
+      if (c.flaky) flakyCount += 1;
+      if (caseHasTruncation(c)) truncCount += 1;
+    });
+    const sortCounts = (entries: Map<string, number>) => {
+      return Array.from(entries.entries()).sort((a, b) => b[1] - a[1]);
+    };
+    return {
+      total: filtered.length,
+      errorCount,
+      flakyCount,
+      truncCount,
+      reasons: sortCounts(byReason),
+      oracles: sortCounts(byOracle),
+    };
+  }, [filtered]);
 
   if (error) {
     return <div className="page"><div className="error">Failed to load report.json: {error}</div></div>;
@@ -313,12 +354,60 @@ export default function Page() {
         </div>
       </header>
 
+      <section className="summary">
+        <div className="summary__card">
+          <div className="summary__title">Summary</div>
+          <div className="summary__stats">
+            <div>
+              <span className="summary__label">Filtered cases</span>
+              <span className="summary__value">{summary.total}</span>
+            </div>
+            <div>
+              <span className="summary__label">Errors</span>
+              <span className="summary__value">{summary.errorCount}</span>
+            </div>
+            <div>
+              <span className="summary__label">Flaky</span>
+              <span className="summary__value">{summary.flakyCount}</span>
+            </div>
+            <div>
+              <span className="summary__label">Rows truncated</span>
+              <span className="summary__value">{summary.truncCount}</span>
+            </div>
+          </div>
+        </div>
+        <div className="summary__card">
+          <div className="summary__title">Reasons</div>
+          <div className="summary__list">
+            {summary.reasons.map(([label, count]) => (
+              <div key={label}>
+                <span className="summary__label">{label.replace(/_/g, " ")}</span>
+                <span className="summary__value">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="summary__card">
+          <div className="summary__title">Oracles</div>
+          <div className="summary__list">
+            {summary.oracles.map(([label, count]) => (
+              <div key={label}>
+                <span className="summary__label">{label}</span>
+                <span className="summary__value">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <main className="cases">
         {filtered.map((c, idx) => {
           const reasonLabel = reasonForCase(c);
           const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
           const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
           const norecPredicate = c.norec_predicate || "";
+          const expectedRowsTruncated = detailBool(c.details, "expected_rows_truncated");
+          const actualRowsTruncated = detailBool(c.details, "actual_rows_truncated");
           const expectedExplainRaw = detailString(c.details, "expected_explain");
           const actualExplainRaw = detailString(c.details, "actual_explain");
           const unoptimizedExplainRaw = detailString(c.details, "unoptimized_explain");
@@ -444,6 +533,15 @@ export default function Page() {
                 {c.case_dir && <span className="pill">{c.case_dir}</span>}
                 {c.flaky && <span className="pill pill--flaky">flaky</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
+                {(expectedRowsTruncated || actualRowsTruncated) && (
+                  <span className="pill pill--warn">
+                    {expectedRowsTruncated && actualRowsTruncated
+                      ? "rows truncated"
+                      : expectedRowsTruncated
+                      ? "expected rows truncated"
+                      : "actual rows truncated"}
+                  </span>
+                )}
                 {c.tidb_commit && <span className="pill">commit {c.tidb_commit.slice(0, 10)}</span>}
                 {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
                 {c.plan_signature && <span className="pill">plan {c.plan_signature.slice(0, 10)}</span>}

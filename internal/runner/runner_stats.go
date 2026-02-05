@@ -306,9 +306,30 @@ func oracleSkipReason(result oracle.Result) string {
 	return ""
 }
 
+func isExplainSameDetails(details map[string]any) bool {
+	if details == nil {
+		return false
+	}
+	expected, ok := details["expected_explain"].(string)
+	if !ok || strings.TrimSpace(expected) == "" {
+		return false
+	}
+	actual, ok := details["actual_explain"].(string)
+	if !ok || strings.TrimSpace(actual) == "" {
+		return false
+	}
+	return normalizeExplain(expected) == normalizeExplain(actual)
+}
+
 func (r *Runner) applyResultMetrics(result oracle.Result) {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
+	if !result.OK {
+		r.mismatchTotal++
+		if isExplainSameDetails(result.Details) {
+			r.mismatchExplainSame++
+		}
+	}
 	if v, ok := result.Metrics["impo_total"]; ok {
 		r.impoTotal += v
 	}
@@ -357,6 +378,20 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 	if result.Truth != nil && result.Truth.Enabled && result.Truth.Mismatch {
 		r.truthMismatches++
 	}
+	if result.Oracle == "GroundTruth" && result.Details != nil {
+		if reason, ok := result.Details["skip_reason"].(string); ok && reason != "" {
+			switch reason {
+			case "groundtruth:key_missing":
+				r.groundtruthSkipKeyMiss++
+			case "groundtruth:rowcount_exceeded":
+				r.groundtruthSkipRowcount++
+			case "groundtruth:join_rows_exceeded":
+				r.groundtruthSkipJoinRows++
+			case "groundtruth:table_rows_exceeded":
+				r.groundtruthSkipTblRows++
+			}
+		}
+	}
 }
 
 func (r *Runner) startStatsLogger() func() {
@@ -404,6 +439,12 @@ func (r *Runner) startStatsLogger() func() {
 		lastJoinTypeSeqs := make(map[string]int64)
 		lastJoinGraphSigs := make(map[string]int64)
 		var lastTruthMismatches int64
+		var lastMismatchTotal int64
+		var lastMismatchExplainSame int64
+		var lastGroundTruthKeyMiss int64
+		var lastGroundTruthRowcount int64
+		var lastGroundTruthJoinRows int64
+		var lastGroundTruthTableRows int64
 		var lastPredicatePairsTotal int64
 		var lastPredicatePairsJoin int64
 		var lastSubqueryAllowed int64
@@ -452,6 +493,12 @@ func (r *Runner) startStatsLogger() func() {
 				viewQueries := r.viewQueries
 				viewTableRefs := r.viewTableRefs
 				truthMismatches := r.truthMismatches
+				mismatchTotal := r.mismatchTotal
+				mismatchExplainSame := r.mismatchExplainSame
+				gtKeyMiss := r.groundtruthSkipKeyMiss
+				gtRowcount := r.groundtruthSkipRowcount
+				gtJoinRows := r.groundtruthSkipJoinRows
+				gtTableRows := r.groundtruthSkipTblRows
 				joinCounts := make(map[int]int64, len(r.joinCounts))
 				for k, v := range r.joinCounts {
 					joinCounts[k] = v
@@ -568,6 +615,12 @@ func (r *Runner) startStatsLogger() func() {
 				deltaViewQueries := viewQueries - lastViewQueries
 				deltaViewTableRefs := viewTableRefs - lastViewTableRefs
 				deltaTruthMismatches := truthMismatches - lastTruthMismatches
+				deltaMismatchTotal := mismatchTotal - lastMismatchTotal
+				deltaMismatchExplainSame := mismatchExplainSame - lastMismatchExplainSame
+				deltaGTKeyMiss := gtKeyMiss - lastGroundTruthKeyMiss
+				deltaGTRowcount := gtRowcount - lastGroundTruthRowcount
+				deltaGTJoinRows := gtJoinRows - lastGroundTruthJoinRows
+				deltaGTTableRows := gtTableRows - lastGroundTruthTableRows
 				deltaPredicatePairsTotal := predicatePairsTotal - lastPredicatePairsTotal
 				deltaPredicatePairsJoin := predicatePairsJoin - lastPredicatePairsJoin
 				deltaSubqueryAllowed := subqueryAllowed - lastSubqueryAllowed
@@ -650,6 +703,12 @@ func (r *Runner) startStatsLogger() func() {
 				lastViewQueries = viewQueries
 				lastViewTableRefs = viewTableRefs
 				lastTruthMismatches = truthMismatches
+				lastMismatchTotal = mismatchTotal
+				lastMismatchExplainSame = mismatchExplainSame
+				lastGroundTruthKeyMiss = gtKeyMiss
+				lastGroundTruthRowcount = gtRowcount
+				lastGroundTruthJoinRows = gtJoinRows
+				lastGroundTruthTableRows = gtTableRows
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
 					tqsStats = r.tqsHistory.Stats()
@@ -672,6 +731,15 @@ func (r *Runner) startStatsLogger() func() {
 						deltaInSubqueryVariant,
 						deltaNotInSubqueryVariant,
 					)
+					if deltaValid > 0 {
+						util.Infof(
+							"sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f",
+							ratio(deltaExists, deltaValid),
+							ratio(deltaNotEx, deltaValid),
+							ratio(deltaInSubquery, deltaValid),
+							ratio(deltaNotInSubquery, deltaValid),
+						)
+					}
 					if deltaGenTotal > 0 {
 						util.Infof(
 							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d window=%d",
@@ -683,6 +751,13 @@ func (r *Runner) startStatsLogger() func() {
 							deltaGenInSubquery,
 							deltaGenNotInSubquery,
 							deltaGenWindow,
+						)
+						util.Infof(
+							"gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f",
+							ratio(deltaGenExists, deltaGenTotal),
+							ratio(deltaGenNotEx, deltaGenTotal),
+							ratio(deltaGenInSubquery, deltaGenTotal),
+							ratio(deltaGenNotInSubquery, deltaGenTotal),
 						)
 					}
 					var impoInvalidRatio float64
@@ -808,6 +883,23 @@ func (r *Runner) startStatsLogger() func() {
 					if deltaTruthMismatches > 0 {
 						util.Infof("groundtruth mismatches last interval: %d", deltaTruthMismatches)
 					}
+					if deltaGTKeyMiss > 0 || deltaGTRowcount > 0 || deltaGTJoinRows > 0 || deltaGTTableRows > 0 {
+						util.Infof(
+							"groundtruth skips last interval: key_missing=%d rowcount=%d join_rows=%d table_rows=%d",
+							deltaGTKeyMiss,
+							deltaGTRowcount,
+							deltaGTJoinRows,
+							deltaGTTableRows,
+						)
+					}
+					if deltaMismatchTotal > 0 {
+						util.Infof(
+							"oracle mismatches last interval: total=%d explain_same=%d ratio=%.3f",
+							deltaMismatchTotal,
+							deltaMismatchExplainSame,
+							ratio(deltaMismatchExplainSame, deltaMismatchTotal),
+						)
+					}
 					if len(deltaJoinCounts) > 0 {
 						util.Detailf(
 							"join_count last interval top=%d total=%d: %s",
@@ -893,6 +985,20 @@ func (r *Runner) startStatsLogger() func() {
 						}
 						if len(deltaFunnel) > 0 {
 							util.Detailf("oracle_funnel last interval: %s", formatOracleFunnel(deltaFunnel))
+							for _, name := range []string{"DQP", "TLP"} {
+								delta, ok := deltaFunnel[name]
+								if !ok || delta.Runs == 0 {
+									continue
+								}
+								if guard, ok := delta.SkipReasons[strings.ToLower(name)+":predicate_guard"]; ok && guard > 0 {
+									util.Infof(
+										"predicate_guard last interval oracle=%s count=%d ratio=%.3f",
+										name,
+										guard,
+										ratio(guard, delta.Runs),
+									)
+								}
+							}
 							if r.cfg.Logging.Verbose {
 								for name, delta := range deltaFunnel {
 									if len(delta.SkipReasons) == 0 {

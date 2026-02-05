@@ -110,6 +110,41 @@ code {
   color: var(--muted);
 }
 
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.summary__card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.summary__title {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.summary__stats,
+.summary__list {
+  display: grid;
+  gap: 8px;
+}
+.summary__stats > div,
+.summary__list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.summary__value {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .cases {
   display: grid;
   gap: 16px;
@@ -158,6 +193,10 @@ code {
 .pill--flaky {
   background: #ff3b30;
   color: #fff;
+}
+.pill--warn {
+  background: #ffd166;
+  color: #5b3b00;
 }
 
 .case__grid {
