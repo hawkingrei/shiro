@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. No TODO changes from minimize replay logging/runtime error classification.
+Last review: 2026-02-05. No TODO changes from minimize replay compile fix.
 
 ## Generator / Oracles
 

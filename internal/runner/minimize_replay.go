@@ -551,7 +551,7 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 			}
 		}
 	}
-	err := fmt.Errorf("no estRows field")
+	err = fmt.Errorf("no estRows field")
 	if trace != nil {
 		trace.recordErr(err)
 	}
