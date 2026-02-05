@@ -16,7 +16,11 @@ Last review: 2026-02-05. No TODO changes from minimize replay logging/runtime er
 
 ## Reporting / Aggregation
 
-1. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+1. Build a report index for on-demand loading (replace monolithic `report.json` for large runs). Define `report_index.json` (or sharded `report_index_000.json` + `report_index.meta.json`) with `version`, `generated_at`, and `cases[]` entries containing `case_id`, `oracle`, `reason`, `error_reason`, `flaky`, `timestamp`, `path`, and `has_details`.
+2. Add index writer in `internal/report`: scan case dirs, read `summary.json`, emit index files with a configurable shard size; include optional `index.gz` support for CDN/S3.
+3. Update report UI to load the index first, then fetch individual `summary.json` files on demand; add paging and client-side caching; keep a compatibility mode to read legacy `report.json` when index is missing.
+4. Add `report_base_url` (or reuse existing config) to allow loading reports from a public S3/HTTP endpoint; ensure CORS guidance is documented.
+5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
 
 ## Coverage / Guidance
 
