@@ -147,8 +147,11 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 			lastReason = "constraint:query_guard"
 			continue
 		}
-		return query, "", i + 1
+		attempts := i + 1
+		b.gen.recordBuilderStats(attempts, "")
+		return query, "", attempts
 	}
+	b.gen.recordBuilderStats(maxTries, lastReason)
 	return nil, lastReason, maxTries
 }
 

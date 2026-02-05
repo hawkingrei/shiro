@@ -90,6 +90,7 @@ type Runner struct {
 	subqueryFailed          int64
 	subqueryDisallowReasons map[string]int64
 	subqueryOracleStats     map[string]*subqueryOracleStats
+	builderStats            map[string]*builderAttemptStats
 	truthMismatches         int64
 	mismatchTotal           int64
 	mismatchExplainSame     int64
@@ -169,6 +170,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinGraphSigs:           make(map[string]int64),
 		subqueryDisallowReasons: make(map[string]int64),
 		subqueryOracleStats:     make(map[string]*subqueryOracleStats),
+		builderStats:            make(map[string]*builderAttemptStats),
 		oracleStats:             make(map[string]*oracleFunnel),
 		baseActions:             cfg.Weights.Actions,
 		baseDMLWeights:          cfg.Weights.DML,
@@ -570,7 +572,11 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	var reward float64
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
+	r.gen.ResetBuilderStats()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	builderStats := r.gen.BuilderStats()
+	r.gen.ResetBuilderStats()
+	r.observeBuilderStats(oracleName, builderStats)
 	if result.Err != nil {
 		if tbl, ok := missingTableName(result.Err); ok && r.removeViewFromState(tbl) {
 			if result.Details == nil {

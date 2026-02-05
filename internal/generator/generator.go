@@ -17,6 +17,10 @@ type Generator struct {
 	Adaptive                   *AdaptiveWeights
 	Template                   *TemplateWeights
 	LastFeatures               *QueryFeatures
+	builderBuilds              int64
+	builderAttemptsTotal       int64
+	builderAttemptHistogram    map[int]int64
+	builderFailureReasons      map[string]int64
 	Seed                       int64
 	Truth                      any
 	TQSWalker                  TQSWalker
@@ -73,6 +77,14 @@ type PreparedQuery struct {
 	SQL      string
 	Args     []any
 	ArgTypes []schema.ColumnType
+}
+
+// BuilderStats captures select builder attempt metrics.
+type BuilderStats struct {
+	Builds            int64
+	Attempts          int64
+	AttemptsHistogram map[int]int64
+	FailureReasons    map[string]int64
 }
 
 // (constants moved to constants.go)
@@ -187,6 +199,63 @@ func (g *Generator) resetPredicateStats() {
 	g.subqueryAttempts = 0
 	g.subqueryBuilt = 0
 	g.subqueryFailed = 0
+}
+
+// ResetBuilderStats clears the per-run builder metrics.
+func (g *Generator) ResetBuilderStats() {
+	if g == nil {
+		return
+	}
+	g.builderBuilds = 0
+	g.builderAttemptsTotal = 0
+	for k := range g.builderAttemptHistogram {
+		delete(g.builderAttemptHistogram, k)
+	}
+	for k := range g.builderFailureReasons {
+		delete(g.builderFailureReasons, k)
+	}
+}
+
+// BuilderStats returns a snapshot of builder metrics.
+func (g *Generator) BuilderStats() BuilderStats {
+	if g == nil {
+		return BuilderStats{}
+	}
+	out := BuilderStats{
+		Builds:   g.builderBuilds,
+		Attempts: g.builderAttemptsTotal,
+	}
+	if len(g.builderAttemptHistogram) > 0 {
+		out.AttemptsHistogram = make(map[int]int64, len(g.builderAttemptHistogram))
+		for k, v := range g.builderAttemptHistogram {
+			out.AttemptsHistogram[k] = v
+		}
+	}
+	if len(g.builderFailureReasons) > 0 {
+		out.FailureReasons = make(map[string]int64, len(g.builderFailureReasons))
+		for k, v := range g.builderFailureReasons {
+			out.FailureReasons[k] = v
+		}
+	}
+	return out
+}
+
+func (g *Generator) recordBuilderStats(attempts int, reason string) {
+	if g == nil || attempts <= 0 {
+		return
+	}
+	g.builderBuilds++
+	g.builderAttemptsTotal += int64(attempts)
+	if g.builderAttemptHistogram == nil {
+		g.builderAttemptHistogram = make(map[int]int64)
+	}
+	g.builderAttemptHistogram[attempts]++
+	if reason != "" {
+		if g.builderFailureReasons == nil {
+			g.builderFailureReasons = make(map[string]int64)
+		}
+		g.builderFailureReasons[reason]++
+	}
 }
 
 func (g *Generator) trackPredicatePair(fromJoinGraph bool) {

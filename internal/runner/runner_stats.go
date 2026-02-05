@@ -47,6 +47,14 @@ type subqueryOracleStats struct {
 	disallowReasons map[string]int64
 }
 
+type builderAttemptStats struct {
+	Builds         int64
+	Attempts       int64
+	MaxAttempts    int
+	Histogram      map[int]int64
+	FailureReasons map[string]int64
+}
+
 func (r *Runner) observeSQL(sql string, err error) {
 	if strings.TrimSpace(sql) == "" {
 		return
@@ -228,6 +236,37 @@ func (r *Runner) observeOracleRun(name string) {
 		r.oracleStats[name] = stat
 	}
 	stat.Runs++
+}
+
+func (r *Runner) observeBuilderStats(name string, stats generator.BuilderStats) {
+	if name == "" || stats.Builds == 0 {
+		return
+	}
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	stat := r.builderStats[name]
+	if stat == nil {
+		stat = &builderAttemptStats{
+			Histogram:      make(map[int]int64),
+			FailureReasons: make(map[string]int64),
+		}
+		r.builderStats[name] = stat
+	}
+	stat.Builds += stats.Builds
+	stat.Attempts += stats.Attempts
+	maxAttempt := 0
+	for attempt, count := range stats.AttemptsHistogram {
+		stat.Histogram[attempt] += count
+		if attempt > maxAttempt {
+			maxAttempt = attempt
+		}
+	}
+	if maxAttempt > stat.MaxAttempts {
+		stat.MaxAttempts = maxAttempt
+	}
+	for reason, count := range stats.FailureReasons {
+		stat.FailureReasons[reason] += count
+	}
 }
 
 func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReason string, reported bool, isPanic bool) {
@@ -461,6 +500,7 @@ func (r *Runner) startStatsLogger() func() {
 		lastImpoMutationCounts := make(map[string]int64)
 		lastImpoMutationExecCounts := make(map[string]int64)
 		lastOracleStats := make(map[string]oracleFunnel)
+		lastBuilderStats := make(map[string]builderAttemptStats)
 		var lastOraclePickTotal int64
 		var lastCertPickTotal int64
 		for {
@@ -587,6 +627,28 @@ func (r *Runner) startStatsLogger() func() {
 						}(),
 					}
 					oracleStats[name] = copyStat
+				}
+				builderStats := make(map[string]builderAttemptStats, len(r.builderStats))
+				for name, stat := range r.builderStats {
+					if stat == nil {
+						continue
+					}
+					histCopy := make(map[int]int64, len(stat.Histogram))
+					for k, v := range stat.Histogram {
+						histCopy[k] = v
+					}
+					reasonCopy := make(map[string]int64, len(stat.FailureReasons))
+					for k, v := range stat.FailureReasons {
+						reasonCopy[k] = v
+					}
+					copyStat := builderAttemptStats{
+						Builds:         stat.Builds,
+						Attempts:       stat.Attempts,
+						MaxAttempts:    stat.MaxAttempts,
+						Histogram:      histCopy,
+						FailureReasons: reasonCopy,
+					}
+					builderStats[name] = copyStat
 				}
 				r.statsMu.Unlock()
 				deltaTotal := total - lastTotal
@@ -1048,6 +1110,72 @@ func (r *Runner) startStatsLogger() func() {
 							}
 						}
 						r.updateOracleBanditFromFunnel(deltaFunnel)
+					}
+					if len(builderStats) > 0 {
+						builderNames := make([]string, 0, len(builderStats))
+						for name := range builderStats {
+							builderNames = append(builderNames, name)
+						}
+						sort.Strings(builderNames)
+						for _, name := range builderNames {
+							stat := builderStats[name]
+							prev := lastBuilderStats[name]
+							deltaBuilds := stat.Builds - prev.Builds
+							deltaAttempts := stat.Attempts - prev.Attempts
+							if deltaBuilds <= 0 && deltaAttempts <= 0 {
+								continue
+							}
+							var avgAttempts float64
+							if deltaBuilds > 0 {
+								avgAttempts = float64(deltaAttempts) / float64(deltaBuilds)
+							}
+							deltaHist := make(map[int]int64, len(stat.Histogram))
+							maxAttempt := 0
+							for attempt, total := range stat.Histogram {
+								prevVal := prev.Histogram[attempt]
+								if total-prevVal > 0 {
+									delta := total - prevVal
+									deltaHist[attempt] = delta
+									if attempt > maxAttempt {
+										maxAttempt = attempt
+									}
+								}
+							}
+							util.Infof(
+								"builder_stats last interval oracle=%s builds=%d attempts=%d avg=%.2f max=%d",
+								name,
+								deltaBuilds,
+								deltaAttempts,
+								avgAttempts,
+								maxAttempt,
+							)
+							if r.cfg.Logging.Verbose && len(deltaHist) > 0 {
+								util.Detailf(
+									"builder_attempts last interval oracle=%s top=%d: %s",
+									name,
+									topOracleReasonsN,
+									formatTopJoinCount(deltaHist, topOracleReasonsN),
+								)
+							}
+							if r.cfg.Logging.Verbose && len(stat.FailureReasons) > 0 {
+								deltaReasons := make(map[string]int64, len(stat.FailureReasons))
+								for reason, total := range stat.FailureReasons {
+									prevVal := prev.FailureReasons[reason]
+									if total-prevVal > 0 {
+										deltaReasons[reason] = total - prevVal
+									}
+								}
+								if len(deltaReasons) > 0 {
+									util.Detailf(
+										"builder_fail_reasons last interval oracle=%s top=%d: %s",
+										name,
+										topOracleReasonsN,
+										formatTopJoinSigs(deltaReasons, topOracleReasonsN),
+									)
+								}
+							}
+						}
+						lastBuilderStats = builderStats
 					}
 					if deltaOraclePicks > 0 {
 						util.Detailf(
