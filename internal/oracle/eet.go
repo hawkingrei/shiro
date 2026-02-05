@@ -88,11 +88,21 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: map[string]any{"error_reason": eetSignatureErrorReason(err, "base")}}
+		reason, bugHint := eetSignatureErrorDetails(err, "base")
+		details := map[string]any{"error_reason": reason}
+		if bugHint != "" {
+			details["bug_hint"] = bugHint
+		}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
 	}
 	transformedSig, err := exec.QuerySignature(ctx, signatureSQLFor(transformedSQL, query.ColumnAliases()))
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, Err: err, Details: map[string]any{"error_reason": eetSignatureErrorReason(err, "transform")}}
+		reason, bugHint := eetSignatureErrorDetails(err, "transform")
+		details := map[string]any{"error_reason": reason}
+		if bugHint != "" {
+			details["bug_hint"] = bugHint
+		}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, Err: err, Details: details}
 	}
 
 	if origSig != transformedSig {
@@ -120,15 +130,17 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
 }
 
-func eetSignatureErrorReason(err error, stage string) string {
+func eetSignatureErrorDetails(err error, stage string) (string, string) {
 	if err == nil {
-		return fmt.Sprintf("eet:%s_signature_error", stage)
+		return fmt.Sprintf("eet:%s_signature_error", stage), ""
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "Can't find column") || strings.Contains(msg, "Unknown column") {
-		return "eet:signature_missing_column"
+	switch {
+	case IsPlanRefMissingErr(err):
+		return "eet:signature_plan_ref_missing", "tidb:plan_reference_missing"
+	case IsSchemaColumnMissingErr(err):
+		return "eet:signature_missing_column", "tidb:schema_column_missing"
 	}
-	return fmt.Sprintf("eet:%s_signature_error", stage)
+	return fmt.Sprintf("eet:%s_signature_error", stage), ""
 }
 
 type eetRewriteKind string
@@ -418,7 +430,7 @@ func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
 }
 
 func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator, resolver *columnTypeResolver) (eetRewriteKind, bool, string) {
-	kind := pickEETRewriteKind(sel, gen)
+	kind := pickEETRewriteKind(sel, gen, resolver)
 	if kind == "" {
 		return "", false, "eet:no_rewrite_kind"
 	}
@@ -434,11 +446,13 @@ func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator, reso
 	return kind, false, "eet:rewrite_no_literal_target"
 }
 
-func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator) eetRewriteKind {
+func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator, resolver *columnTypeResolver) eetRewriteKind {
 	if sel == nil {
 		return ""
 	}
-	resolver := buildColumnTypeResolver(sel, gen)
+	if resolver == nil {
+		resolver = buildColumnTypeResolver(sel, gen)
+	}
 	available := collectLiteralKinds(sel, resolver)
 	if gen == nil {
 		if available == 0 {
