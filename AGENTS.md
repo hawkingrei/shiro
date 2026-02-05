@@ -80,5 +80,8 @@ Links:
 - GroundTruth retries query generation when join ON has no columns to reduce key_missing noise (2026-02-04).
 - Metrics log now includes predicate join pair counts alongside the ratio (2026-02-04).
 - Lowered view selection probabilities to reduce view frequency (2026-02-04).
+- CERT now uses column-only select lists to avoid ONLY_FULL_GROUP_BY and DISTINCT/ORDER BY instability (2026-02-04).
+- DQP/TLP predicate guards now allow NOT/IS NULL to reduce skip rate without changing core semantics (2026-02-04).
+- Added mismatch/explain-same and GroundTruth skip counters to interval metrics (2026-02-04).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).

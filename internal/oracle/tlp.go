@@ -38,7 +38,8 @@ func (o TLP) Name() string { return "TLP" }
 // The signatures of Q and Q_tlp (the UNION ALL of all three partitions) must match.
 func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	policy := predicatePolicyFor(gen)
-	policy.allowIsNull = false
+	policy.allowNot = true
+	policy.allowIsNull = true
 	builder := generator.NewSelectQueryBuilder(gen).
 		RequireWhere().
 		PredicateMode(generator.PredicateModeSimple).

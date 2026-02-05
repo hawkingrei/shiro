@@ -35,6 +35,8 @@ func (o DQP) Name() string { return "DQP" }
 // If the signatures differ, the plan choice affected correctness.
 func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	policy := predicatePolicyFor(gen)
+	policy.allowNot = true
+	policy.allowIsNull = true
 	builder := generator.NewSelectQueryBuilder(gen).
 		PredicateMode(generator.PredicateModeSimple).
 		RequireDeterministic().

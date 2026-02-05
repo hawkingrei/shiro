@@ -91,6 +91,12 @@ type Runner struct {
 	subqueryDisallowReasons map[string]int64
 	subqueryOracleStats     map[string]*subqueryOracleStats
 	truthMismatches         int64
+	mismatchTotal           int64
+	mismatchExplainSame     int64
+	groundtruthSkipKeyMiss  int64
+	groundtruthSkipRowcount int64
+	groundtruthSkipJoinRows int64
+	groundtruthSkipTblRows  int64
 	qpgState                *qpgState
 	kqeState                *kqeState
 	tqsHistory              *tqs.History

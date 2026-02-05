@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-04. Reduced view selection probabilities.
+Last review: 2026-02-04. Added mismatch/groundtruth/existence metrics and CERT guardrails.
 
 ## Generator / Oracles
 
