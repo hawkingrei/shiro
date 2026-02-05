@@ -16,10 +16,10 @@ Last review: 2026-02-04. Added mismatch/groundtruth/existence metrics and CERT g
 
 ## Reporting / Aggregation
 
-1. Add frontend aggregation views (commit/bug type) and export.
-2. Add S3/report incremental merging and multi-source aggregation.
+1. Add frontend aggregation views (commit/bug type) and export. (done: summary panel with reason/oracle counts)
+2. Add S3/report incremental merging and multi-source aggregation. (done: `shiro-report` supports s3:// input)
 3. Consider column-aware EXPLAIN diff once table parsing stabilizes.
-4. Consider surfacing row-sample truncation flags in the report summary view.
+4. Consider surfacing row-sample truncation flags in the report summary view. (done)
 
 ## Coverage / Guidance
 

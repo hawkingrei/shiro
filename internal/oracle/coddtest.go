@@ -166,7 +166,7 @@ func (o CODDTest) noNullsAnyColumn(ctx context.Context, exec *db.DB, tbl schema.
 	return true
 }
 
-func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr) Result {
+func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, _ *generator.Generator, query *generator.SelectQuery, phi generator.Expr) Result {
 	auxSQL := fmt.Sprintf("SELECT %s", buildExpr(phi))
 	row := exec.QueryRowContext(ctx, auxSQL)
 	var auxVal sql.RawBytes
@@ -211,7 +211,7 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
 }
 
-func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
+func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
 	colNames := make([]string, 0, len(cols))
 	for _, col := range cols {
 		colNames = append(colNames, fmt.Sprintf("%s.%s", col.Table, col.Name))
