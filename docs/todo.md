@@ -10,7 +10,6 @@ Last review: 2026-02-04. Added mismatch/groundtruth/existence metrics and CERT g
 3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics.
 4. Consider making `CTECountMax` configurable for resource-sensitive runs.
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
-6. Consider lowering DSG per-table row counts to stay under the GroundTruth table cap.
 7. Improve EXISTS/NOT EXISTS coverage; validate whether DMLSubqueryProb=30 and PredicateExistsProb=60 move the counters, otherwise add DQE-specific EXISTS forcing.
 8. EET: add broader expression-level rewrites with schema-aware type inference and safety checks.
 9. EET: add per-rewrite skip reason counters and coverage logging to validate weighting.

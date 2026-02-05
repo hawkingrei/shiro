@@ -304,12 +304,26 @@ func (r *Runner) initState(ctx context.Context) error {
 func (r *Runner) initStateDSG(ctx context.Context) error {
 	cfg := r.cfg
 	adjusted := false
+	minWideRows := 80
+	if cfg.Weights.Oracles.GroundTruth > 0 {
+		gtMax := cfg.Oracles.GroundTruthMaxRows
+		if gtMax <= 0 {
+			gtMax = cfg.MaxRowsPerTable
+		}
+		if gtMax > 0 && gtMax < minWideRows {
+			minWideRows = gtMax
+		}
+		if gtMax > 0 && cfg.TQS.WideRows > gtMax {
+			cfg.TQS.WideRows = gtMax
+			adjusted = true
+		}
+	}
 	if cfg.TQS.DimTables > 0 && cfg.TQS.DimTables < 4 {
 		cfg.TQS.DimTables = 4
 		adjusted = true
 	}
-	if cfg.TQS.WideRows > 0 && cfg.TQS.WideRows < 80 {
-		cfg.TQS.WideRows = 80
+	if cfg.TQS.WideRows > 0 && cfg.TQS.WideRows < minWideRows {
+		cfg.TQS.WideRows = minWideRows
 		adjusted = true
 	}
 	if adjusted {

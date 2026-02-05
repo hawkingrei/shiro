@@ -83,5 +83,6 @@ Links:
 - CERT now uses column-only select lists to avoid ONLY_FULL_GROUP_BY and DISTINCT/ORDER BY instability (2026-02-04).
 - DQP/TLP predicate guards now allow NOT/IS NULL to reduce skip rate without changing core semantics (2026-02-04).
 - Added mismatch/explain-same and GroundTruth skip counters to interval metrics (2026-02-04).
+- DSG wide_rows now respects GroundTruth row caps to reduce table_rows_exceeded skips (2026-02-04).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).
