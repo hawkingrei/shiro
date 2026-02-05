@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Renamed abbrevSQL parameter to avoid predeclared identifier lint (2026-02-05).
 - Fixed minimize replay compile error from reusing := with existing err (2026-02-05).
 - Documented the report index/on-demand loading plan in TODO and follow-ups (2026-02-05).
 - Added minimize replay tracing to log last SQL/err on connection close warnings; classified runtime query errors as bugs (2026-02-05).

@@ -36,12 +36,12 @@ func (t *replayTrace) recordErr(err error) {
 	t.lastErr = err
 }
 
-func abbrevSQL(sqlText string, max int) string {
+func abbrevSQL(sqlText string, maxLen int) string {
 	trimmed := strings.TrimSpace(sqlText)
-	if max <= 0 || len(trimmed) <= max {
+	if maxLen <= 0 || len(trimmed) <= maxLen {
 		return trimmed
 	}
-	return trimmed[:max] + "..."
+	return trimmed[:maxLen] + "..."
 }
 
 func closeReplayConn(conn *sql.Conn, trace *replayTrace) {
