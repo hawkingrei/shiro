@@ -80,14 +80,14 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:predicate_guard"}}
 	}
 	columns := phi.Columns()
+	if len(columns) == 0 {
+		return o.runIndependent(ctx, exec, gen, query, phi)
+	}
 	if !onlyIntOrBoolColumns(columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:type_guard"}}
 	}
 	if !o.noNullsInQuery(ctx, exec, state, columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:null_guard"}}
-	}
-	if len(columns) == 0 {
-		return o.runIndependent(ctx, exec, gen, query, phi)
 	}
 	return o.runDependent(ctx, exec, gen, query, phi, columns)
 }
