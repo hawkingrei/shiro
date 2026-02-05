@@ -55,13 +55,15 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		PredicateMode(generator.PredicateModeSimple).
 		RequireDeterministic().
 		DisallowAggregate().
-		MaxJoinCount(0).
+		MaxJoinCount(2).
 		QueryGuard(func(query *generator.SelectQuery) bool {
 			if query == nil {
 				return false
 			}
-			_, ok := baseNames[query.From.BaseTable]
-			return ok
+			if len(query.With) > 0 {
+				return false
+			}
+			return queryUsesOnlyBaseTables(query, baseNames)
 		}).
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
@@ -69,10 +71,6 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("coddtest", reason), "builder_reason": reason, "builder_attempts": attempts}}
-	}
-	tbl, ok := state.TableByName(query.From.BaseTable)
-	if !ok {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:table_missing"}}
 	}
 	phi := query.Where
 	if !phi.Deterministic() || exprHasSubquery(phi) {
@@ -85,13 +83,13 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	if !onlyIntOrBoolColumns(columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:type_guard"}}
 	}
-	if !o.noNullsInTable(ctx, exec, tbl, columns) {
+	if !o.noNullsInQuery(ctx, exec, state, columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:null_guard"}}
 	}
 	if len(columns) == 0 {
-		return o.runIndependent(ctx, exec, gen, tbl, phi)
+		return o.runIndependent(ctx, exec, gen, query, phi)
 	}
-	return o.runDependent(ctx, exec, gen, tbl, phi, columns)
+	return o.runDependent(ctx, exec, gen, query, phi, columns)
 }
 
 func onlyIntOrBoolColumns(columns []generator.ColumnRef) bool {
@@ -131,6 +129,32 @@ func (o CODDTest) noNullsInTable(ctx context.Context, exec *db.DB, tbl schema.Ta
 	return true
 }
 
+func (o CODDTest) noNullsInQuery(ctx context.Context, exec *db.DB, state *schema.State, columns []generator.ColumnRef) bool {
+	if state == nil {
+		return false
+	}
+	if len(columns) == 0 {
+		return false
+	}
+	byTable := make(map[string][]generator.ColumnRef)
+	for _, col := range columns {
+		if col.Table == "" {
+			return false
+		}
+		byTable[col.Table] = append(byTable[col.Table], col)
+	}
+	for table, cols := range byTable {
+		tbl, ok := state.TableByName(table)
+		if !ok {
+			return false
+		}
+		if !o.noNullsInTable(ctx, exec, tbl, cols) {
+			return false
+		}
+	}
+	return true
+}
+
 func (o CODDTest) noNullsAnyColumn(ctx context.Context, exec *db.DB, tbl schema.Table) bool {
 	for _, col := range tbl.Columns {
 		countSQL := fmt.Sprintf("SELECT SUM(%s IS NULL) FROM %s", col.Name, tbl.Name)
@@ -142,7 +166,7 @@ func (o CODDTest) noNullsAnyColumn(ctx context.Context, exec *db.DB, tbl schema.
 	return true
 }
 
-func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generator.Generator, tbl schema.Table, phi generator.Expr) Result {
+func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr) Result {
 	auxSQL := fmt.Sprintf("SELECT %s", buildExpr(phi))
 	row := exec.QueryRowContext(ctx, auxSQL)
 	var auxVal sql.RawBytes
@@ -150,35 +174,32 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
 	}
 	mapped := buildLiteralFromBytes(auxVal, schema.TypeBool)
-	query := &generator.SelectQuery{
-		Items: gen.GenerateSelectList([]schema.Table{tbl}),
-		From:  generator.FromClause{BaseTable: tbl.Name},
-		Where: phi,
-	}
 
-	folded := query.Clone()
+	base := query.Clone()
+	base.Where = phi
+	folded := base.Clone()
 	folded.Where = mapped
 
-	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
+	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
 	}
 	foldSig, err := exec.QuerySignature(ctx, folded.SignatureSQL())
 	if err != nil {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
 	}
 	if origSig != foldSig {
-		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SignatureSQL())
 		actualExplain, actualExplainErr := explainSQL(ctx, exec, folded.SignatureSQL())
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
-			SQL:      []string{query.SQLString(), folded.SQLString(), auxSQL},
+			SQL:      []string{base.SQLString(), folded.SQLString(), auxSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  query.SignatureSQL(),
+				"replay_expected_sql":  base.SignatureSQL(),
 				"replay_actual_sql":    folded.SignatureSQL(),
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
@@ -187,16 +208,16 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, gen *generato
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), folded.SQLString(), auxSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
 }
 
-func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.Generator, tbl schema.Table, phi generator.Expr, cols []generator.ColumnRef) Result {
+func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
 	colNames := make([]string, 0, len(cols))
 	for _, col := range cols {
-		colNames = append(colNames, fmt.Sprintf("%s.%s", tbl.Name, col.Name))
+		colNames = append(colNames, fmt.Sprintf("%s.%s", col.Table, col.Name))
 	}
 
-	auxSQL := fmt.Sprintf("SELECT %s, %s AS v FROM %s LIMIT 50", strings.Join(colNames, ", "), buildExpr(phi), tbl.Name)
+	auxSQL := fmt.Sprintf("SELECT %s, %s AS v FROM %s LIMIT 50", strings.Join(colNames, ", "), buildExpr(phi), buildFrom(query))
 	rows, err := exec.QueryContext(ctx, auxSQL)
 	if err != nil {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
@@ -233,42 +254,40 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 	}
 	caseExpr.Else = generator.LiteralExpr{Value: nil}
 
-	total, err := exec.QueryCount(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", tbl.Name))
+	totalSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s", buildFrom(query))
+	total, err := exec.QueryCount(ctx, totalSQL)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL, totalSQL}, Err: err}
 	}
 	if total > int64(len(caseExpr.Whens)) {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL, totalSQL}}
 	}
 
-	query := &generator.SelectQuery{
-		Items: gen.GenerateSelectList([]schema.Table{tbl}),
-		From:  generator.FromClause{BaseTable: tbl.Name},
-		Where: phi,
-	}
-	folded := query.Clone()
+	base := query.Clone()
+	base.Where = phi
+	folded := base.Clone()
 	folded.Where = caseExpr
 
-	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
+	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
 	}
 	foldSig, err := exec.QuerySignature(ctx, folded.SignatureSQL())
 	if err != nil {
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
 	}
 	if origSig != foldSig {
-		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SignatureSQL())
 		actualExplain, actualExplainErr := explainSQL(ctx, exec, folded.SignatureSQL())
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
-			SQL:      []string{query.SQLString(), folded.SQLString(), auxSQL},
+			SQL:      []string{base.SQLString(), folded.SQLString(), auxSQL},
 			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
 			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  query.SignatureSQL(),
+				"replay_expected_sql":  base.SignatureSQL(),
 				"replay_actual_sql":    folded.SignatureSQL(),
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
@@ -277,7 +296,28 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{query.SQLString(), folded.SQLString(), auxSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+}
+
+func queryUsesOnlyBaseTables(query *generator.SelectQuery, baseNames map[string]struct{}) bool {
+	if query == nil {
+		return false
+	}
+	if query.From.BaseTable == "" {
+		return false
+	}
+	if _, ok := baseNames[query.From.BaseTable]; !ok {
+		return false
+	}
+	for _, join := range query.From.Joins {
+		if join.Table == "" {
+			return false
+		}
+		if _, ok := baseNames[join.Table]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func buildLiteralFromBytes(b sql.RawBytes, colType schema.ColumnType) generator.LiteralExpr {

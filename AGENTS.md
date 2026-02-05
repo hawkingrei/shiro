@@ -85,5 +85,6 @@ Links:
 - Added mismatch/explain-same and GroundTruth skip counters to interval metrics (2026-02-04).
 - DSG wide_rows now respects GroundTruth row caps to reduce table_rows_exceeded skips (2026-02-04).
 - Added `weights.features.cte_count_max` to cap CTE generation for resource-sensitive runs (2026-02-04).
+- CODDTest now supports multi-table dependent mappings with join-aware column binding (2026-02-04).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).

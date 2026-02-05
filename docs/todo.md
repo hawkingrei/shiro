@@ -7,7 +7,7 @@ Last review: 2026-02-04. Added mismatch/groundtruth/existence metrics and CERT g
 
 1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
 2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
-3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics.
+3. CODDTest: extend to multi-table dependent expressions while preserving NULL semantics. (done)
 4. Consider making `CTECountMax` configurable for resource-sensitive runs. (done: `weights.features.cte_count_max`)
 5. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 7. Improve EXISTS/NOT EXISTS coverage; validate whether DMLSubqueryProb=30 and PredicateExistsProb=60 move the counters, otherwise add DQE-specific EXISTS forcing.
