@@ -89,7 +89,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
 	if err != nil {
 		reason, bugHint := eetSignatureErrorDetails(err, "base")
-		details := map[string]any{"error_reason": reason}
+		details["error_reason"] = reason
 		if bugHint != "" {
 			details["bug_hint"] = bugHint
 		}
@@ -98,7 +98,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	transformedSig, err := exec.QuerySignature(ctx, signatureSQLFor(transformedSQL, query.ColumnAliases()))
 	if err != nil {
 		reason, bugHint := eetSignatureErrorDetails(err, "transform")
-		details := map[string]any{"error_reason": reason}
+		details["error_reason"] = reason
 		if bugHint != "" {
 			details["bug_hint"] = bugHint
 		}
@@ -1025,7 +1025,7 @@ func rewriteLiteralValue(expr ast.ValueExpr, kind eetRewriteKind) (ast.ExprNode,
 		}
 		return &ast.FuncCallExpr{
 			Tp:     ast.FuncCallExprTypeKeyword,
-			FnName: ast.NewCIStr("ADDDATE"),
+			FnName: ast.NewCIStr("DATE_ADD"),
 			Args: []ast.ExprNode{
 				expr,
 				ast.NewValueExpr(0, "", ""),
@@ -1172,7 +1172,7 @@ func rewriteColumnIdentity(col *ast.ColumnNameExpr, kind eetRewriteKind) (ast.Ex
 	case eetRewriteDateIdentity:
 		return &ast.FuncCallExpr{
 			Tp:     ast.FuncCallExprTypeKeyword,
-			FnName: ast.NewCIStr("ADDDATE"),
+			FnName: ast.NewCIStr("DATE_ADD"),
 			Args: []ast.ExprNode{
 				col,
 				ast.NewValueExpr(0, "", ""),

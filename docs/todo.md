@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. No TODO changes from abbrevSQL lint fix.
+Last review: 2026-02-05. No TODO changes from EET details/date identity fix.
 
 ## Generator / Oracles
 
