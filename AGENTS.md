@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Added minimize replay tracing to log last SQL/err on connection close warnings; classified runtime query errors as bugs (2026-02-05).
 - CODDTest: allow empty-column predicates to run independent path before type guard (2026-02-05).
 - Named return values in `eetSignatureErrorDetails` to satisfy revive lint (2026-02-05).
 - Reviewed refactor candidates and synced TODO/follow-ups (join predicate strategies, GroundTruth JoinEdge wiring, oracle override profiles) (2026-02-05).

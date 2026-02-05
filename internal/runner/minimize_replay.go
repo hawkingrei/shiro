@@ -12,6 +12,51 @@ import (
 	"shiro/internal/validator"
 )
 
+const replayTraceSQLMax = 400
+
+type replayTrace struct {
+	lastOp  string
+	lastSQL string
+	lastErr error
+}
+
+func (t *replayTrace) record(op, sqlText string) {
+	if t == nil {
+		return
+	}
+	t.lastOp = op
+	t.lastSQL = abbrevSQL(sqlText, replayTraceSQLMax)
+	t.lastErr = nil
+}
+
+func (t *replayTrace) recordErr(err error) {
+	if t == nil || err == nil {
+		return
+	}
+	t.lastErr = err
+}
+
+func abbrevSQL(sqlText string, max int) string {
+	trimmed := strings.TrimSpace(sqlText)
+	if max <= 0 || len(trimmed) <= max {
+		return trimmed
+	}
+	return trimmed[:max] + "..."
+}
+
+func closeReplayConn(conn *sql.Conn, trace *replayTrace) {
+	if conn == nil {
+		return
+	}
+	if err := conn.Close(); err != nil {
+		if trace != nil && (trace.lastSQL != "" || trace.lastErr != nil) {
+			util.Warnf("close minimize conn: %v last_op=%s last_sql=%s last_err=%v", err, trace.lastOp, trace.lastSQL, trace.lastErr)
+			return
+		}
+		util.Warnf("close minimize conn: %v", err)
+	}
+}
+
 func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []string, result oracle.Result, spec replaySpec) bool {
 	if err := ctx.Err(); err != nil {
 		return false
@@ -20,95 +65,114 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 	if err != nil {
 		return false
 	}
-	defer util.CloseWithErr(conn, "minimize conn")
+	trace := &replayTrace{}
+	defer closeReplayConn(conn, trace)
 	minDB := r.baseDB + "_min"
-	if err := r.resetDatabaseOnConn(ctx, conn, minDB); err != nil {
+	if err := r.resetDatabaseOnConn(ctx, conn, minDB, trace); err != nil {
 		return false
 	}
-	if err := r.prepareConn(ctx, conn, minDB); err != nil {
+	if err := r.prepareConnWithTrace(ctx, conn, minDB, trace); err != nil {
 		return false
 	}
-	if err := execStatements(ctx, conn, schemaSQL, r.validator); err != nil {
+	if err := execStatements(ctx, conn, schemaSQL, r.validator, trace); err != nil {
 		return false
 	}
-	if err := execStatements(ctx, conn, inserts, r.validator); err != nil {
+	if err := execStatements(ctx, conn, inserts, r.validator, trace); err != nil {
 		return false
 	}
 
 	switch spec.kind {
 	case "signature":
-		base, err := querySignatureConn(ctx, conn, spec.expectedSQL, r.validator)
+		base, err := querySignatureConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
 		if spec.setVar != "" {
-			if err := r.execOnConn(ctx, conn, "SET SESSION "+spec.setVar); err != nil {
+			if err := r.execOnConnWithTrace(ctx, conn, "SET SESSION "+spec.setVar, trace); err != nil {
 				return false
 			}
 		}
-		other, err := querySignatureConn(ctx, conn, spec.actualSQL, r.validator)
+		other, err := querySignatureConn(ctx, conn, spec.actualSQL, r.validator, trace)
 		if spec.setVar != "" {
-			resetVarOnConn(ctx, conn, spec.setVar)
+			resetVarOnConn(ctx, conn, spec.setVar, trace)
 		}
 		if err != nil {
 			return false
 		}
 		return base != other
 	case "count":
-		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator)
+		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
-		other, err := queryCountConn(ctx, conn, spec.actualSQL, r.validator)
+		other, err := queryCountConn(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
 		return base != other
 	case "plan_rows":
-		base, err := queryPlanRowsConn(ctx, conn, spec.expectedSQL, r.validator)
+		base, err := queryPlanRowsConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
-		other, err := queryPlanRowsConn(ctx, conn, spec.actualSQL, r.validator)
+		other, err := queryPlanRowsConn(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
 		return other > base*(1.0+spec.tolerance)
 	case "rows_affected":
-		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator)
+		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
-		affected, err := execRowsAffected(ctx, conn, spec.actualSQL, r.validator)
+		affected, err := execRowsAffected(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
 			return false
 		}
 		return affected != base
 	case "impo_contains":
-		baseRows, baseTrunc, err := queryRowSetConn(ctx, conn, spec.expectedSQL, r.validator, spec.maxRows)
+		baseRows, baseTrunc, err := queryRowSetConn(ctx, conn, spec.expectedSQL, r.validator, spec.maxRows, trace)
 		if err != nil || baseTrunc {
 			return false
 		}
-		mutRows, mutTrunc, err := queryRowSetConn(ctx, conn, spec.actualSQL, r.validator, spec.maxRows)
+		mutRows, mutTrunc, err := queryRowSetConn(ctx, conn, spec.actualSQL, r.validator, spec.maxRows, trace)
 		if err != nil || mutTrunc {
 			return false
 		}
 		cmp := compareRowSets(baseRows, mutRows)
 		return !implicationOK(spec.impoIsUpper, cmp)
 	case "case_error":
-		err := execStatements(ctx, conn, caseSQL, r.validator)
+		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
 		return errorMatches(err, result.Err)
 	default:
-		err := execStatements(ctx, conn, caseSQL, r.validator)
+		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
 		return errorMatches(err, result.Err)
 	}
 }
 
-func (r *Runner) resetDatabaseOnConn(ctx context.Context, conn *sql.Conn, name string) error {
-	if err := r.execOnConn(ctx, conn, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name)); err != nil {
+func (r *Runner) execOnConnWithTrace(ctx context.Context, conn *sql.Conn, sqlText string, trace *replayTrace) error {
+	if trace != nil {
+		trace.record("exec", sqlText)
+	}
+	err := r.execOnConn(ctx, conn, sqlText)
+	if trace != nil {
+		trace.recordErr(err)
+	}
+	return err
+}
+
+func (r *Runner) prepareConnWithTrace(ctx context.Context, conn *sql.Conn, dbName string, trace *replayTrace) error {
+	if dbName == "" {
+		return nil
+	}
+	return r.execOnConnWithTrace(ctx, conn, fmt.Sprintf("USE %s", dbName), trace)
+}
+
+func (r *Runner) resetDatabaseOnConn(ctx context.Context, conn *sql.Conn, name string, trace *replayTrace) error {
+	if err := r.execOnConnWithTrace(ctx, conn, fmt.Sprintf("DROP DATABASE IF EXISTS %s", name), trace); err != nil {
 		return err
 	}
-	if err := r.execOnConn(ctx, conn, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name)); err != nil {
+	if err := r.execOnConnWithTrace(ctx, conn, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", name), trace); err != nil {
 		return err
 	}
 	return nil
@@ -201,17 +265,26 @@ func shrinkStatements(stmts []string, maxRounds int, test func([]string) bool) [
 	return stmts
 }
 
-func execStatements(ctx context.Context, conn *sql.Conn, stmts []string, v *validator.Validator) error {
+func execStatements(ctx context.Context, conn *sql.Conn, stmts []string, v *validator.Validator, trace *replayTrace) error {
 	for _, stmt := range stmts {
 		if strings.TrimSpace(stmt) == "" {
 			continue
 		}
+		if trace != nil {
+			trace.record("exec", stmt)
+		}
 		if v != nil {
 			if err := v.Validate(stmt); err != nil {
+				if trace != nil {
+					trace.recordErr(err)
+				}
 				return err
 			}
 		}
 		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return err
 		}
 	}
@@ -223,20 +296,32 @@ type impoRowSet struct {
 	rows    []string
 }
 
-func queryRowSetConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, maxRows int) (impoRowSet, bool, error) {
+func queryRowSetConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, maxRows int, trace *replayTrace) (impoRowSet, bool, error) {
+	if trace != nil {
+		trace.record("query", query)
+	}
 	if v != nil {
 		if err := v.Validate(query); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return impoRowSet{}, false, err
 		}
 	}
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return impoRowSet{}, false, err
 	}
 	defer util.CloseWithErr(rows, "impo replay rows")
 
 	cols, err := rows.Columns()
 	if err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return impoRowSet{}, false, err
 	}
 	if maxRows <= 0 {
@@ -252,6 +337,9 @@ func queryRowSetConn(ctx context.Context, conn *sql.Conn, query string, v *valid
 	truncated := false
 	for rows.Next() {
 		if err := rows.Scan(scanArgs...); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return impoRowSet{}, false, err
 		}
 		if len(out.rows) < maxRows {
@@ -268,7 +356,13 @@ func queryRowSetConn(ctx context.Context, conn *sql.Conn, query string, v *valid
 			truncated = true
 		}
 	}
-	return out, truncated, rows.Err()
+	if err := rows.Err(); err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
+		return impoRowSet{}, false, err
+	}
+	return out, truncated, nil
 }
 
 func compareRowSets(base impoRowSet, other impoRowSet) int {
@@ -327,66 +421,109 @@ func implicationOK(isUpper bool, cmp int) bool {
 	return cmp == 1
 }
 
-func querySignatureConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator) (db.Signature, error) {
+func querySignatureConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, trace *replayTrace) (db.Signature, error) {
+	if trace != nil {
+		trace.record("query", query)
+	}
 	if v != nil {
 		if err := v.Validate(query); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return db.Signature{}, err
 		}
 	}
 	row := conn.QueryRowContext(ctx, query)
 	var sig db.Signature
 	if err := row.Scan(&sig.Count, &sig.Checksum); err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return db.Signature{}, err
 	}
 	return sig, nil
 }
 
-func queryCountConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator) (int64, error) {
+func queryCountConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, trace *replayTrace) (int64, error) {
+	if trace != nil {
+		trace.record("query", query)
+	}
 	if v != nil {
 		if err := v.Validate(query); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return 0, err
 		}
 	}
 	row := conn.QueryRowContext(ctx, query)
 	var count int64
 	if err := row.Scan(&count); err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return 0, err
 	}
 	return count, nil
 }
 
-func execRowsAffected(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator) (int64, error) {
+func execRowsAffected(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, trace *replayTrace) (int64, error) {
+	if trace != nil {
+		trace.record("exec", query)
+	}
 	if v != nil {
 		if err := v.Validate(query); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return 0, err
 		}
 	}
 	res, err := conn.ExecContext(ctx, query)
 	if err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return 0, err
 	}
 	affected, _ := res.RowsAffected()
 	return affected, nil
 }
 
-func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator) (float64, error) {
+func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *validator.Validator, trace *replayTrace) (float64, error) {
+	if trace != nil {
+		trace.record("query", query)
+	}
 	if v != nil {
 		if err := v.Validate(query); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return 0, err
 		}
 	}
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return 0, err
 	}
 	defer util.CloseWithErr(rows, "plan rows")
 
 	cols, err := rows.Columns()
 	if err != nil {
+		if trace != nil {
+			trace.recordErr(err)
+		}
 		return 0, err
 	}
 	if len(cols) == 0 {
-		return 0, fmt.Errorf("no columns in explain result")
+		err := fmt.Errorf("no columns in explain result")
+		if trace != nil {
+			trace.recordErr(err)
+		}
+		return 0, err
 	}
 
 	values := make([]sql.RawBytes, len(cols))
@@ -397,6 +534,9 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 
 	for rows.Next() {
 		if err := rows.Scan(scanArgs...); err != nil {
+			if trace != nil {
+				trace.recordErr(err)
+			}
 			return 0, err
 		}
 		for i, name := range cols {
@@ -411,16 +551,27 @@ func queryPlanRowsConn(ctx context.Context, conn *sql.Conn, query string, v *val
 			}
 		}
 	}
-	return 0, fmt.Errorf("no estRows field")
+	err := fmt.Errorf("no estRows field")
+	if trace != nil {
+		trace.recordErr(err)
+	}
+	return 0, err
 }
 
-func resetVarOnConn(ctx context.Context, conn *sql.Conn, assignment string) {
+func resetVarOnConn(ctx context.Context, conn *sql.Conn, assignment string, trace *replayTrace) {
 	name := strings.SplitN(assignment, "=", 2)[0]
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return
 	}
-	_, _ = conn.ExecContext(ctx, "SET SESSION "+name+"=DEFAULT")
+	sqlText := "SET SESSION " + name + "=DEFAULT"
+	if trace != nil {
+		trace.record("exec", sqlText)
+	}
+	_, err := conn.ExecContext(ctx, sqlText)
+	if trace != nil {
+		trace.recordErr(err)
+	}
 }
 
 func errorMatches(err error, expected error) bool {

@@ -581,6 +581,15 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 			result.Err = nil
 		}
 	}
+	if result.Err != nil && isRuntimeError(result.Err) {
+		if result.Details == nil {
+			result.Details = map[string]any{}
+		}
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "runtime_error"
+		}
+		result.OK = false
+	}
 	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
 		if result.Details == nil {
 			result.Details = map[string]any{}
