@@ -22,6 +22,7 @@ type CaseEntry = {
   expected: string;
   actual: string;
   error: string;
+  flaky?: boolean;
   norec_optimized_sql: string;
   norec_unoptimized_sql: string;
   norec_predicate: string;
