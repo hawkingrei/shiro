@@ -28,6 +28,7 @@ func ratio(numerator, denominator int64) float64 {
 
 type oracleFunnel struct {
 	Runs         int64
+	Effective    int64
 	Skips        int64
 	Errors       int64
 	Mismatches   int64
@@ -64,6 +65,7 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
+		r.sqlParseCalls++
 		features := oracle.DetectSubqueryFeaturesSQL(sql)
 		if features.HasNotExists {
 			r.sqlNotEx++
@@ -200,10 +202,12 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 	}
 	var inCount int64
 	var notInCount int64
+	var parseCalls int64
 	for _, sqlText := range sqls {
 		if !strings.Contains(strings.ToUpper(sqlText), "IN") {
 			continue
 		}
+		parseCalls++
 		features := oracle.DetectSubqueryFeaturesSQL(sqlText)
 		if features.HasInSubquery {
 			inCount++
@@ -212,12 +216,13 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 			notInCount++
 		}
 	}
-	if inCount == 0 && notInCount == 0 {
+	if parseCalls == 0 && inCount == 0 && notInCount == 0 {
 		return
 	}
 	r.statsMu.Lock()
 	r.sqlInSubqueryVariant += inCount
 	r.sqlNotInSubqueryVariant += notInCount
+	r.sqlParseVariantCalls += parseCalls
 	r.statsMu.Unlock()
 }
 
@@ -286,6 +291,9 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	if skipReason != "" {
 		stat.Skips++
 		stat.SkipReasons[skipReason]++
+	}
+	if skipReason == "" && result.Err == nil && !isPanic {
+		stat.Effective++
 	}
 	if result.Err != nil {
 		stat.Errors++
@@ -449,6 +457,8 @@ func (r *Runner) startStatsLogger() func() {
 		var lastNotIn int64
 		var lastInSubquery int64
 		var lastNotInSubquery int64
+		var lastParseCalls int64
+		var lastParseVariantCalls int64
 		var lastGenTotal int64
 		var lastGenExists int64
 		var lastGenNotEx int64
@@ -515,6 +525,8 @@ func (r *Runner) startStatsLogger() func() {
 				notIn := r.sqlNotIn
 				inSubquery := r.sqlInSubquery
 				notInSubquery := r.sqlNotInSubquery
+				parseCalls := r.sqlParseCalls
+				parseVariantCalls := r.sqlParseVariantCalls
 				genTotal := r.genSQLTotal
 				genExists := r.genSQLExists
 				genNotEx := r.genSQLNotEx
@@ -606,6 +618,7 @@ func (r *Runner) startStatsLogger() func() {
 					}
 					copyStat := oracleFunnel{
 						Runs:       stat.Runs,
+						Effective:  stat.Effective,
 						Skips:      stat.Skips,
 						Errors:     stat.Errors,
 						Mismatches: stat.Mismatches,
@@ -659,6 +672,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaNotIn := notIn - lastNotIn
 				deltaInSubquery := inSubquery - lastInSubquery
 				deltaNotInSubquery := notInSubquery - lastNotInSubquery
+				deltaParseCalls := parseCalls - lastParseCalls
+				deltaParseVariantCalls := parseVariantCalls - lastParseVariantCalls
 				deltaGenTotal := genTotal - lastGenTotal
 				deltaGenExists := genExists - lastGenExists
 				deltaGenNotEx := genNotEx - lastGenNotEx
@@ -747,6 +762,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastNotIn = notIn
 				lastInSubquery = inSubquery
 				lastNotInSubquery = notInSubquery
+				lastParseCalls = parseCalls
+				lastParseVariantCalls = parseVariantCalls
 				lastGenTotal = genTotal
 				lastGenExists = genExists
 				lastGenNotEx = genNotEx
@@ -774,6 +791,14 @@ func (r *Runner) startStatsLogger() func() {
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
 					tqsStats = r.tqsHistory.Stats()
+				}
+				if deltaParseCalls > 0 || deltaParseVariantCalls > 0 {
+					util.Infof(
+						"parser_calls last interval: sql_features=%d variants=%d total=%d",
+						deltaParseCalls,
+						deltaParseVariantCalls,
+						deltaParseCalls+deltaParseVariantCalls,
+					)
 				}
 				if deltaTotal > 0 {
 					sqlValidRatio := float64(deltaValid) / float64(deltaTotal)
@@ -1015,6 +1040,7 @@ func (r *Runner) startStatsLogger() func() {
 							prev := lastOracleStats[name]
 							delta := oracleFunnel{
 								Runs:       stat.Runs - prev.Runs,
+								Effective:  stat.Effective - prev.Effective,
 								Skips:      stat.Skips - prev.Skips,
 								Errors:     stat.Errors - prev.Errors,
 								Mismatches: stat.Mismatches - prev.Mismatches,
@@ -1041,7 +1067,7 @@ func (r *Runner) startStatsLogger() func() {
 									return out
 								}(),
 							}
-							if delta.Runs > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
+							if delta.Runs > 0 || delta.Effective > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
 								deltaFunnel[name] = delta
 							}
 						}
@@ -1460,7 +1486,7 @@ func formatOracleFunnel(stats map[string]oracleFunnel) string {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
 		stat := stats[name]
-		parts = append(parts, fmt.Sprintf("%s=run/%d skip/%d err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Skips, stat.Errors, stat.Mismatches, stat.Panics, stat.Reports))
+		parts = append(parts, fmt.Sprintf("%s=run/%d eff/%d skip/%d err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Effective, stat.Skips, stat.Errors, stat.Mismatches, stat.Panics, stat.Reports))
 	}
 	return strings.Join(parts, " ")
 }
