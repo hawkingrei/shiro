@@ -792,6 +792,14 @@ func exprHasExistsSubquery(expr Expr) (hasExists bool, hasNotExists bool) {
 	}
 }
 
+// ExprHasExistsSubquery reports whether the expression contains EXISTS / NOT EXISTS.
+func ExprHasExistsSubquery(expr Expr) (hasExists bool, hasNotExists bool) {
+	if expr == nil {
+		return false, false
+	}
+	return exprHasExistsSubquery(expr)
+}
+
 func exprHasExistsSubqueryQuery(query *SelectQuery) (hasExists bool, hasNotExists bool) {
 	if query == nil {
 		return false, false

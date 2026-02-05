@@ -59,6 +59,9 @@ func TestApplyEETTransformDefault(t *testing.T) {
 	if out == "" || out == sql {
 		t.Fatalf("expected transformed sql, got: %s", out)
 	}
+	if details["skip_reason"] != nil {
+		t.Fatalf("unexpected skip reason: %v", details["skip_reason"])
+	}
 	if details["rewrite"] == nil {
 		t.Fatalf("expected rewrite detail")
 	}
@@ -73,6 +76,9 @@ func TestApplyEETTransformHaving(t *testing.T) {
 	if out == "" || out == sql {
 		t.Fatalf("expected transformed sql, got: %s", out)
 	}
+	if details["skip_reason"] != nil {
+		t.Fatalf("unexpected skip reason: %v", details["skip_reason"])
+	}
 	if details["rewrite"] == nil {
 		t.Fatalf("expected rewrite detail")
 	}
@@ -86,6 +92,9 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 	}
 	if out == "" || out == sql {
 		t.Fatalf("expected transformed sql, got: %s", out)
+	}
+	if details["skip_reason"] != nil {
+		t.Fatalf("unexpected skip reason: %v", details["skip_reason"])
 	}
 	if details["rewrite"] == nil {
 		t.Fatalf("expected rewrite detail")

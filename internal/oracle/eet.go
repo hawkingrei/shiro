@@ -161,12 +161,19 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 		details["skip_reason"] = "eet:no_predicate"
 		return "", details, nil
 	}
-	kind, changed := rewriteSelectPredicates(sel, gen)
-	if !changed {
-		details["skip_reason"] = "eet:no_transform"
+	kind, changed, reason := rewriteSelectPredicates(sel, gen)
+	if kind == "" {
+		details["skip_reason"] = "eet:no_rewrite_kind"
 		return "", details, nil
 	}
 	details["rewrite"] = string(kind)
+	if !changed {
+		if reason == "" {
+			reason = "eet:no_transform"
+		}
+		details["skip_reason"] = reason
+		return "", details, nil
+	}
 	restored, err := restoreEETSQL(sel)
 	if err != nil {
 		details["error_reason"] = "eet:restore_error"
@@ -409,21 +416,21 @@ func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
 	}
 }
 
-func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator) (eetRewriteKind, bool) {
+func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator) (eetRewriteKind, bool, string) {
 	kind := pickEETRewriteKind(sel, gen)
 	if kind == "" {
-		return "", false
+		return "", false, "eet:no_rewrite_kind"
 	}
 	if kind == eetRewriteDoubleNot || kind == eetRewriteAndTrue || kind == eetRewriteOrFalse {
 		if rewriteBooleanPredicateInSelect(sel, kind, gen) {
-			return kind, true
+			return kind, true, ""
 		}
-		return "", false
+		return kind, false, "eet:rewrite_no_boolean_target"
 	}
 	if rewriteLiteralPredicateInSelect(sel, kind, gen) {
-		return kind, true
+		return kind, true, ""
 	}
-	return "", false
+	return kind, false, "eet:rewrite_no_literal_target"
 }
 
 func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator) eetRewriteKind {

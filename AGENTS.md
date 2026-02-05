@@ -86,5 +86,7 @@ Links:
 - DSG wide_rows now respects GroundTruth row caps to reduce table_rows_exceeded skips (2026-02-04).
 - Added `weights.features.cte_count_max` to cap CTE generation for resource-sensitive runs (2026-02-04).
 - CODDTest now supports multi-table dependent mappings with join-aware column binding (2026-02-04).
+- DQE now retries predicate generation to bias EXISTS/NOT EXISTS coverage (2026-02-05).
+- EET now records per-rewrite skip reasons for coverage accounting (2026-02-05).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).
