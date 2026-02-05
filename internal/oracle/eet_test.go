@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"shiro/internal/config"
 	"shiro/internal/generator"
+	"shiro/internal/schema"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -98,6 +100,41 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 	}
 	if details["rewrite"] == nil {
 		t.Fatalf("expected rewrite detail")
+	}
+}
+
+func TestApplyEETTransformColumnIdentity(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.EETRewrites = config.EETRewriteWeights{
+		NumericIdentity: 10,
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := generator.New(cfg, &state, 1)
+	sql := "SELECT t0.c0 AS c0 FROM t0 WHERE t0.c0 > t0.c0"
+	out, details, err := applyEETTransform(sql, gen)
+	if err != nil {
+		t.Fatalf("transform err: %v", err)
+	}
+	if out == "" || out == sql {
+		t.Fatalf("expected transformed sql, got: %s", out)
+	}
+	if details["skip_reason"] != nil {
+		t.Fatalf("unexpected skip reason: %v", details["skip_reason"])
+	}
+	if !strings.Contains(out, "+0") {
+		t.Fatalf("expected numeric identity rewrite, got: %s", out)
 	}
 }
 

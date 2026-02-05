@@ -161,7 +161,8 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 		details["skip_reason"] = "eet:no_predicate"
 		return "", details, nil
 	}
-	kind, changed, reason := rewriteSelectPredicates(sel, gen)
+	resolver := buildColumnTypeResolver(sel, gen)
+	kind, changed, reason := rewriteSelectPredicates(sel, gen, resolver)
 	if kind == "" {
 		details["skip_reason"] = "eet:no_rewrite_kind"
 		return "", details, nil
@@ -416,7 +417,7 @@ func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
 	}
 }
 
-func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator) (eetRewriteKind, bool, string) {
+func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator, resolver *columnTypeResolver) (eetRewriteKind, bool, string) {
 	kind := pickEETRewriteKind(sel, gen)
 	if kind == "" {
 		return "", false, "eet:no_rewrite_kind"
@@ -427,7 +428,7 @@ func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator) (eet
 		}
 		return kind, false, "eet:rewrite_no_boolean_target"
 	}
-	if rewriteLiteralPredicateInSelect(sel, kind, gen) {
+	if rewriteLiteralPredicateInSelect(sel, kind, gen, resolver) {
 		return kind, true, ""
 	}
 	return kind, false, "eet:rewrite_no_literal_target"
@@ -437,7 +438,8 @@ func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator) eetRewrit
 	if sel == nil {
 		return ""
 	}
-	available := collectLiteralKinds(sel)
+	resolver := buildColumnTypeResolver(sel, gen)
+	available := collectLiteralKinds(sel, resolver)
 	if gen == nil {
 		if available == 0 {
 			return eetRewriteDoubleNot
@@ -525,7 +527,7 @@ func sumWeights(values []int) int {
 	return total
 }
 
-func rewriteLiteralPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind, gen *generator.Generator) bool {
+func rewriteLiteralPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind, gen *generator.Generator, resolver *columnTypeResolver) bool {
 	targets := collectPredicateTargets(sel)
 	if len(targets) == 0 {
 		return false
@@ -538,6 +540,10 @@ func rewriteLiteralPredicateInSelect(sel *ast.SelectStmt, kind eetRewriteKind, g
 	for _, idx := range order {
 		target := targets[idx]
 		if next, ok := rewriteLiteralInExpr(target.get(), kind); ok {
+			target.set(next)
+			return true
+		}
+		if next, ok := rewriteColumnIdentityInExpr(target.get(), kind, resolver); ok {
 			target.set(next)
 			return true
 		}
@@ -574,61 +580,61 @@ const (
 	literalDate
 )
 
-func collectLiteralKinds(sel *ast.SelectStmt) literalKind {
+func collectLiteralKinds(sel *ast.SelectStmt, resolver *columnTypeResolver) literalKind {
 	var kinds literalKind
 	if sel == nil {
 		return kinds
 	}
-	kinds |= collectLiteralKindsExpr(sel.Where)
+	kinds |= collectLiteralKindsExpr(sel.Where, resolver)
 	if sel.Having != nil && sel.Having.Expr != nil {
-		kinds |= collectLiteralKindsExpr(sel.Having.Expr)
+		kinds |= collectLiteralKindsExpr(sel.Having.Expr, resolver)
 	}
-	kinds |= collectLiteralKindsJoin(sel.From)
+	kinds |= collectLiteralKindsJoin(sel.From, resolver)
 	return kinds
 }
 
-func collectLiteralKindsJoin(from *ast.TableRefsClause) literalKind {
+func collectLiteralKindsJoin(from *ast.TableRefsClause, resolver *columnTypeResolver) literalKind {
 	if from == nil || from.TableRefs == nil {
 		return 0
 	}
-	return collectLiteralKindsResultSet(from.TableRefs)
+	return collectLiteralKindsResultSet(from.TableRefs, resolver)
 }
 
-func collectLiteralKindsResultSet(node ast.ResultSetNode) literalKind {
+func collectLiteralKindsResultSet(node ast.ResultSetNode, resolver *columnTypeResolver) literalKind {
 	switch v := node.(type) {
 	case *ast.Join:
-		kinds := collectLiteralKindsResultSet(v.Left)
-		kinds |= collectLiteralKindsResultSet(v.Right)
+		kinds := collectLiteralKindsResultSet(v.Left, resolver)
+		kinds |= collectLiteralKindsResultSet(v.Right, resolver)
 		if v.On != nil && v.On.Expr != nil {
-			kinds |= collectLiteralKindsExpr(v.On.Expr)
+			kinds |= collectLiteralKindsExpr(v.On.Expr, resolver)
 		}
 		return kinds
 	case *ast.TableSource:
 		switch src := v.Source.(type) {
 		case *ast.Join:
-			return collectLiteralKindsResultSet(src)
+			return collectLiteralKindsResultSet(src, resolver)
 		case *ast.SelectStmt:
-			return collectLiteralKindsSelect(src)
+			return collectLiteralKindsSelect(src, resolver)
 		case *ast.SetOprStmt:
-			return collectLiteralKindsSetOpr(src)
+			return collectLiteralKindsSetOpr(src, resolver)
 		}
 	}
 	return 0
 }
 
-func collectLiteralKindsSelect(sel *ast.SelectStmt) literalKind {
+func collectLiteralKindsSelect(sel *ast.SelectStmt, resolver *columnTypeResolver) literalKind {
 	if sel == nil {
 		return 0
 	}
-	kinds := collectLiteralKindsExpr(sel.Where)
+	kinds := collectLiteralKindsExpr(sel.Where, resolver)
 	if sel.Having != nil && sel.Having.Expr != nil {
-		kinds |= collectLiteralKindsExpr(sel.Having.Expr)
+		kinds |= collectLiteralKindsExpr(sel.Having.Expr, resolver)
 	}
-	kinds |= collectLiteralKindsJoin(sel.From)
+	kinds |= collectLiteralKindsJoin(sel.From, resolver)
 	return kinds
 }
 
-func collectLiteralKindsSetOpr(stmt *ast.SetOprStmt) literalKind {
+func collectLiteralKindsSetOpr(stmt *ast.SetOprStmt, resolver *columnTypeResolver) literalKind {
 	if stmt == nil || stmt.SelectList == nil {
 		return 0
 	}
@@ -636,56 +642,58 @@ func collectLiteralKindsSetOpr(stmt *ast.SetOprStmt) literalKind {
 	for _, sel := range stmt.SelectList.Selects {
 		switch v := sel.(type) {
 		case *ast.SelectStmt:
-			kinds |= collectLiteralKindsSelect(v)
+			kinds |= collectLiteralKindsSelect(v, resolver)
 		case *ast.SetOprStmt:
-			kinds |= collectLiteralKindsSetOpr(v)
+			kinds |= collectLiteralKindsSetOpr(v, resolver)
 		}
 	}
 	return kinds
 }
 
-func collectLiteralKindsExpr(expr ast.ExprNode) literalKind {
+func collectLiteralKindsExpr(expr ast.ExprNode, resolver *columnTypeResolver) literalKind {
 	switch e := expr.(type) {
+	case *ast.ColumnNameExpr:
+		return literalKindForColumn(e, resolver)
 	case ast.ValueExpr:
 		return literalKindsForValue(e)
 	case *ast.BinaryOperationExpr:
-		return collectLiteralKindsExpr(e.L) | collectLiteralKindsExpr(e.R)
+		return collectLiteralKindsExpr(e.L, resolver) | collectLiteralKindsExpr(e.R, resolver)
 	case *ast.UnaryOperationExpr:
-		return collectLiteralKindsExpr(e.V)
+		return collectLiteralKindsExpr(e.V, resolver)
 	case *ast.PatternInExpr:
-		kinds := collectLiteralKindsExpr(e.Expr)
+		kinds := collectLiteralKindsExpr(e.Expr, resolver)
 		for _, item := range e.List {
-			kinds |= collectLiteralKindsExpr(item)
+			kinds |= collectLiteralKindsExpr(item, resolver)
 		}
 		return kinds
 	case *ast.BetweenExpr:
-		kinds := collectLiteralKindsExpr(e.Expr)
-		kinds |= collectLiteralKindsExpr(e.Left)
-		kinds |= collectLiteralKindsExpr(e.Right)
+		kinds := collectLiteralKindsExpr(e.Expr, resolver)
+		kinds |= collectLiteralKindsExpr(e.Left, resolver)
+		kinds |= collectLiteralKindsExpr(e.Right, resolver)
 		return kinds
 	case *ast.PatternLikeOrIlikeExpr:
-		kinds := collectLiteralKindsExpr(e.Expr)
-		kinds |= collectLiteralKindsExpr(e.Pattern)
+		kinds := collectLiteralKindsExpr(e.Expr, resolver)
+		kinds |= collectLiteralKindsExpr(e.Pattern, resolver)
 		return kinds
 	case *ast.IsNullExpr:
-		return collectLiteralKindsExpr(e.Expr)
+		return collectLiteralKindsExpr(e.Expr, resolver)
 	case *ast.FuncCallExpr:
 		var kinds literalKind
 		for _, arg := range e.Args {
-			kinds |= collectLiteralKindsExpr(arg)
+			kinds |= collectLiteralKindsExpr(arg, resolver)
 		}
 		return kinds
 	case *ast.CaseExpr:
 		var kinds literalKind
 		if e.Value != nil {
-			kinds |= collectLiteralKindsExpr(e.Value)
+			kinds |= collectLiteralKindsExpr(e.Value, resolver)
 		}
 		for _, w := range e.WhenClauses {
-			kinds |= collectLiteralKindsExpr(w.Expr)
-			kinds |= collectLiteralKindsExpr(w.Result)
+			kinds |= collectLiteralKindsExpr(w.Expr, resolver)
+			kinds |= collectLiteralKindsExpr(w.Result, resolver)
 		}
 		if e.ElseClause != nil {
-			kinds |= collectLiteralKindsExpr(e.ElseClause)
+			kinds |= collectLiteralKindsExpr(e.ElseClause, resolver)
 		}
 		return kinds
 	default:
@@ -723,6 +731,110 @@ func classifyStringLiteral(val string) literalKind {
 		return literalDate
 	}
 	return literalString
+}
+
+type columnTypeResolver struct {
+	state   *schema.State
+	aliases map[string]string
+}
+
+func buildColumnTypeResolver(sel *ast.SelectStmt, gen *generator.Generator) *columnTypeResolver {
+	if gen == nil || gen.State == nil || sel == nil {
+		return nil
+	}
+	aliases := buildTableAliasMap(sel.From)
+	if len(aliases) == 0 {
+		aliases = nil
+	}
+	return &columnTypeResolver{
+		state:   gen.State,
+		aliases: aliases,
+	}
+}
+
+func buildTableAliasMap(from *ast.TableRefsClause) map[string]string {
+	if from == nil || from.TableRefs == nil {
+		return nil
+	}
+	aliases := make(map[string]string)
+	addAlias := func(alias, name string) {
+		if alias == "" || name == "" {
+			return
+		}
+		aliases[alias] = name
+	}
+	var walk func(node ast.ResultSetNode)
+	walk = func(node ast.ResultSetNode) {
+		switch v := node.(type) {
+		case *ast.Join:
+			walk(v.Left)
+			walk(v.Right)
+		case *ast.TableSource:
+			switch src := v.Source.(type) {
+			case *ast.TableName:
+				name := src.Name.O
+				alias := v.AsName.O
+				if alias == "" {
+					alias = name
+				}
+				addAlias(alias, name)
+			case *ast.Join:
+				walk(src)
+			case *ast.SelectStmt, *ast.SetOprStmt:
+				if v.AsName.O != "" {
+					addAlias(v.AsName.O, "")
+				}
+			}
+		}
+	}
+	walk(from.TableRefs)
+	return aliases
+}
+
+func literalKindForColumn(col *ast.ColumnNameExpr, resolver *columnTypeResolver) literalKind {
+	if col == nil || resolver == nil || resolver.state == nil {
+		return 0
+	}
+	typ, ok := resolver.columnType(col)
+	if !ok {
+		return 0
+	}
+	switch typ {
+	case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal, schema.TypeBool:
+		return literalNumeric
+	case schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+		return literalDate
+	default:
+		return literalString
+	}
+}
+
+func (r *columnTypeResolver) columnType(col *ast.ColumnNameExpr) (schema.ColumnType, bool) {
+	if col == nil || r == nil || r.state == nil {
+		return 0, false
+	}
+	table := col.Name.Table.O
+	name := col.Name.Name.O
+	if name == "" {
+		return 0, false
+	}
+	if table != "" && r.aliases != nil {
+		if mapped, ok := r.aliases[table]; ok && mapped != "" {
+			table = mapped
+		}
+	}
+	if table == "" {
+		return 0, false
+	}
+	tbl, ok := r.state.TableByName(table)
+	if !ok {
+		return 0, false
+	}
+	colDef, ok := tbl.ColumnByName(name)
+	if !ok {
+		return 0, false
+	}
+	return colDef.Type, true
 }
 
 func isDateLiteralString(value string) bool {
@@ -908,6 +1020,153 @@ func rewriteLiteralValue(expr ast.ValueExpr, kind eetRewriteKind) (ast.ExprNode,
 		}, true
 	default:
 		return expr, false
+	}
+}
+
+func rewriteColumnIdentityInExpr(expr ast.ExprNode, kind eetRewriteKind, resolver *columnTypeResolver) (ast.ExprNode, bool) {
+	switch e := expr.(type) {
+	case *ast.ColumnNameExpr:
+		if literalKindForColumn(e, resolver)&kindMask(kind) == 0 {
+			return e, false
+		}
+		return rewriteColumnIdentity(e, kind)
+	case *ast.BinaryOperationExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.L, kind, resolver); ok {
+			e.L = next
+			return e, true
+		}
+		if next, ok := rewriteColumnIdentityInExpr(e.R, kind, resolver); ok {
+			e.R = next
+			return e, true
+		}
+		return e, false
+	case *ast.UnaryOperationExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.V, kind, resolver); ok {
+			e.V = next
+			return e, true
+		}
+		return e, false
+	case *ast.PatternInExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.Expr, kind, resolver); ok {
+			e.Expr = next
+			return e, true
+		}
+		for i, item := range e.List {
+			if next, ok := rewriteColumnIdentityInExpr(item, kind, resolver); ok {
+				e.List[i] = next
+				return e, true
+			}
+		}
+		return e, false
+	case *ast.BetweenExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.Expr, kind, resolver); ok {
+			e.Expr = next
+			return e, true
+		}
+		if next, ok := rewriteColumnIdentityInExpr(e.Left, kind, resolver); ok {
+			e.Left = next
+			return e, true
+		}
+		if next, ok := rewriteColumnIdentityInExpr(e.Right, kind, resolver); ok {
+			e.Right = next
+			return e, true
+		}
+		return e, false
+	case *ast.PatternLikeOrIlikeExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.Expr, kind, resolver); ok {
+			e.Expr = next
+			return e, true
+		}
+		if next, ok := rewriteColumnIdentityInExpr(e.Pattern, kind, resolver); ok {
+			e.Pattern = next
+			return e, true
+		}
+		return e, false
+	case *ast.IsNullExpr:
+		if next, ok := rewriteColumnIdentityInExpr(e.Expr, kind, resolver); ok {
+			e.Expr = next
+			return e, true
+		}
+		return e, false
+	case *ast.FuncCallExpr:
+		for i, arg := range e.Args {
+			if next, ok := rewriteColumnIdentityInExpr(arg, kind, resolver); ok {
+				e.Args[i] = next
+				return e, true
+			}
+		}
+		return e, false
+	case *ast.CaseExpr:
+		if e.Value != nil {
+			if next, ok := rewriteColumnIdentityInExpr(e.Value, kind, resolver); ok {
+				e.Value = next
+				return e, true
+			}
+		}
+		for i, w := range e.WhenClauses {
+			if next, ok := rewriteColumnIdentityInExpr(w.Expr, kind, resolver); ok {
+				e.WhenClauses[i].Expr = next
+				return e, true
+			}
+			if next, ok := rewriteColumnIdentityInExpr(w.Result, kind, resolver); ok {
+				e.WhenClauses[i].Result = next
+				return e, true
+			}
+		}
+		if e.ElseClause != nil {
+			if next, ok := rewriteColumnIdentityInExpr(e.ElseClause, kind, resolver); ok {
+				e.ElseClause = next
+				return e, true
+			}
+		}
+		return e, false
+	default:
+		return e, false
+	}
+}
+
+func kindMask(kind eetRewriteKind) literalKind {
+	switch kind {
+	case eetRewriteNumericIdentity:
+		return literalNumeric
+	case eetRewriteStringIdentity:
+		return literalString
+	case eetRewriteDateIdentity:
+		return literalDate
+	default:
+		return 0
+	}
+}
+
+func rewriteColumnIdentity(col *ast.ColumnNameExpr, kind eetRewriteKind) (ast.ExprNode, bool) {
+	switch kind {
+	case eetRewriteNumericIdentity:
+		return &ast.BinaryOperationExpr{
+			Op: opcode.Plus,
+			L:  col,
+			R:  ast.NewValueExpr(0, "", ""),
+		}, true
+	case eetRewriteStringIdentity:
+		return &ast.FuncCallExpr{
+			Tp:     ast.FuncCallExprTypeGeneric,
+			FnName: ast.NewCIStr("CONCAT"),
+			Args: []ast.ExprNode{
+				col,
+				ast.NewValueExpr("", "", ""),
+			},
+		}, true
+	case eetRewriteDateIdentity:
+		return &ast.FuncCallExpr{
+			Tp:     ast.FuncCallExprTypeKeyword,
+			FnName: ast.NewCIStr("ADDDATE"),
+			Args: []ast.ExprNode{
+				col,
+				ast.NewValueExpr(0, "", ""),
+				&ast.TimeUnitExpr{Unit: ast.TimeUnitDay},
+			},
+		}, true
+	default:
+		return col, false
 	}
 }
 
