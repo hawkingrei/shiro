@@ -44,7 +44,7 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.Limit = false
 		cfg.Features.WindowFuncs = false
 		cfg.Oracles.JoinOnPolicy = "simple"
-		cfg.Oracles.JoinUsingProb = maxInt(cfg.Oracles.JoinUsingProb, 80)
+		cfg.Oracles.JoinUsingProb = maxInt(cfg.Oracles.JoinUsingProb, 100)
 		r.gen.SetPredicateMode(generator.PredicateModeNone)
 		r.gen.SetJoinTypeOverride(generator.JoinInner)
 		r.gen.SetMinJoinTables(2)
