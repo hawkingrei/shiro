@@ -37,27 +37,26 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
 	policy.allowIsNull = true
-	builder := generator.NewSelectQueryBuilder(gen).
-		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic().
-		PredicateGuard(func(expr generator.Expr) bool {
-			return predicateMatches(expr, policy)
-		})
-	query, reason, attempts := builder.BuildWithReason()
+	spec := QuerySpec{
+		Oracle:          "dqp",
+		PredicatePolicy: policy,
+		PredicateGuard:  true,
+		Constraints: generator.SelectQueryConstraints{
+			PredicateMode:        generator.PredicateModeSimple,
+			RequireDeterministic: true,
+			DisallowLimit:        true,
+			DisallowWindow:       true,
+		},
+		SkipReasonOverrides: map[string]string{
+			"constraint:limit":            "dqp:limit",
+			"constraint:window":           "dqp:window",
+			"constraint:nondeterministic": "dqp:nondeterministic",
+			"constraint:predicate_guard":  "dqp:predicate_guard",
+		},
+	}
+	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("dqp", reason), "builder_reason": reason, "builder_attempts": attempts}}
-	}
-	if query.Limit != nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:limit"}}
-	}
-	if queryHasWindow(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:window"}}
-	}
-	if !queryDeterministic(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:nondeterministic"}}
-	}
-	if query.Where != nil && !predicateMatches(query.Where, policy) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:predicate_guard"}}
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}

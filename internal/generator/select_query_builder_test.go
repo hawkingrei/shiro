@@ -73,6 +73,50 @@ func TestSelectQueryBuilderDisallowAggregate(t *testing.T) {
 	}
 }
 
+func TestSelectQueryBuilderDisallowLimit(t *testing.T) {
+	gen := newTestGenerator(t)
+	gen.Config.Features.Limit = true
+	query := NewSelectQueryBuilder(gen).
+		DisallowLimit().
+		MaxTries(50).
+		Build()
+	if query == nil {
+		t.Fatalf("expected query")
+	}
+	if query.Limit != nil {
+		t.Fatalf("unexpected limit")
+	}
+}
+
+func TestSelectQueryBuilderDisallowWindow(t *testing.T) {
+	gen := newTestGenerator(t)
+	gen.Config.Features.WindowFuncs = true
+	query := NewSelectQueryBuilder(gen).
+		DisallowWindow().
+		MaxTries(50).
+		Build()
+	if query == nil {
+		t.Fatalf("expected query")
+	}
+	if AnalyzeQueryFeatures(query).HasWindow {
+		t.Fatalf("unexpected window")
+	}
+}
+
+func TestSelectQueryBuilderMinJoinTables(t *testing.T) {
+	gen := newTestGenerator(t)
+	query := NewSelectQueryBuilder(gen).
+		MinJoinTables(2).
+		MaxTries(50).
+		Build()
+	if query == nil {
+		t.Fatalf("expected query")
+	}
+	if len(query.From.Joins)+1 < 2 {
+		t.Fatalf("expected at least 2 tables, got %d", len(query.From.Joins)+1)
+	}
+}
+
 func newTestGenerator(t *testing.T) *Generator {
 	t.Helper()
 	cfg, err := config.Load("../../config.yaml")

@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Added QuerySpec and expanded SelectQueryBuilder constraints to move oracle guardrails into build-time checks (2026-02-06).
 - Reduced EET oracle weight in config from 5 to 4 (2026-02-06).
 - Added LRU cache tests and a test for cached parse-error results for subquery detection (2026-02-06).
 - Added LRU cache for subquery feature detection parsing (2026-02-06).
