@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Refined subquery fast-path normalization and tests (2026-02-06).
 - Added SQL keyword fast-path before subquery feature parsing (2026-02-05).
 - Defined shared core-oracle list for summary logging (2026-02-05).
 - Logged per-oracle skip/effective ratios in interval stats (2026-02-05).

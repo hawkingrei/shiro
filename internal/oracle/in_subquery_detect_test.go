@@ -70,13 +70,17 @@ func TestShouldDetectSubqueryFeaturesSQL(t *testing.T) {
 	}{
 		{sql: "SELECT 1", want: false},
 		{sql: "SELECT 1 WHERE a IN (1,2,3)", want: true},
+		{sql: "SELECT 1 WHERE a IN  (1,2,3)", want: true},
 		{sql: "SELECT 1 WHERE a IN (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE a NOT IN  (SELECT 1)", want: true},
 		{sql: "SELECT 1 WHERE EXISTS (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE NOT  EXISTS (SELECT 1)", want: true},
 		{sql: "SELECT 1 WHERE a IN\n(SELECT 1)", want: true},
 		{sql: "INSERT INTO t VALUES (1)", want: false},
 		{sql: "INSERT INTO t SELECT * FROM t2 WHERE a IN (SELECT 1)", want: true},
 		{sql: "UPDATE t SET a = 1 WHERE b IN (SELECT 1)", want: true},
 		{sql: "DELETE FROM t WHERE EXISTS (SELECT 1)", want: true},
+		{sql: "SELECT 'EXISTS' FROM t", want: true},
 	}
 	for _, c := range cases {
 		if got := ShouldDetectSubqueryFeaturesSQL(c.sql); got != c.want {

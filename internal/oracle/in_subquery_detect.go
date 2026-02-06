@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -20,28 +21,53 @@ type SQLSubqueryFeatures struct {
 }
 
 // ShouldDetectSubqueryFeaturesSQL is a fast-path guard to avoid parser overhead
-// when the SQL text doesn't appear to reference IN/EXISTS patterns.
+// when the SQL text doesn't appear to reference IN/EXISTS patterns. It is
+// intentionally conservative and may return true (causing a full parse) when
+// IN/EXISTS only appear in string literals, comments, or identifiers. This
+// function prioritizes avoiding false negatives over avoiding false positives.
 func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
 	if strings.TrimSpace(sqlText) == "" {
 		return false
 	}
-	upper := strings.ToUpper(sqlText)
+	upper := normalizeSQLForKeywordScan(sqlText)
+	if upper == "" {
+		return false
+	}
 	if !strings.Contains(upper, "IN") && !strings.Contains(upper, "EXISTS") {
 		return false
 	}
-	upper = strings.NewReplacer("\n", " ", "\t", " ", "\r", " ").Replace(upper)
 	if strings.Contains(upper, "EXISTS") {
 		return true
 	}
 	if strings.Contains(upper, " NOT IN(") || strings.Contains(upper, " NOT IN (") ||
-		strings.Contains(upper, "NOT IN(") || strings.Contains(upper, "NOT IN (") {
+		strings.HasPrefix(upper, "NOT IN(") || strings.HasPrefix(upper, "NOT IN (") {
 		return true
 	}
 	if strings.Contains(upper, " IN(") || strings.Contains(upper, " IN (") ||
-		strings.Contains(upper, "IN(") || strings.Contains(upper, "IN (") {
+		strings.HasPrefix(upper, "IN(") || strings.HasPrefix(upper, "IN (") {
 		return true
 	}
 	return false
+}
+
+func normalizeSQLForKeywordScan(sqlText string) string {
+	var b strings.Builder
+	b.Grow(len(sqlText))
+	pendingSpace := false
+	for _, r := range sqlText {
+		switch r {
+		case ' ', '\n', '\t', '\r':
+			pendingSpace = true
+			continue
+		default:
+			if pendingSpace && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			pendingSpace = false
+			b.WriteRune(unicode.ToUpper(r))
+		}
+	}
+	return b.String()
 }
 
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
