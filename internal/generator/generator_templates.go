@@ -216,7 +216,8 @@ func (g *Generator) templateSemiAntiPredicate(tables []schema.Table, sub *Select
 }
 
 func (g *Generator) applyTemplateFrom(query *SelectQuery, tables []schema.Table) {
-	query.From = g.buildFromClause(tables, nil)
+	derived := g.buildDerivedTableMap(tables)
+	query.From = g.buildFromClause(tables, derived)
 }
 
 func (g *Generator) applyTemplateSelect(query *SelectQuery, tables []schema.Table) {

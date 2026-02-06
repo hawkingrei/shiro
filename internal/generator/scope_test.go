@@ -121,3 +121,49 @@ func TestValidateQueryScopeJoinOnUsesVisibleTables(t *testing.T) {
 		t.Fatalf("expected join scope validation to pass for visible tables")
 	}
 }
+
+func TestValidateQueryScopeSetOpTableNotVisibleToMainQuery(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+		},
+		From: FromClause{BaseTable: "t0"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: LiteralExpr{Value: 1},
+		},
+		SetOps: []SetOperation{
+			{
+				Type: SetOperationUnion,
+				Query: &SelectQuery{
+					Items: []SelectItem{
+						{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0", Type: schema.TypeInt}}},
+					},
+					From: FromClause{BaseTable: "t1"},
+				},
+			},
+		},
+	}
+
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected set-op operand tables to be invisible to main query scope")
+	}
+}

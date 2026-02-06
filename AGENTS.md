@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Fixed set-op scope visibility (operand tables no longer leak into main-query scope), enabled derived-table generation in template FROM paths, and made SubqueryExpr/ExistsExpr determinism checks recurse into subqueries; added regression tests (2026-02-06).
 - Added feature-flagged SQL capability groundwork for set operations (`UNION/INTERSECT/EXCEPT`), derived tables (`FROM/JOIN (subquery) AS alias`), and quantified subqueries (`ANY/SOME/ALL`), plus recursive query-analysis/oracle helper coverage and tests (2026-02-06).
 - Fixed `sqlErrorReason(nil)` to return an empty reason and added a regression test; clarified EET ORDER BY drop semantics with inline comments (2026-02-06).
 - Added error_reason classification for DQP/NoREC, surfaced error_reason/bug_hint/error_sql/replay_sql in summaries, reduced CODDTest skips by disabling disallowed features during builds, added GroundTruth join fallback on missing join pairs, and relaxed EET ORDER BY skips without LIMIT (2026-02-06).

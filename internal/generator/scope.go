@@ -162,20 +162,8 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 	if query == nil {
 		return scope
 	}
-	for _, op := range query.SetOps {
-		if op.Query == nil {
-			continue
-		}
-		opScope := scopeTablesForQuery(op.Query, nil)
-		for name := range opScope.tables {
-			scope.tables[name] = struct{}{}
-		}
-		for name, cols := range opScope.columns {
-			if _, ok := scope.columns[name]; !ok {
-				scope.columns[name] = cols
-			}
-		}
-	}
+	// Set-operation operands are validated independently and are not visible to the
+	// current query body; do not merge their scope here.
 	for _, tbl := range tables {
 		if tbl.Name == "" {
 			continue

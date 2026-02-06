@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added parser fast-path guard and SQL capability groundwork (set operations, derived tables, quantified subqueries) behind feature flags.
+Last review: 2026-02-06. Added parser fast-path guard, SQL capability groundwork (set operations, derived tables, quantified subqueries), and follow-up fixes for set-op scope isolation/template-derived coverage/subquery determinism.
 
 ## Generator / Oracles
 

@@ -51,3 +51,27 @@ func TestCompareSubqueryExprDeterministicIncludesSubquery(t *testing.T) {
 		t.Fatalf("expected nondeterministic when subquery is nondeterministic")
 	}
 }
+
+func TestSubqueryExprDeterministicIncludesSubquery(t *testing.T) {
+	expr := SubqueryExpr{
+		Query: &SelectQuery{
+			Items: []SelectItem{{Expr: compareNonDetExpr{}, Alias: "c0"}},
+			From:  FromClause{BaseTable: "t0"},
+		},
+	}
+	if expr.Deterministic() {
+		t.Fatalf("expected nondeterministic when scalar subquery is nondeterministic")
+	}
+}
+
+func TestExistsExprDeterministicIncludesSubquery(t *testing.T) {
+	expr := ExistsExpr{
+		Query: &SelectQuery{
+			Items: []SelectItem{{Expr: compareNonDetExpr{}, Alias: "c0"}},
+			From:  FromClause{BaseTable: "t0"},
+		},
+	}
+	if expr.Deterministic() {
+		t.Fatalf("expected nondeterministic when EXISTS subquery is nondeterministic")
+	}
+}

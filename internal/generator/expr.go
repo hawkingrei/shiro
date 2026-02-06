@@ -277,7 +277,12 @@ func (e SubqueryExpr) Build(b *SQLBuilder) {
 func (e SubqueryExpr) Columns() []ColumnRef { return nil }
 
 // Deterministic reports whether the expression is deterministic.
-func (e SubqueryExpr) Deterministic() bool { return true }
+func (e SubqueryExpr) Deterministic() bool {
+	if e.Query == nil {
+		return true
+	}
+	return QueryDeterministic(e.Query)
+}
 
 // ExistsExpr renders an EXISTS predicate.
 type ExistsExpr struct {
@@ -295,7 +300,12 @@ func (e ExistsExpr) Build(b *SQLBuilder) {
 func (e ExistsExpr) Columns() []ColumnRef { return nil }
 
 // Deterministic reports whether the expression is deterministic.
-func (e ExistsExpr) Deterministic() bool { return true }
+func (e ExistsExpr) Deterministic() bool {
+	if e.Query == nil {
+		return true
+	}
+	return QueryDeterministic(e.Query)
+}
 
 // InExpr renders an IN predicate.
 type InExpr struct {
