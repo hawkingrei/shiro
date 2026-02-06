@@ -38,7 +38,7 @@ func TestSubqueryFeatureCacheParseError(t *testing.T) {
 	}
 }
 
-func TestSubqueryFeatureLRUConcurrentAccess(t *testing.T) {
+func TestSubqueryFeatureLRUConcurrentAccess(_ *testing.T) {
 	cache := newSubqueryFeatureLRU(8)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
