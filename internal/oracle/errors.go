@@ -28,7 +28,7 @@ func IsPlanRefMissingErr(err error) bool {
 
 func sqlErrorReason(prefix string, err error) (string, uint16) {
 	if err == nil {
-		return prefix + ":sql_error", 0
+		return "", 0
 	}
 	if IsSchemaColumnMissingErr(err) {
 		return prefix + ":missing_column", 0

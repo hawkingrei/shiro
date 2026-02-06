@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Fixed `sqlErrorReason(nil)` to return an empty reason and added a regression test; clarified EET ORDER BY drop semantics with inline comments (2026-02-06).
 - Added error_reason classification for DQP/NoREC, surfaced error_reason/bug_hint/error_sql/replay_sql in summaries, reduced CODDTest skips by disabling disallowed features during builds, added GroundTruth join fallback on missing join pairs, and relaxed EET ORDER BY skips without LIMIT (2026-02-06).
 - Reviewed logs/reports; EET cases show schema column missing errors, CODDTest mostly skips on aggregate/join/predicate/type, GroundTruth key_missing dominates, EET skips on ORDER BY constraints, and non-EET error reasons lack detail (2026-02-06).
 - Added QuerySpec and expanded SelectQueryBuilder constraints to move oracle guardrails into build-time checks (2026-02-06).
