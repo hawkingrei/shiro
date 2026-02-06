@@ -73,7 +73,12 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	baseSQL := query.SQLString()
 	baseSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err}
+		reason, code := sqlErrorReason("dqp", err)
+		details := map[string]any{"error_reason": reason}
+		if code != 0 {
+			details["error_code"] = int(code)
+		}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
 	}
 
 	hasCTE := len(query.With) > 0

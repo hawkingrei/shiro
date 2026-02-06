@@ -145,7 +145,8 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	}
 
 	origMode := b.gen.PredicateMode()
-	origSubqueries := b.gen.Config.Features.Subqueries
+	origFeatures := b.gen.Config.Features
+	origMaxJoinTables := b.gen.Config.MaxJoinTables
 	origDisallowScalar := b.gen.DisallowScalarSubquery()
 	origDisallowConstraint := b.gen.subqueryConstraintDisallow
 	origMinJoin := b.gen.MinJoinTables()
@@ -155,14 +156,49 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	if c.DisallowSubquery {
 		b.gen.subqueryConstraintDisallow = true
 		b.gen.Config.Features.Subqueries = false
+		b.gen.Config.Features.NotExists = false
+		b.gen.Config.Features.NotIn = false
 		b.gen.SetDisallowScalarSubquery(true)
+	}
+	if c.DisallowAggregate {
+		b.gen.Config.Features.Aggregates = false
+		b.gen.Config.Features.GroupBy = false
+		b.gen.Config.Features.Having = false
+	}
+	if c.DisallowGroupBy {
+		b.gen.Config.Features.GroupBy = false
+	}
+	if c.DisallowHaving {
+		b.gen.Config.Features.Having = false
+	}
+	if c.DisallowDistinct {
+		b.gen.Config.Features.Distinct = false
+	}
+	if c.DisallowOrderBy {
+		b.gen.Config.Features.OrderBy = false
+	}
+	if c.DisallowLimit {
+		b.gen.Config.Features.Limit = false
+	}
+	if c.DisallowWindow {
+		b.gen.Config.Features.WindowFuncs = false
+	}
+	if c.DisallowCTE {
+		b.gen.Config.Features.CTE = false
+	}
+	if c.MaxJoinCountSet {
+		maxTables := c.MaxJoinCount + 1
+		if maxTables > 0 && (origMaxJoinTables <= 0 || origMaxJoinTables > maxTables) {
+			b.gen.Config.MaxJoinTables = maxTables
+		}
 	}
 	if c.MinJoinTablesSet {
 		b.gen.SetMinJoinTables(c.MinJoinTables)
 	}
 	defer func() {
 		b.gen.SetPredicateMode(origMode)
-		b.gen.Config.Features.Subqueries = origSubqueries
+		b.gen.Config.Features = origFeatures
+		b.gen.Config.MaxJoinTables = origMaxJoinTables
 		b.gen.SetDisallowScalarSubquery(origDisallowScalar)
 		b.gen.subqueryConstraintDisallow = origDisallowConstraint
 		if origMinJoin > 0 {

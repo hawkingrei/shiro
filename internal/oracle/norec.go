@@ -73,11 +73,21 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 
 	optCount, err := exec.QueryCount(ctx, optimizedCount)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err}
+		reason, code := sqlErrorReason("norec", err)
+		details := map[string]any{"error_reason": reason}
+		if code != 0 {
+			details["error_code"] = int(code)
+		}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err, Details: details}
 	}
 	unoptCount, err := exec.QueryCount(ctx, unoptimizedCount)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err}
+		reason, code := sqlErrorReason("norec", err)
+		details := map[string]any{"error_reason": reason}
+		if code != 0 {
+			details["error_code"] = int(code)
+		}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err, Details: details}
 	}
 	if optCount != unoptCount {
 		unoptimizedExplain, _ := explainSQL(ctx, exec, unoptimizedCount)
