@@ -74,7 +74,7 @@ weights:
   oracles:
     norec: 10
     tlp: 10
-    eet: 5
+    eet: 4
     dqp: 10
     coddtest: 2
     dqe: 10
