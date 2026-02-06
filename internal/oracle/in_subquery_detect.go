@@ -22,10 +22,10 @@ type SQLSubqueryFeatures struct {
 }
 
 // ShouldDetectSubqueryFeaturesSQL is a fast-path guard to avoid parser overhead
-// when the SQL text doesn't appear to reference IN/EXISTS patterns. It is
-// intentionally conservative and may return true (causing a full parse) when
-// IN/EXISTS only appear in identifiers. This function prioritizes avoiding
-// false negatives over avoiding false positives.
+// when the SQL text doesn't appear to reference IN/EXISTS patterns. It skips
+// string literals and comments, but may still return true (causing a full
+// parse) when IN/EXISTS only appear in identifiers. This function prioritizes
+// avoiding false negatives over avoiding false positives.
 func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
 	if strings.TrimSpace(sqlText) == "" {
 		return false
