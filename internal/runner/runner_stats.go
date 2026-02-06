@@ -19,6 +19,8 @@ const topJoinSigN = 20
 const topOracleReasonsN = 10
 const topOracleSummaryN = 3
 
+var coreOraclesForSummary = []string{"TLP", "CERT", "GroundTruth"}
+
 func ratio(numerator, denominator int64) float64 {
 	if denominator <= 0 {
 		return 0
@@ -1092,7 +1094,7 @@ func (r *Runner) startStatsLogger() func() {
 									)
 								}
 							} else {
-								for _, name := range []string{"TLP", "CERT", "GroundTruth"} {
+								for _, name := range coreOraclesForSummary {
 									delta, ok := deltaFunnel[name]
 									if !ok || delta.Runs == 0 {
 										continue
@@ -1153,7 +1155,7 @@ func (r *Runner) startStatsLogger() func() {
 									}
 								}
 							} else {
-								for _, name := range []string{"TLP", "CERT", "GroundTruth"} {
+								for _, name := range coreOraclesForSummary {
 									delta, ok := deltaFunnel[name]
 									if !ok {
 										continue
