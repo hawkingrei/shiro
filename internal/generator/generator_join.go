@@ -354,11 +354,15 @@ func (g *Generator) joinUsingProb() int {
 	return UsingJoinProb
 }
 
-func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
+func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*SelectQuery) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
 	}
 	from := FromClause{BaseTable: tables[0].Name}
+	if subq, ok := derived[from.BaseTable]; ok && subq != nil {
+		from.BaseQuery = subq
+		from.BaseAlias = from.BaseTable
+	}
 	if len(tables) == 1 || !g.Config.Features.Joins {
 		return from
 	}
@@ -379,6 +383,10 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 			}
 		}
 		join := Join{Type: joinType, Table: tables[i].Name}
+		if subq, ok := derived[join.Table]; ok && subq != nil {
+			join.TableQuery = subq
+			join.TableAlias = join.Table
+		}
 		if joinType != JoinCross {
 			using := g.pickUsingColumns(tables[:i], tables[i])
 			if len(using) > 0 && util.Chance(g.Rand, g.joinUsingProb()) {

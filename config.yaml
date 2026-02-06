@@ -43,6 +43,9 @@ features:
   joins: true
   cte: true
   subqueries: true
+  set_operations: false
+  derived_tables: false
+  quantified_subqueries: false
   aggregates: true
   group_by: true
   having: true

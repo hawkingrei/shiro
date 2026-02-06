@@ -15,10 +15,21 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 	if query == nil {
 		return true
 	}
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		if !m.validateQuery(op.Query, scopeTablesForQuery(op.Query, nil), tableScope{}) {
+			return false
+		}
+	}
 	for _, cte := range query.With {
 		if !m.validateQuery(cte.Query, scopeTablesForQuery(cte.Query, nil), tableScope{}) {
 			return false
 		}
+	}
+	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, scopeTablesForQuery(query.From.BaseQuery, nil), tableScope{}) {
+		return false
 	}
 	for _, item := range query.Items {
 		if !m.validateExpr(item.Expr, scope, outer) {
@@ -43,19 +54,22 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 	}
 	if len(query.From.Joins) > 0 {
 		visible := []string{}
-		if query.From.BaseTable != "" {
-			visible = append(visible, query.From.BaseTable)
+		if baseName := query.From.baseName(); baseName != "" {
+			visible = append(visible, baseName)
 		}
 		for _, join := range query.From.Joins {
+			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, scopeTablesForQuery(join.TableQuery, nil), tableScope{}) {
+				return false
+			}
 			joinScope := scopeForTables(scope, visible)
-			if join.Table != "" {
-				joinScope = scopeForTables(scope, append(visible, join.Table))
+			if joinName := join.tableName(); joinName != "" {
+				joinScope = scopeForTables(scope, append(visible, joinName))
 			}
 			if join.On != nil && !m.validateExpr(join.On, joinScope, outer) {
 				return false
 			}
-			if join.Table != "" {
-				visible = append(visible, join.Table)
+			if joinName := join.tableName(); joinName != "" {
+				visible = append(visible, joinName)
 			}
 		}
 	}
@@ -103,6 +117,11 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
 	case ExistsExpr:
 		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+	case CompareSubqueryExpr:
+		if !m.validateExpr(e.Left, scope, outer) {
+			return false
+		}
+		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
 	case InExpr:
 		if !m.validateExpr(e.Left, scope, outer) {
 			return false
@@ -143,6 +162,20 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 	if query == nil {
 		return scope
 	}
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		opScope := scopeTablesForQuery(op.Query, nil)
+		for name := range opScope.tables {
+			scope.tables[name] = struct{}{}
+		}
+		for name, cols := range opScope.columns {
+			if _, ok := scope.columns[name]; !ok {
+				scope.columns[name] = cols
+			}
+		}
+	}
 	for _, tbl := range tables {
 		if tbl.Name == "" {
 			continue
@@ -156,12 +189,12 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 			scope.columns[tbl.Name] = colSet
 		}
 	}
-	if query.From.BaseTable != "" {
-		scope.tables[query.From.BaseTable] = struct{}{}
+	if baseName := query.From.baseName(); baseName != "" {
+		scope.tables[baseName] = struct{}{}
 	}
 	for _, join := range query.From.Joins {
-		if join.Table != "" {
-			scope.tables[join.Table] = struct{}{}
+		if joinName := join.tableName(); joinName != "" {
+			scope.tables[joinName] = struct{}{}
 		}
 	}
 	return scope
@@ -254,9 +287,17 @@ func (g *Generator) scopeTablesForQuery(query *SelectQuery) []schema.Table {
 		cols := g.columnsFromSelectItems(cte.Query.Items)
 		byName[cte.Name] = schema.Table{Name: cte.Name, Columns: cols}
 	}
-	names := []string{query.From.BaseTable}
+	if query.From.BaseQuery != nil {
+		alias := query.From.baseName()
+		byName[alias] = schema.Table{Name: alias, Columns: g.columnsFromSelectItems(query.From.BaseQuery.Items)}
+	}
+	names := []string{query.From.baseName()}
 	for _, join := range query.From.Joins {
-		names = append(names, join.Table)
+		if join.TableQuery != nil {
+			alias := join.tableName()
+			byName[alias] = schema.Table{Name: alias, Columns: g.columnsFromSelectItems(join.TableQuery.Items)}
+		}
+		names = append(names, join.tableName())
 	}
 	out := make([]schema.Table, 0, len(names))
 	for _, name := range names {

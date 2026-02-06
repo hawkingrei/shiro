@@ -339,6 +339,19 @@ func QueryDeterministic(query *SelectQuery) bool {
 	if query == nil {
 		return true
 	}
+	for _, cte := range query.With {
+		if !QueryDeterministic(cte.Query) {
+			return false
+		}
+	}
+	if query.From.BaseQuery != nil && !QueryDeterministic(query.From.BaseQuery) {
+		return false
+	}
+	for _, op := range query.SetOps {
+		if !QueryDeterministic(op.Query) {
+			return false
+		}
+	}
 	for _, item := range query.Items {
 		if !item.Expr.Deterministic() {
 			return false
@@ -361,6 +374,9 @@ func QueryDeterministic(query *SelectQuery) bool {
 		}
 	}
 	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && !QueryDeterministic(join.TableQuery) {
+			return false
+		}
 		if join.On != nil && !join.On.Deterministic() {
 			return false
 		}

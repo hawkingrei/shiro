@@ -24,16 +24,37 @@ const (
 
 // Join models a FROM join clause.
 type Join struct {
-	Type  JoinType
-	Table string
-	On    Expr
-	Using []string
+	Type       JoinType
+	Table      string
+	TableQuery *SelectQuery
+	TableAlias string
+	On         Expr
+	Using      []string
 }
 
 // FromClause models a FROM clause with joins.
 type FromClause struct {
 	BaseTable string
+	BaseQuery *SelectQuery
+	BaseAlias string
 	Joins     []Join
+}
+
+// SetOperationType defines query set-operation kinds.
+type SetOperationType string
+
+// Set-operation constants used by the SQL generator.
+const (
+	SetOperationUnion     SetOperationType = "UNION"
+	SetOperationExcept    SetOperationType = "EXCEPT"
+	SetOperationIntersect SetOperationType = "INTERSECT"
+)
+
+// SetOperation models a query set operation.
+type SetOperation struct {
+	Type  SetOperationType
+	All   bool
+	Query *SelectQuery
 }
 
 // OrderBy models an ORDER BY item.
@@ -51,6 +72,7 @@ type SelectItem struct {
 // SelectQuery models a SELECT statement.
 type SelectQuery struct {
 	With     []CTE
+	SetOps   []SetOperation
 	Distinct bool
 	Items    []SelectItem
 	From     FromClause
@@ -64,7 +86,11 @@ type SelectQuery struct {
 
 // Build emits the SQL for the select query into the builder.
 func (q *SelectQuery) Build(b *SQLBuilder) {
-	if len(q.With) > 0 {
+	q.buildQueryExpression(b, true)
+}
+
+func (q *SelectQuery) buildQueryExpression(b *SQLBuilder, includeWith bool) {
+	if includeWith && len(q.With) > 0 {
 		b.Write("WITH ")
 		for i, cte := range q.With {
 			if i > 0 {
@@ -72,11 +98,34 @@ func (q *SelectQuery) Build(b *SQLBuilder) {
 			}
 			b.Write(cte.Name)
 			b.Write(" AS (")
-			cte.Query.Build(b)
+			cte.Query.buildQueryExpression(b, false)
 			b.Write(")")
 		}
 		b.Write(" ")
 	}
+	if len(q.SetOps) == 0 {
+		q.buildQueryBody(b)
+		return
+	}
+	b.Write("(")
+	q.buildQueryBody(b)
+	b.Write(")")
+	for _, op := range q.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		b.Write(" ")
+		b.Write(string(op.Type))
+		if op.All {
+			b.Write(" ALL")
+		}
+		b.Write(" (")
+		op.Query.buildQueryExpression(b, false)
+		b.Write(")")
+	}
+}
+
+func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 	b.Write("SELECT ")
 	if q.Distinct {
 		b.Write("DISTINCT ")
@@ -90,12 +139,12 @@ func (q *SelectQuery) Build(b *SQLBuilder) {
 		b.Write(item.Alias)
 	}
 	b.Write(" FROM ")
-	b.Write(q.From.BaseTable)
+	writeTableFactor(b, q.From.BaseTable, q.From.baseName(), q.From.BaseQuery)
 	for _, join := range q.From.Joins {
 		b.Write(" ")
 		b.Write(string(join.Type))
 		b.Write(" ")
-		b.Write(join.Table)
+		writeTableFactor(b, join.Table, join.tableName(), join.TableQuery)
 		if len(join.Using) > 0 {
 			b.Write(" USING (")
 			for i, col := range join.Using {
@@ -145,6 +194,31 @@ func (q *SelectQuery) Build(b *SQLBuilder) {
 	}
 }
 
+func writeTableFactor(b *SQLBuilder, tableName string, alias string, subquery *SelectQuery) {
+	if subquery == nil {
+		b.Write(tableName)
+		return
+	}
+	b.Write("(")
+	subquery.buildQueryExpression(b, false)
+	b.Write(") AS ")
+	b.Write(alias)
+}
+
+func (f FromClause) baseName() string {
+	if f.BaseAlias != "" {
+		return f.BaseAlias
+	}
+	return f.BaseTable
+}
+
+func (j Join) tableName() string {
+	if j.TableAlias != "" {
+		return j.TableAlias
+	}
+	return j.Table
+}
+
 // SQL renders the query and returns SQL text plus arguments.
 func (q *SelectQuery) SQL() (string, []any) {
 	var b SQLBuilder
@@ -168,8 +242,40 @@ func (q *SelectQuery) Clone() *SelectQuery {
 	clone.Items = append([]SelectItem{}, q.Items...)
 	clone.GroupBy = append([]Expr{}, q.GroupBy...)
 	clone.OrderBy = append([]OrderBy{}, q.OrderBy...)
-	clone.With = append([]CTE{}, q.With...)
-	clone.From = FromClause{BaseTable: q.From.BaseTable, Joins: append([]Join{}, q.From.Joins...)}
+	clone.With = make([]CTE, len(q.With))
+	for i, cte := range q.With {
+		clonedCTE := CTE{Name: cte.Name}
+		if cte.Query != nil {
+			clonedCTE.Query = cte.Query.Clone()
+		}
+		clone.With[i] = clonedCTE
+	}
+	clone.From = FromClause{
+		BaseTable: q.From.BaseTable,
+		BaseAlias: q.From.BaseAlias,
+		Joins:     make([]Join, len(q.From.Joins)),
+	}
+	if q.From.BaseQuery != nil {
+		clone.From.BaseQuery = q.From.BaseQuery.Clone()
+	}
+	for i, join := range q.From.Joins {
+		clonedJoin := join
+		clonedJoin.Using = append([]string{}, join.Using...)
+		if join.TableQuery != nil {
+			clonedJoin.TableQuery = join.TableQuery.Clone()
+		}
+		clone.From.Joins[i] = clonedJoin
+	}
+	if len(q.SetOps) > 0 {
+		clone.SetOps = make([]SetOperation, 0, len(q.SetOps))
+		for _, op := range q.SetOps {
+			cloned := SetOperation{Type: op.Type, All: op.All}
+			if op.Query != nil {
+				cloned.Query = op.Query.Clone()
+			}
+			clone.SetOps = append(clone.SetOps, cloned)
+		}
+	}
 	return &clone
 }
 

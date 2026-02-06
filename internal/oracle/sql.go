@@ -47,9 +47,9 @@ func buildExpr(expr generator.Expr) string {
 }
 
 func buildFrom(query *generator.SelectQuery) string {
-	from := query.From.BaseTable
+	from := buildTableFactor(query.From.BaseTable, query.From.BaseAlias, query.From.BaseQuery)
 	for _, join := range query.From.Joins {
-		from += fmt.Sprintf(" %s %s", join.Type, join.Table)
+		from += fmt.Sprintf(" %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery))
 		if len(join.Using) > 0 {
 			from += " USING (" + strings.Join(join.Using, ", ") + ")"
 		} else if join.On != nil {
@@ -57,6 +57,16 @@ func buildFrom(query *generator.SelectQuery) string {
 		}
 	}
 	return from
+}
+
+func buildTableFactor(tableName string, alias string, subquery *generator.SelectQuery) string {
+	if subquery == nil {
+		return tableName
+	}
+	if alias == "" {
+		alias = tableName
+	}
+	return fmt.Sprintf("(%s) AS %s", subquery.SQLString(), alias)
 }
 
 func buildWith(query *generator.SelectQuery) string {
@@ -94,8 +104,45 @@ func queryHasAggregate(query *generator.SelectQuery) bool {
 	if query.Analysis != nil {
 		return query.Analysis.HasAggregate
 	}
+	for _, cte := range query.With {
+		if queryHasAggregate(cte.Query) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if queryHasAggregate(op.Query) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && queryHasAggregate(query.From.BaseQuery) {
+		return true
+	}
 	for _, item := range query.Items {
 		if exprHasAggregate(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasAggregate(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasAggregate(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasAggregate(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasAggregate(ob.Expr) {
+			return true
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && queryHasAggregate(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && exprHasAggregate(join.On) {
 			return true
 		}
 	}
@@ -108,6 +155,19 @@ func queryHasSubquery(query *generator.SelectQuery) bool {
 	}
 	if query.Analysis != nil {
 		return query.Analysis.HasSubquery
+	}
+	for _, cte := range query.With {
+		if queryHasSubquery(cte.Query) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if queryHasSubquery(op.Query) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil {
+		return true
 	}
 	for _, item := range query.Items {
 		if exprHasSubquery(item.Expr) {
@@ -127,6 +187,14 @@ func queryHasSubquery(query *generator.SelectQuery) bool {
 	}
 	for _, ob := range query.OrderBy {
 		if exprHasSubquery(ob.Expr) {
+			return true
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil {
+			return true
+		}
+		if join.On != nil && exprHasSubquery(join.On) {
 			return true
 		}
 	}
@@ -811,6 +879,19 @@ func queryDeterministic(query *generator.SelectQuery) bool {
 	if query.Analysis != nil {
 		return query.Analysis.Deterministic
 	}
+	for _, cte := range query.With {
+		if !queryDeterministic(cte.Query) {
+			return false
+		}
+	}
+	for _, op := range query.SetOps {
+		if !queryDeterministic(op.Query) {
+			return false
+		}
+	}
+	if query.From.BaseQuery != nil && !queryDeterministic(query.From.BaseQuery) {
+		return false
+	}
 	for _, item := range query.Items {
 		if !item.Expr.Deterministic() {
 			return false
@@ -833,6 +914,9 @@ func queryDeterministic(query *generator.SelectQuery) bool {
 		}
 	}
 	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && !queryDeterministic(join.TableQuery) {
+			return false
+		}
 		if join.On != nil && !join.On.Deterministic() {
 			return false
 		}
@@ -881,6 +965,11 @@ func exprHasAggregate(expr generator.Expr) bool {
 			return false
 		}
 		return exprHasAggregate(e.Expr)
+	case generator.CompareSubqueryExpr:
+		if exprHasAggregate(e.Left) {
+			return true
+		}
+		return queryHasAggregate(e.Query)
 	case generator.SubqueryExpr:
 		return queryHasAggregate(e.Query)
 	case generator.ExistsExpr:
@@ -903,6 +992,8 @@ func exprHasSubquery(expr generator.Expr) bool {
 			}
 		}
 		return exprHasSubquery(e.Left)
+	case generator.CompareSubqueryExpr:
+		return true
 	case generator.UnaryExpr:
 		return exprHasSubquery(e.Expr)
 	case generator.BinaryExpr:

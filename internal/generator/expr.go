@@ -339,6 +339,45 @@ func (e InExpr) Deterministic() bool {
 	return true
 }
 
+// CompareSubqueryExpr renders a quantified subquery predicate (ANY/SOME/ALL).
+type CompareSubqueryExpr struct {
+	Left       Expr
+	Op         string
+	Quantifier string
+	Query      *SelectQuery
+}
+
+// Build emits the quantified subquery predicate.
+func (e CompareSubqueryExpr) Build(b *SQLBuilder) {
+	b.Write("(")
+	e.Left.Build(b)
+	b.Write(" ")
+	b.Write(e.Op)
+	b.Write(" ")
+	b.Write(strings.ToUpper(strings.TrimSpace(e.Quantifier)))
+	b.Write(" (")
+	if e.Query != nil {
+		e.Query.Build(b)
+	}
+	b.Write("))")
+}
+
+// Columns reports the column references used.
+func (e CompareSubqueryExpr) Columns() []ColumnRef {
+	if e.Left == nil {
+		return nil
+	}
+	return e.Left.Columns()
+}
+
+// Deterministic reports whether the expression is deterministic.
+func (e CompareSubqueryExpr) Deterministic() bool {
+	if e.Left == nil {
+		return true
+	}
+	return e.Left.Deterministic()
+}
+
 // WindowExpr renders a window function expression.
 type WindowExpr struct {
 	Name        string

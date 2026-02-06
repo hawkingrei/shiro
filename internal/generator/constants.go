@@ -50,6 +50,14 @@ const (
 	CTEExtraProb = 50
 	// CTECountMax is the maximum number of CTEs to generate.
 	CTECountMax = 3
+	// SetOperationProb is the chance to attach a set operation to a query.
+	SetOperationProb = 25
+	// SetOperationChainProb is the chance to append a second set operation.
+	SetOperationChainProb = 20
+	// DerivedTableProb is the chance to wrap a table into a derived subquery.
+	DerivedTableProb = 30
+	// QuantifiedSubqueryProb is the chance to emit ANY/SOME/ALL subquery predicates.
+	QuantifiedSubqueryProb = 25
 	// CTELimitMax is the maximum LIMIT value for CTE queries.
 	CTELimitMax = 10
 	// SelectListMax is the maximum number of SELECT items for regular queries.

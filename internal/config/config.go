@@ -53,6 +53,9 @@ type Features struct {
 	Joins                bool `yaml:"joins"`
 	CTE                  bool `yaml:"cte"`
 	Subqueries           bool `yaml:"subqueries"`
+	SetOperations        bool `yaml:"set_operations"`
+	DerivedTables        bool `yaml:"derived_tables"`
+	QuantifiedSubqueries bool `yaml:"quantified_subqueries"`
 	Aggregates           bool `yaml:"aggregates"`
 	GroupBy              bool `yaml:"group_by"`
 	Having               bool `yaml:"having"`

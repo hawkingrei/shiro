@@ -74,7 +74,8 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		queryTables = g.maybeShuffleTables(queryTables)
 	}
 	queryTables = g.positionCTETables(queryTables, query.With)
-	query.From = g.buildFromClause(queryTables)
+	derivedTables := g.buildDerivedTableMap(queryTables)
+	query.From = g.buildFromClause(queryTables, derivedTables)
 	query.Items = g.GenerateSelectList(queryTables)
 
 	if util.Chance(g.Rand, g.Config.Weights.Features.DistinctProb) && g.Config.Features.Distinct {
@@ -117,6 +118,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
 		query.OrderBy = g.ensureDeterministicOrderBy(query, queryTables)
 	}
+	g.maybeAttachSetOperations(query, queryTables)
 
 	if !g.validateQueryScope(query) {
 		return nil
@@ -126,6 +128,192 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 }
 
 // (constraints-based builder is implemented in select_query_builder.go)
+
+func (g *Generator) buildDerivedTableMap(tables []schema.Table) map[string]*SelectQuery {
+	if !g.Config.Features.DerivedTables || len(tables) == 0 {
+		return nil
+	}
+	derived := make(map[string]*SelectQuery, len(tables))
+	for _, tbl := range tables {
+		if !util.Chance(g.Rand, DerivedTableProb) {
+			continue
+		}
+		subq := g.buildDerivedTableQuery(tbl)
+		if subq == nil {
+			continue
+		}
+		derived[tbl.Name] = subq
+	}
+	if len(derived) == 0 {
+		return nil
+	}
+	return derived
+}
+
+func (g *Generator) buildDerivedTableQuery(tbl schema.Table) *SelectQuery {
+	if tbl.Name == "" || len(tbl.Columns) == 0 {
+		return nil
+	}
+	items := make([]SelectItem, 0, len(tbl.Columns))
+	for i, col := range tbl.Columns {
+		alias := col.Name
+		if alias == "" {
+			alias = fmt.Sprintf("c%d", i)
+		}
+		items = append(items, SelectItem{
+			Expr:  ColumnExpr{Ref: ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}},
+			Alias: alias,
+		})
+	}
+	return &SelectQuery{
+		Items: items,
+		From:  FromClause{BaseTable: tbl.Name},
+	}
+}
+
+func (g *Generator) maybeAttachSetOperations(query *SelectQuery, tables []schema.Table) {
+	if !g.Config.Features.SetOperations || query == nil || len(query.Items) == 0 {
+		return
+	}
+	if !util.Chance(g.Rand, SetOperationProb) {
+		return
+	}
+	opCount := 1
+	if util.Chance(g.Rand, SetOperationChainProb) {
+		opCount++
+	}
+	ops := make([]SetOperation, 0, opCount)
+	for i := 0; i < opCount; i++ {
+		rhs := g.buildSetOperationQuery(query.Items, tables)
+		if rhs == nil {
+			break
+		}
+		opType := g.pickSetOperationType()
+		ops = append(ops, SetOperation{
+			Type:  opType,
+			All:   g.pickSetOperationAll(opType),
+			Query: rhs,
+		})
+	}
+	if len(ops) == 0 {
+		return
+	}
+	// Keep set-operation operands portable across engines by avoiding operand ORDER/LIMIT.
+	query.OrderBy = nil
+	query.Limit = nil
+	query.SetOps = append(query.SetOps, ops...)
+}
+
+func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []schema.Table) *SelectQuery {
+	if len(baseItems) == 0 {
+		return nil
+	}
+	rhsTables := append([]schema.Table{}, tables...)
+	if len(rhsTables) == 0 {
+		rhsTables = g.pickTables()
+	}
+	if len(rhsTables) == 0 {
+		return nil
+	}
+	if !g.Config.Features.DSG {
+		rhsTables = g.maybeShuffleTables(rhsTables)
+	}
+	if len(rhsTables) > 1 && util.Chance(g.Rand, 40) {
+		rhsTables = rhsTables[:g.Rand.Intn(len(rhsTables))+1]
+	}
+	derived := g.buildDerivedTableMap(rhsTables)
+	query := &SelectQuery{
+		Items: g.buildSetOperationItems(baseItems, rhsTables),
+		From:  g.buildFromClause(rhsTables, derived),
+	}
+	if len(query.Items) == 0 {
+		return nil
+	}
+	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	if util.Chance(g.Rand, 45) {
+		query.Where = g.GeneratePredicate(rhsTables, min(2, g.maxDepth), allowSubquery, g.maxSubqDepth)
+	}
+	if g.Config.Features.Aggregates && util.Chance(g.Rand, g.aggProb()/2) {
+		withGroupBy := g.Config.Features.GroupBy && util.Chance(g.Rand, g.Config.Weights.Features.GroupByProb)
+		if withGroupBy {
+			query.GroupBy = g.GenerateGroupBy(rhsTables)
+		}
+		query.Items = g.GenerateAggregateSelectList(rhsTables, query.GroupBy)
+		if len(query.Items) != len(baseItems) {
+			query.Items = g.buildSetOperationItems(baseItems, rhsTables)
+		}
+		if g.Config.Features.Having && len(query.GroupBy) > 0 && util.Chance(g.Rand, g.Config.Weights.Features.HavingProb/2) {
+			query.Having = g.GenerateHavingPredicate(query.GroupBy, rhsTables)
+		}
+	}
+	return query
+}
+
+func (g *Generator) buildSetOperationItems(baseItems []SelectItem, tables []schema.Table) []SelectItem {
+	items := make([]SelectItem, 0, len(baseItems))
+	for i, base := range baseItems {
+		alias := base.Alias
+		if alias == "" {
+			alias = fmt.Sprintf("c%d", i)
+		}
+		expr, colType, ok := g.pickComparableExprPreferJoinGraph(tables)
+		if t, hasType := g.exprType(base.Expr); hasType {
+			colType = t
+			ok = true
+		}
+		if ok {
+			if col, found := g.pickCompatibleColumnRef(tables, colType); found {
+				expr = ColumnExpr{Ref: col}
+			} else {
+				expr = g.literalForColumn(schema.Column{Type: colType})
+			}
+		}
+		items = append(items, SelectItem{Expr: expr, Alias: alias})
+	}
+	return items
+}
+
+func (g *Generator) pickCompatibleColumnRef(tables []schema.Table, colType schema.ColumnType) (ColumnRef, bool) {
+	if colType == 0 {
+		return ColumnRef{}, false
+	}
+	cols := g.collectColumns(tables)
+	if len(cols) == 0 {
+		return ColumnRef{}, false
+	}
+	candidates := make([]ColumnRef, 0, len(cols))
+	for _, col := range cols {
+		if compatibleColumnType(col.Type, colType) {
+			candidates = append(candidates, col)
+		}
+	}
+	if len(candidates) == 0 {
+		return ColumnRef{}, false
+	}
+	return candidates[g.Rand.Intn(len(candidates))], true
+}
+
+func (g *Generator) pickSetOperationType() SetOperationType {
+	switch g.Rand.Intn(3) {
+	case 0:
+		return SetOperationUnion
+	case 1:
+		return SetOperationIntersect
+	default:
+		return SetOperationExcept
+	}
+}
+
+func (g *Generator) pickSetOperationAll(opType SetOperationType) bool {
+	switch opType {
+	case SetOperationUnion:
+		return util.Chance(g.Rand, 40)
+	case SetOperationIntersect, SetOperationExcept:
+		return util.Chance(g.Rand, 20)
+	default:
+		return false
+	}
+}
 
 func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subqueryDisallowReason string) {
 	if query == nil {

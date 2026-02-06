@@ -94,6 +94,16 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		JoinTypeSeq:  joinTypeSequence(query),
 		JoinGraphSig: joinGraphSignature(query),
 	}
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(op.Query))
+	}
+	if query.From.BaseQuery != nil {
+		features.HasSubquery = true
+		mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(query.From.BaseQuery))
+	}
 	for _, item := range query.Items {
 		if ExprHasAggregate(item.Expr) {
 			features.HasAggregate = true
@@ -183,11 +193,27 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, join := range query.From.Joins {
+		if join.TableQuery != nil {
+			features.HasSubquery = true
+			mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(join.TableQuery))
+		}
 		if join.On != nil && exprHasWindow(join.On) {
 			features.HasWindow = true
 		}
 	}
 	return features
+}
+
+func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {
+	dst.HasSubquery = dst.HasSubquery || src.HasSubquery
+	dst.HasInSubquery = dst.HasInSubquery || src.HasInSubquery
+	dst.HasNotInSubquery = dst.HasNotInSubquery || src.HasNotInSubquery
+	dst.HasExistsSubquery = dst.HasExistsSubquery || src.HasExistsSubquery
+	dst.HasNotExistsSubquery = dst.HasNotExistsSubquery || src.HasNotExistsSubquery
+	dst.HasInList = dst.HasInList || src.HasInList
+	dst.HasNotInList = dst.HasNotInList || src.HasNotInList
+	dst.HasAggregate = dst.HasAggregate || src.HasAggregate
+	dst.HasWindow = dst.HasWindow || src.HasWindow
 }
 
 func joinTypeSequence(query *SelectQuery) string {
@@ -208,7 +234,7 @@ func joinGraphSignature(query *SelectQuery) string {
 	if query == nil {
 		return ""
 	}
-	base := query.From.BaseTable
+	base := query.From.baseName()
 	if base == "" {
 		base = "base"
 	}
@@ -218,7 +244,7 @@ func joinGraphSignature(query *SelectQuery) string {
 	parts := make([]string, 0, len(query.From.Joins)+1)
 	parts = append(parts, base)
 	for _, join := range query.From.Joins {
-		parts = append(parts, string(join.Type)+":"+join.Table)
+		parts = append(parts, string(join.Type)+":"+join.tableName())
 	}
 	return strings.Join(parts, "->")
 }
@@ -260,6 +286,11 @@ func ExprHasAggregate(expr Expr) bool {
 			}
 		}
 		return false
+	case CompareSubqueryExpr:
+		if ExprHasAggregate(e.Left) {
+			return true
+		}
+		return exprHasAggregateQuery(e.Query)
 	case GroupByOrdinalExpr:
 		if e.Expr == nil {
 			return false
@@ -283,6 +314,38 @@ func exprHasAggregateQuery(query *SelectQuery) bool {
 			return true
 		}
 	}
+	if query.Where != nil && ExprHasAggregate(query.Where) {
+		return true
+	}
+	if query.Having != nil && ExprHasAggregate(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if ExprHasAggregate(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if ExprHasAggregate(ob.Expr) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && exprHasAggregateQuery(query.From.BaseQuery) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && exprHasAggregateQuery(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && ExprHasAggregate(join.On) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if op.Query != nil && exprHasAggregateQuery(op.Query) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -299,6 +362,8 @@ func exprHasSubquery(expr Expr) bool {
 			}
 		}
 		return exprHasSubquery(e.Left)
+	case CompareSubqueryExpr:
+		return true
 	case UnaryExpr:
 		return exprHasSubquery(e.Expr)
 	case BinaryExpr:
@@ -362,6 +427,11 @@ func exprHasWindow(expr Expr) bool {
 			}
 		}
 		return false
+	case CompareSubqueryExpr:
+		if exprHasWindow(e.Left) {
+			return true
+		}
+		return exprHasWindowQuery(e.Query)
 	case FuncExpr:
 		for _, arg := range e.Args {
 			if exprHasWindow(arg) {
@@ -405,7 +475,18 @@ func exprHasWindowQuery(query *SelectQuery) bool {
 		}
 	}
 	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && exprHasWindowQuery(join.TableQuery) {
+			return true
+		}
 		if join.On != nil && exprHasWindow(join.On) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && exprHasWindowQuery(query.From.BaseQuery) {
+		return true
+	}
+	for _, op := range query.SetOps {
+		if op.Query != nil && exprHasWindowQuery(op.Query) {
 			return true
 		}
 	}
@@ -479,6 +560,10 @@ func exprHasInSubquery(expr Expr) (hasInSubquery bool, hasNotInSubquery bool) {
 		return exprHasInSubqueryQuery(e.Query)
 	case ExistsExpr:
 		return exprHasInSubqueryQuery(e.Query)
+	case CompareSubqueryExpr:
+		inSub, notInSub := exprHasInSubquery(e.Left)
+		qInSub, qNotInSub := exprHasInSubqueryQuery(e.Query)
+		return inSub || qInSub, notInSub || qNotInSub
 	case WindowExpr:
 		hasInSub := false
 		hasNotInSub := false
@@ -609,6 +694,10 @@ func exprHasInList(expr Expr) (hasInList bool, hasNotInList bool) {
 		return exprHasInListQuery(e.Query)
 	case ExistsExpr:
 		return exprHasInListQuery(e.Query)
+	case CompareSubqueryExpr:
+		inList, notInList := exprHasInList(e.Left)
+		qInList, qNotInList := exprHasInListQuery(e.Query)
+		return inList || qInList, notInList || qNotInList
 	case WindowExpr:
 		hasIn := false
 		hasNotIn := false
@@ -665,6 +754,17 @@ func exprHasInListQuery(query *SelectQuery) (hasInList bool, hasNotInList bool) 
 	}
 	hasIn := false
 	hasNotIn := false
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		inList, notInList := exprHasInListQuery(op.Query)
+		hasIn = hasIn || inList
+		hasNotIn = hasNotIn || notInList
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
 	for _, item := range query.Items {
 		inList, notInList := exprHasInList(item.Expr)
 		if inList {
@@ -721,6 +821,25 @@ func exprHasInListQuery(query *SelectQuery) (hasInList bool, hasNotInList bool) 
 		if notInList {
 			hasNotIn = true
 		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	if query.From.BaseQuery != nil {
+		inList, notInList := exprHasInListQuery(query.From.BaseQuery)
+		hasIn = hasIn || inList
+		hasNotIn = hasNotIn || notInList
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery == nil {
+			continue
+		}
+		inList, notInList := exprHasInListQuery(join.TableQuery)
+		hasIn = hasIn || inList
+		hasNotIn = hasNotIn || notInList
 		if hasIn && hasNotIn {
 			return hasIn, hasNotIn
 		}
@@ -791,6 +910,10 @@ func exprHasExistsSubquery(expr Expr) (hasExists bool, hasNotExists bool) {
 		return hasEx, hasNotEx
 	case SubqueryExpr:
 		return exprHasExistsSubqueryQuery(e.Query)
+	case CompareSubqueryExpr:
+		ex, notEx := exprHasExistsSubquery(e.Left)
+		qEx, qNotEx := exprHasExistsSubqueryQuery(e.Query)
+		return ex || qEx, notEx || qNotEx
 	case WindowExpr:
 		hasEx := false
 		hasNotEx := false
@@ -855,6 +978,17 @@ func exprHasExistsSubqueryQuery(query *SelectQuery) (hasExists bool, hasNotExist
 	}
 	hasEx := false
 	hasNotEx := false
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		ex, notEx := exprHasExistsSubqueryQuery(op.Query)
+		hasEx = hasEx || ex
+		hasNotEx = hasNotEx || notEx
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
 	for _, item := range query.Items {
 		ex, notEx := exprHasExistsSubquery(item.Expr)
 		if ex {
@@ -915,6 +1049,25 @@ func exprHasExistsSubqueryQuery(query *SelectQuery) (hasExists bool, hasNotExist
 			return hasEx, hasNotEx
 		}
 	}
+	if query.From.BaseQuery != nil {
+		ex, notEx := exprHasExistsSubqueryQuery(query.From.BaseQuery)
+		hasEx = hasEx || ex
+		hasNotEx = hasNotEx || notEx
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery == nil {
+			continue
+		}
+		ex, notEx := exprHasExistsSubqueryQuery(join.TableQuery)
+		hasEx = hasEx || ex
+		hasNotEx = hasNotEx || notEx
+		if hasEx && hasNotEx {
+			return hasEx, hasNotEx
+		}
+	}
 	return hasEx, hasNotEx
 }
 
@@ -924,6 +1077,17 @@ func exprHasInSubqueryQuery(query *SelectQuery) (hasInSubquery bool, hasNotInSub
 	}
 	hasIn := false
 	hasNotIn := false
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		inSub, notInSub := exprHasInSubqueryQuery(op.Query)
+		hasIn = hasIn || inSub
+		hasNotIn = hasNotIn || notInSub
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
 	for _, item := range query.Items {
 		inSub, notInSub := exprHasInSubquery(item.Expr)
 		if inSub {
@@ -980,6 +1144,25 @@ func exprHasInSubqueryQuery(query *SelectQuery) (hasInSubquery bool, hasNotInSub
 		if notInSub {
 			hasNotIn = true
 		}
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	if query.From.BaseQuery != nil {
+		inSub, notInSub := exprHasInSubqueryQuery(query.From.BaseQuery)
+		hasIn = hasIn || inSub
+		hasNotIn = hasNotIn || notInSub
+		if hasIn && hasNotIn {
+			return hasIn, hasNotIn
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery == nil {
+			continue
+		}
+		inSub, notInSub := exprHasInSubqueryQuery(join.TableQuery)
+		hasIn = hasIn || inSub
+		hasNotIn = hasNotIn || notInSub
 		if hasIn && hasNotIn {
 			return hasIn, hasNotIn
 		}

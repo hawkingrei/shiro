@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added parser fast-path guard; remaining optional parser LRU.
+Last review: 2026-02-06. Added parser fast-path guard and SQL capability groundwork (set operations, derived tables, quantified subqueries) behind feature flags.
 
 ## Generator / Oracles
 
@@ -13,6 +13,8 @@ Last review: 2026-02-06. Added parser fast-path guard; remaining optional parser
 6. Split join-only vs join+filter predicates into explicit strategies with separate weights and observability.
 7. Wire GroundTruth join key extraction into oracle execution for JoinEdge building.
 8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles.
+9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
+10. Add NATURAL JOIN generation and optional FULL JOIN semantic emulation (`LEFT/RIGHT + UNION` templates) for compatibility-focused fuzzing.
 
 ## Reporting / Aggregation
 
