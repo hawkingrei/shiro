@@ -41,6 +41,12 @@ func (b *SelectQueryBuilder) QueryGuard(guard func(*SelectQuery) bool) *SelectQu
 	return b
 }
 
+// QueryGuardWithReason validates the generated query structure with a reason.
+func (b *SelectQueryBuilder) QueryGuardWithReason(guard func(*SelectQuery) (bool, string)) *SelectQueryBuilder {
+	b.constraints.QueryGuardReason = guard
+	return b
+}
+
 // RequireDeterministic enforces deterministic expressions.
 func (b *SelectQueryBuilder) RequireDeterministic() *SelectQueryBuilder {
 	b.constraints.RequireDeterministic = true
@@ -59,10 +65,59 @@ func (b *SelectQueryBuilder) DisallowAggregate() *SelectQueryBuilder {
 	return b
 }
 
+// DisallowWindow forbids window functions in the generated query.
+func (b *SelectQueryBuilder) DisallowWindow() *SelectQueryBuilder {
+	b.constraints.DisallowWindow = true
+	return b
+}
+
+// DisallowLimit forbids LIMIT in the generated query.
+func (b *SelectQueryBuilder) DisallowLimit() *SelectQueryBuilder {
+	b.constraints.DisallowLimit = true
+	return b
+}
+
+// DisallowOrderBy forbids ORDER BY in the generated query.
+func (b *SelectQueryBuilder) DisallowOrderBy() *SelectQueryBuilder {
+	b.constraints.DisallowOrderBy = true
+	return b
+}
+
+// DisallowDistinct forbids DISTINCT in the generated query.
+func (b *SelectQueryBuilder) DisallowDistinct() *SelectQueryBuilder {
+	b.constraints.DisallowDistinct = true
+	return b
+}
+
+// DisallowGroupBy forbids GROUP BY in the generated query.
+func (b *SelectQueryBuilder) DisallowGroupBy() *SelectQueryBuilder {
+	b.constraints.DisallowGroupBy = true
+	return b
+}
+
+// DisallowHaving forbids HAVING in the generated query.
+func (b *SelectQueryBuilder) DisallowHaving() *SelectQueryBuilder {
+	b.constraints.DisallowHaving = true
+	return b
+}
+
+// DisallowCTE forbids WITH clauses in the generated query.
+func (b *SelectQueryBuilder) DisallowCTE() *SelectQueryBuilder {
+	b.constraints.DisallowCTE = true
+	return b
+}
+
 // MaxJoinCount limits the maximum number of joins.
 func (b *SelectQueryBuilder) MaxJoinCount(n int) *SelectQueryBuilder {
 	b.constraints.MaxJoinCount = n
 	b.constraints.MaxJoinCountSet = true
+	return b
+}
+
+// MinJoinTables enforces a minimum number of tables in the query.
+func (b *SelectQueryBuilder) MinJoinTables(n int) *SelectQueryBuilder {
+	b.constraints.MinJoinTables = n
+	b.constraints.MinJoinTablesSet = true
 	return b
 }
 
@@ -93,6 +148,7 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	origSubqueries := b.gen.Config.Features.Subqueries
 	origDisallowScalar := b.gen.DisallowScalarSubquery()
 	origDisallowConstraint := b.gen.subqueryConstraintDisallow
+	origMinJoin := b.gen.MinJoinTables()
 	if c.PredicateMode != PredicateModeDefault {
 		b.gen.SetPredicateMode(c.PredicateMode)
 	}
@@ -101,11 +157,19 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 		b.gen.Config.Features.Subqueries = false
 		b.gen.SetDisallowScalarSubquery(true)
 	}
+	if c.MinJoinTablesSet {
+		b.gen.SetMinJoinTables(c.MinJoinTables)
+	}
 	defer func() {
 		b.gen.SetPredicateMode(origMode)
 		b.gen.Config.Features.Subqueries = origSubqueries
 		b.gen.SetDisallowScalarSubquery(origDisallowScalar)
 		b.gen.subqueryConstraintDisallow = origDisallowConstraint
+		if origMinJoin > 0 {
+			b.gen.SetMinJoinTables(origMinJoin)
+		} else {
+			b.gen.ClearMinJoinTables()
+		}
 	}()
 
 	lastReason := ""
@@ -121,27 +185,75 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 				continue
 			}
 		}
-		if c.RequireDeterministic && !QueryDeterministic(query) {
-			lastReason = "constraint:nondeterministic"
-			continue
-		}
 		if c.PredicateGuard != nil && query.Where != nil && !c.PredicateGuard(query.Where) {
 			if !b.attachPredicate(query, c) || !c.PredicateGuard(query.Where) {
 				lastReason = "constraint:predicate_guard"
 				continue
 			}
 		}
-		if c.DisallowSubquery && AnalyzeQueryFeatures(query).HasSubquery {
+		features := AnalyzeQueryFeatures(query)
+		hasLimit := query.Limit != nil
+		hasOrderBy := len(query.OrderBy) > 0
+		hasDistinct := query.Distinct
+		hasGroupBy := len(query.GroupBy) > 0
+		hasHaving := query.Having != nil
+		hasCTE := len(query.With) > 0
+		if c.RequireDeterministic && !QueryDeterministic(query) {
+			lastReason = "constraint:nondeterministic"
+			continue
+		}
+		if c.DisallowLimit && hasLimit {
+			lastReason = "constraint:limit"
+			continue
+		}
+		if c.DisallowWindow && features.HasWindow {
+			lastReason = "constraint:window"
+			continue
+		}
+		if c.DisallowOrderBy && hasOrderBy {
+			lastReason = "constraint:order_by"
+			continue
+		}
+		if c.DisallowDistinct && hasDistinct {
+			lastReason = "constraint:distinct"
+			continue
+		}
+		if c.DisallowGroupBy && hasGroupBy {
+			lastReason = "constraint:group_by"
+			continue
+		}
+		if c.DisallowHaving && hasHaving {
+			lastReason = "constraint:having"
+			continue
+		}
+		if c.DisallowCTE && hasCTE {
+			lastReason = "constraint:cte"
+			continue
+		}
+		if c.DisallowSubquery && features.HasSubquery {
 			lastReason = "constraint:subquery"
 			continue
 		}
-		if c.DisallowAggregate && (AnalyzeQueryFeatures(query).HasAggregate || len(query.GroupBy) > 0 || query.Having != nil) {
+		if c.DisallowAggregate && (features.HasAggregate || hasGroupBy || hasHaving) {
 			lastReason = "constraint:aggregate"
 			continue
 		}
-		if c.MaxJoinCountSet && len(query.From.Joins) > c.MaxJoinCount {
+		if c.MaxJoinCountSet && features.JoinCount > c.MaxJoinCount {
 			lastReason = "constraint:join_count"
 			continue
+		}
+		if c.MinJoinTablesSet && features.JoinCount+1 < c.MinJoinTables {
+			lastReason = "constraint:min_join_tables"
+			continue
+		}
+		if c.QueryGuardReason != nil {
+			if ok, reason := c.QueryGuardReason(query); !ok {
+				if reason == "" {
+					reason = "constraint:query_guard"
+				}
+				lastReason = reason
+				continue
+			}
 		}
 		if c.QueryGuard != nil && !c.QueryGuard(query) {
 			lastReason = "constraint:query_guard"

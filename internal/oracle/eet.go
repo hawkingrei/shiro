@@ -40,28 +40,35 @@ func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 // signatures for mismatches.
 func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	policy := eetPredicatePolicy(gen)
-	builder := generator.NewSelectQueryBuilder(gen).
-		RequireDeterministic().
-		PredicateGuard(func(expr generator.Expr) bool {
-			return predicateMatches(expr, policy)
-		}).
-		QueryGuard(func(query *generator.SelectQuery) bool {
-			return eetQueryHasPredicate(query)
-		})
+	spec := QuerySpec{
+		Oracle:          "eet",
+		PredicatePolicy: policy,
+		PredicateGuard:  true,
+		Constraints: generator.SelectQueryConstraints{
+			RequireDeterministic: true,
+			QueryGuardReason: func(query *generator.SelectQuery) (bool, string) {
+				if !eetQueryHasPredicate(query) {
+					return false, "constraint:query_guard"
+				}
+				if !queryHasPredicateMatch(query, policy) {
+					return false, "constraint:predicate_guard"
+				}
+				return true, ""
+			},
+		},
+		SkipReasonOverrides: map[string]string{
+			"constraint:nondeterministic": "eet:nondeterministic",
+			"constraint:predicate_guard":  "eet:predicate_guard",
+		},
+	}
 
-	query, reason, attempts := builder.BuildWithReason()
+	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("eet", reason), "builder_reason": reason, "builder_attempts": attempts}}
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	query = query.Clone()
 	if state != nil {
 		rewriteUsingToOn(query, state)
-	}
-	if !queryDeterministic(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:nondeterministic"}}
-	}
-	if !queryHasPredicateMatch(query, policy) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:predicate_guard"}}
 	}
 	if queryHasUsingQualifiedRefs(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}

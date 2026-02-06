@@ -34,13 +34,27 @@ func (o NoREC) Name() string { return "NoREC" }
 //
 // If the counts differ, the optimizer likely changed semantics.
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
-	builder := generator.NewSelectQueryBuilder(gen).
-		RequireWhere().
-		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic()
-	query, reason, attempts := builder.BuildWithReason()
+	spec := QuerySpec{
+		Oracle: "norec",
+		Constraints: generator.SelectQueryConstraints{
+			RequireWhere:         true,
+			PredicateMode:        generator.PredicateModeSimple,
+			RequireDeterministic: true,
+			DisallowAggregate:    true,
+			DisallowDistinct:     true,
+			DisallowGroupBy:      true,
+			DisallowHaving:       true,
+		},
+		SkipReasonOverrides: map[string]string{
+			"constraint:aggregate": "norec:guardrail",
+			"constraint:distinct":  "norec:guardrail",
+			"constraint:group_by":  "norec:guardrail",
+			"constraint:having":    "norec:guardrail",
+		},
+	}
+	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil || query.Where == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("norec", reason), "builder_reason": reason, "builder_attempts": attempts}}
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	if shouldSkipNoREC(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "norec:guardrail"}}
@@ -98,25 +112,11 @@ func shouldSkipNoREC(query *generator.SelectQuery) bool {
 		return true
 	}
 	// NoREC requires a flat predicate. The following constructs break equivalence:
-	// - DISTINCT: COUNT(*) counts distinct rows, SUM(CASE...) counts base rows.
-	//   Example:
-	//     Optimized:   SELECT COUNT(*) FROM (SELECT DISTINCT a FROM t WHERE a > 0) q;
-	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
-	// - GROUP BY / HAVING: optimized counts groups, unoptimized counts rows.
-	//   Example:
-	//     Optimized:   SELECT COUNT(*) FROM (SELECT a, COUNT(*) FROM t WHERE a > 0 GROUP BY a) q;
-	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
-	// - HAVING example:
-	//     Optimized:   SELECT COUNT(*) FROM (SELECT a FROM t GROUP BY a HAVING SUM(b) > 0) q;
-	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN /* predicate */ THEN 1 ELSE 0 END),0) FROM t;
 	// - LIMIT without ORDER BY: non-deterministic top-N selection.
 	//   Example:
 	//     Optimized:   SELECT COUNT(*) FROM (SELECT * FROM t WHERE a > 0 LIMIT 5) q;
 	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
 	// - Subquery in WHERE: predicate is no longer flat.
-	if query.Distinct || len(query.GroupBy) > 0 || query.Having != nil {
-		return true
-	}
 	if query.Limit != nil && len(query.OrderBy) == 0 {
 		return true
 	}

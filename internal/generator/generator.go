@@ -64,11 +64,21 @@ type SelectQueryConstraints struct {
 	PredicateMode        PredicateMode
 	PredicateGuard       func(Expr) bool
 	QueryGuard           func(*SelectQuery) bool
+	QueryGuardReason     func(*SelectQuery) (bool, string)
 	RequireDeterministic bool
 	DisallowSubquery     bool
 	DisallowAggregate    bool
+	DisallowWindow       bool
+	DisallowLimit        bool
+	DisallowOrderBy      bool
+	DisallowDistinct     bool
+	DisallowGroupBy      bool
+	DisallowHaving       bool
+	DisallowCTE          bool
 	MaxJoinCount         int
 	MaxJoinCountSet      bool
+	MinJoinTables        int
+	MinJoinTablesSet     bool
 	MaxTries             int
 }
 

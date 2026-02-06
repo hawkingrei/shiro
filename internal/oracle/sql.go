@@ -755,39 +755,6 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 	return changed
 }
 
-func queryHasWindow(query *generator.SelectQuery) bool {
-	if query == nil {
-		return false
-	}
-	for _, item := range query.Items {
-		if exprHasWindow(item.Expr) {
-			return true
-		}
-	}
-	if query.Where != nil && exprHasWindow(query.Where) {
-		return true
-	}
-	if query.Having != nil && exprHasWindow(query.Having) {
-		return true
-	}
-	for _, expr := range query.GroupBy {
-		if exprHasWindow(expr) {
-			return true
-		}
-	}
-	for _, ob := range query.OrderBy {
-		if exprHasWindow(ob.Expr) {
-			return true
-		}
-	}
-	for _, join := range query.From.Joins {
-		if join.On != nil && exprHasWindow(join.On) {
-			return true
-		}
-	}
-	return false
-}
-
 func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) {
 	rows, err := exec.QueryContext(ctx, "EXPLAIN "+query)
 	if err != nil {
@@ -953,55 +920,6 @@ func exprHasSubquery(expr generator.Expr) bool {
 			return false
 		}
 		return exprHasSubquery(e.Expr)
-	default:
-		return false
-	}
-}
-
-func exprHasWindow(expr generator.Expr) bool {
-	switch e := expr.(type) {
-	case generator.WindowExpr:
-		return true
-	case generator.SubqueryExpr:
-		return queryHasWindow(e.Query)
-	case generator.ExistsExpr:
-		return queryHasWindow(e.Query)
-	case generator.UnaryExpr:
-		return exprHasWindow(e.Expr)
-	case generator.BinaryExpr:
-		return exprHasWindow(e.Left) || exprHasWindow(e.Right)
-	case generator.CaseExpr:
-		for _, w := range e.Whens {
-			if exprHasWindow(w.When) || exprHasWindow(w.Then) {
-				return true
-			}
-		}
-		if e.Else != nil {
-			return exprHasWindow(e.Else)
-		}
-		return false
-	case generator.InExpr:
-		if exprHasWindow(e.Left) {
-			return true
-		}
-		for _, item := range e.List {
-			if exprHasWindow(item) {
-				return true
-			}
-		}
-		return false
-	case generator.FuncExpr:
-		for _, arg := range e.Args {
-			if exprHasWindow(arg) {
-				return true
-			}
-		}
-		return false
-	case generator.GroupByOrdinalExpr:
-		if e.Expr == nil {
-			return false
-		}
-		return exprHasWindow(e.Expr)
 	default:
 		return false
 	}
