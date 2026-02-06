@@ -1,7 +1,9 @@
 package oracle
 
 import (
+	"container/list"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -185,16 +187,32 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
 func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
+	return detectSubqueryFeaturesWithCache(sqlText, subqueryFeatureCache)
+}
+
+func detectSubqueryFeaturesWithCache(sqlText string, cache *subqueryFeatureLRU) SQLSubqueryFeatures {
 	if strings.TrimSpace(sqlText) == "" {
 		return SQLSubqueryFeatures{}
+	}
+	// Cache is keyed by raw SQL text to avoid extra normalization overhead.
+	if cache != nil {
+		if cached, ok := cache.get(sqlText); ok {
+			return cached
+		}
 	}
 	p := parser.New()
 	stmt, err := p.ParseOneStmt(sqlText, "", "")
 	if err != nil {
+		if cache != nil {
+			cache.add(sqlText, SQLSubqueryFeatures{})
+		}
 		return SQLSubqueryFeatures{}
 	}
 	visitor := &subqueryFeatureVisitor{}
 	stmt.Accept(visitor)
+	if cache != nil {
+		cache.add(sqlText, visitor.features)
+	}
 	return visitor.features
 }
 
@@ -202,6 +220,69 @@ func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
 func DetectInSubquerySQL(sqlText string) (hasInSubquery bool, hasNotInSubquery bool) {
 	features := DetectSubqueryFeaturesSQL(sqlText)
 	return features.HasInSubquery, features.HasNotInSubquery
+}
+
+const subqueryFeatureCacheSize = 256
+
+var subqueryFeatureCache = newSubqueryFeatureLRU(subqueryFeatureCacheSize)
+
+type subqueryFeatureLRU struct {
+	mu    sync.Mutex
+	max   int
+	items map[string]*list.Element
+	order *list.List
+}
+
+type subqueryFeatureEntry struct {
+	key      string
+	features SQLSubqueryFeatures
+}
+
+func newSubqueryFeatureLRU(maxSize int) *subqueryFeatureLRU {
+	if maxSize <= 0 {
+		maxSize = 128
+	}
+	return &subqueryFeatureLRU{
+		max:   maxSize,
+		items: make(map[string]*list.Element, maxSize),
+		order: list.New(),
+	}
+}
+
+func (c *subqueryFeatureLRU) get(key string) (SQLSubqueryFeatures, bool) {
+	if c == nil {
+		return SQLSubqueryFeatures{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		c.order.MoveToFront(elem)
+		return elem.Value.(subqueryFeatureEntry).features, true
+	}
+	return SQLSubqueryFeatures{}, false
+}
+
+func (c *subqueryFeatureLRU) add(key string, features SQLSubqueryFeatures) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.items[key]; ok {
+		elem.Value = subqueryFeatureEntry{key: key, features: features}
+		c.order.MoveToFront(elem)
+		return
+	}
+	elem := c.order.PushFront(subqueryFeatureEntry{key: key, features: features})
+	c.items[key] = elem
+	if c.order.Len() > c.max {
+		back := c.order.Back()
+		if back != nil {
+			c.order.Remove(back)
+			entry := back.Value.(subqueryFeatureEntry)
+			delete(c.items, entry.key)
+		}
+	}
 }
 
 type subqueryFeatureVisitor struct {
