@@ -187,22 +187,32 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
 func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
+	return detectSubqueryFeaturesWithCache(sqlText, subqueryFeatureCache)
+}
+
+func detectSubqueryFeaturesWithCache(sqlText string, cache *subqueryFeatureLRU) SQLSubqueryFeatures {
 	if strings.TrimSpace(sqlText) == "" {
 		return SQLSubqueryFeatures{}
 	}
 	// Cache is keyed by raw SQL text to avoid extra normalization overhead.
-	if cached, ok := subqueryFeatureCache.get(sqlText); ok {
-		return cached
+	if cache != nil {
+		if cached, ok := cache.get(sqlText); ok {
+			return cached
+		}
 	}
 	p := parser.New()
 	stmt, err := p.ParseOneStmt(sqlText, "", "")
 	if err != nil {
-		subqueryFeatureCache.add(sqlText, SQLSubqueryFeatures{})
+		if cache != nil {
+			cache.add(sqlText, SQLSubqueryFeatures{})
+		}
 		return SQLSubqueryFeatures{}
 	}
 	visitor := &subqueryFeatureVisitor{}
 	stmt.Accept(visitor)
-	subqueryFeatureCache.add(sqlText, visitor.features)
+	if cache != nil {
+		cache.add(sqlText, visitor.features)
+	}
 	return visitor.features
 }
 
@@ -259,6 +269,7 @@ func (c *subqueryFeatureLRU) add(key string, features SQLSubqueryFeatures) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if elem, ok := c.items[key]; ok {
+		elem.Value = subqueryFeatureEntry{key: key, features: features}
 		c.order.MoveToFront(elem)
 		return
 	}

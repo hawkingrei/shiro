@@ -25,20 +25,16 @@ func TestSubqueryFeatureLRUEviction(t *testing.T) {
 }
 
 func TestSubqueryFeatureCacheParseError(t *testing.T) {
-	orig := subqueryFeatureCache
-	subqueryFeatureCache = newSubqueryFeatureLRU(1)
-	defer func() {
-		subqueryFeatureCache = orig
-	}()
-
+	cache := newSubqueryFeatureLRU(1)
 	sql := "SELECT FROM"
-	_ = DetectSubqueryFeaturesSQL(sql)
-	if _, ok := subqueryFeatureCache.get(sql); !ok {
+	_ = detectSubqueryFeaturesWithCache(sql, cache)
+	if _, ok := cache.get(sql); !ok {
 		t.Fatalf("expected parse error result to be cached")
 	}
 }
 
-func TestSubqueryFeatureLRUConcurrentAccess(_ *testing.T) {
+func TestSubqueryFeatureLRUConcurrentAccess(t *testing.T) {
+	_ = t
 	cache := newSubqueryFeatureLRU(8)
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {

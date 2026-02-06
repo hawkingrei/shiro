@@ -19,7 +19,7 @@ Links:
 
 ## Recent updates
 
-- Added LRU cache tests and cached parse-error results for subquery detection (2026-02-06).
+- Added LRU cache tests and a test for cached parse-error results for subquery detection (2026-02-06).
 - Added LRU cache for subquery feature detection parsing (2026-02-06).
 - Refined subquery fast-path normalization and tests (2026-02-06).
 - Added SQL keyword fast-path before subquery feature parsing (2026-02-05).
