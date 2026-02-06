@@ -3,6 +3,7 @@ package oracle
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -23,8 +24,8 @@ type SQLSubqueryFeatures struct {
 // ShouldDetectSubqueryFeaturesSQL is a fast-path guard to avoid parser overhead
 // when the SQL text doesn't appear to reference IN/EXISTS patterns. It is
 // intentionally conservative and may return true (causing a full parse) when
-// IN/EXISTS only appear in string literals, comments, or identifiers. This
-// function prioritizes avoiding false negatives over avoiding false positives.
+// IN/EXISTS only appear in identifiers. This function prioritizes avoiding
+// false negatives over avoiding false positives.
 func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
 	if strings.TrimSpace(sqlText) == "" {
 		return false
@@ -54,18 +55,70 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 	var b strings.Builder
 	b.Grow(len(sqlText))
 	pendingSpace := false
-	for _, r := range sqlText {
-		switch r {
-		case ' ', '\n', '\t', '\r':
-			pendingSpace = true
-			continue
-		default:
-			if pendingSpace && b.Len() > 0 {
-				b.WriteByte(' ')
+	inString := false
+	inLineComment := false
+	inBlockComment := false
+
+	for i := 0; i < len(sqlText); {
+		if inLineComment {
+			if sqlText[i] == '\n' || sqlText[i] == '\r' {
+				inLineComment = false
 			}
-			pendingSpace = false
-			b.WriteRune(unicode.ToUpper(r))
+			i++
+			continue
 		}
+		if inBlockComment {
+			if sqlText[i] == '*' && i+1 < len(sqlText) && sqlText[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+		if inString {
+			if sqlText[i] == '\'' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '\'' {
+					i += 2
+					continue
+				}
+				inString = false
+			}
+			i++
+			continue
+		}
+		if sqlText[i] == '-' && i+1 < len(sqlText) && sqlText[i+1] == '-' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if sqlText[i] == '/' && i+1 < len(sqlText) && sqlText[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if sqlText[i] == '\'' {
+			inString = true
+			i++
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(sqlText[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		if unicode.IsSpace(r) {
+			pendingSpace = true
+			i += size
+			continue
+		}
+		if pendingSpace && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		pendingSpace = false
+		b.WriteRune(unicode.ToUpper(r))
+		i += size
 	}
 	return b.String()
 }
