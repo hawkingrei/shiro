@@ -17,6 +17,7 @@ type Generator struct {
 	Adaptive                   *AdaptiveWeights
 	Template                   *TemplateWeights
 	LastFeatures               *QueryFeatures
+	LastAnalysis               *QueryAnalysis
 	builderBuilds              int64
 	builderAttemptsTotal       int64
 	builderAttemptHistogram    map[int]int64

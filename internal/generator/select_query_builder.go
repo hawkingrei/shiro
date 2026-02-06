@@ -261,6 +261,7 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 		}
 		attempts := i + 1
 		b.gen.recordBuilderStats(attempts, "")
+		b.gen.setQueryAnalysis(query)
 		return query, "", attempts
 	}
 	b.gen.recordBuilderStats(maxTries, lastReason)

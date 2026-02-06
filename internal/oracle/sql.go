@@ -91,6 +91,9 @@ func queryHasAggregate(query *generator.SelectQuery) bool {
 	if query == nil {
 		return false
 	}
+	if query.Analysis != nil {
+		return query.Analysis.HasAggregate
+	}
 	for _, item := range query.Items {
 		if exprHasAggregate(item.Expr) {
 			return true
@@ -102,6 +105,9 @@ func queryHasAggregate(query *generator.SelectQuery) bool {
 func queryHasSubquery(query *generator.SelectQuery) bool {
 	if query == nil {
 		return false
+	}
+	if query.Analysis != nil {
+		return query.Analysis.HasSubquery
 	}
 	for _, item := range query.Items {
 		if exprHasSubquery(item.Expr) {
@@ -801,6 +807,9 @@ func errString(err error) string {
 func queryDeterministic(query *generator.SelectQuery) bool {
 	if query == nil {
 		return true
+	}
+	if query.Analysis != nil {
+		return query.Analysis.Deterministic
 	}
 	for _, item := range query.Items {
 		if !item.Expr.Deterministic() {

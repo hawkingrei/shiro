@@ -141,6 +141,7 @@ func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subq
 	queryFeatures.SubqueryBuilt = g.subqueryBuilt
 	queryFeatures.SubqueryFailed = g.subqueryFailed
 	g.LastFeatures = &queryFeatures
+	g.setQueryAnalysis(query)
 }
 
 func (g *Generator) ensureDeterministicOrderBy(query *SelectQuery, tables []schema.Table) []OrderBy {
