@@ -65,8 +65,8 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
-		r.sqlParseCalls++
 		features := oracle.DetectSubqueryFeaturesSQL(sql)
+		r.sqlParseCalls++
 		if features.HasNotExists {
 			r.sqlNotEx++
 		}
@@ -216,7 +216,7 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 			notInCount++
 		}
 	}
-	if parseCalls == 0 && inCount == 0 && notInCount == 0 {
+	if parseCalls == 0 {
 		return
 	}
 	r.statsMu.Lock()
