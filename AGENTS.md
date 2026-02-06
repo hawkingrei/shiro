@@ -19,6 +19,8 @@ Links:
 
 ## Recent updates
 
+- Adjusted parser-call counting order and simplified variant parse guard (2026-02-05).
+- Logged parser-call counters and effective oracle runs per interval (2026-02-05).
 - Removed redundant builder stats reset in runner (2026-02-05).
 - Added builder attempt metrics and interval logging for select builder efficiency (2026-02-05).
 - Report UI: add optional flaky field to CaseEntry type (2026-02-05).
