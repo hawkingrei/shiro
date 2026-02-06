@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Logged per-oracle skip/effective ratios in interval stats (2026-02-05).
 - Adjusted parser-call counting order and simplified variant parse guard (2026-02-05).
 - Logged parser-call counters and effective oracle runs per interval (2026-02-05).
 - Removed redundant builder stats reset in runner (2026-02-05).

@@ -1073,6 +1073,38 @@ func (r *Runner) startStatsLogger() func() {
 						}
 						if len(deltaFunnel) > 0 {
 							util.Detailf("oracle_funnel last interval: %s", formatOracleFunnel(deltaFunnel))
+							if r.cfg.Logging.Verbose {
+								oracleNames := make([]string, 0, len(deltaFunnel))
+								for name := range deltaFunnel {
+									oracleNames = append(oracleNames, name)
+								}
+								sort.Strings(oracleNames)
+								for _, name := range oracleNames {
+									delta := deltaFunnel[name]
+									if delta.Runs == 0 {
+										continue
+									}
+									util.Detailf(
+										"oracle_run_ratio last interval oracle=%s skip=%.3f effective=%.3f",
+										name,
+										ratio(delta.Skips, delta.Runs),
+										ratio(delta.Effective, delta.Runs),
+									)
+								}
+							} else {
+								for _, name := range []string{"TLP", "CERT", "GroundTruth"} {
+									delta, ok := deltaFunnel[name]
+									if !ok || delta.Runs == 0 {
+										continue
+									}
+									util.Infof(
+										"oracle_run_ratio last interval oracle=%s skip=%.3f effective=%.3f",
+										name,
+										ratio(delta.Skips, delta.Runs),
+										ratio(delta.Effective, delta.Runs),
+									)
+								}
+							}
 							for _, name := range []string{"DQP", "TLP"} {
 								delta, ok := deltaFunnel[name]
 								if !ok || delta.Runs == 0 {
