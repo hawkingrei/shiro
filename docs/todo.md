@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. Added parser fast-path guard; remaining optional parser LRU.
+Last review: 2026-02-06. Added parser fast-path guard; remaining optional parser LRU.
 
 ## Generator / Oracles
 
@@ -21,6 +21,8 @@ Last review: 2026-02-05. Added parser fast-path guard; remaining optional parser
 3. Update report UI to load the index first, then fetch individual `summary.json` files on demand; add paging and client-side caching; keep a compatibility mode to read legacy `report.json` when index is missing.
 4. Add `report_base_url` (or reuse existing config) to allow loading reports from a public S3/HTTP endpoint; ensure CORS guidance is documented.
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
+7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
 
 ## Coverage / Guidance
 

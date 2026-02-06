@@ -75,10 +75,17 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	if len(query.OrderBy) > 0 {
 		if orderByAllConstant(query.OrderBy, len(query.Items)) {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
-		}
-		if orderByDistinctKeys(query.OrderBy, len(query.Items)) < 2 {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_insufficient_columns"}}
+			if query.Limit != nil {
+				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
+			}
+			// Constant ORDER BY does not affect signature without LIMIT; drop it to keep EET coverage.
+			query.OrderBy = nil
+		} else if orderByDistinctKeys(query.OrderBy, len(query.Items)) < 2 {
+			if query.Limit != nil {
+				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_insufficient_columns"}}
+			}
+			// Non-deterministic ORDER BY is irrelevant to signature without LIMIT; drop it instead of skipping.
+			query.OrderBy = nil
 		}
 	}
 
