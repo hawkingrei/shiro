@@ -74,7 +74,7 @@ func containsKeywordToken(text string, keyword string) bool {
 }
 
 func isIdentByte(b byte) bool {
-	return (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '$'
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '$'
 }
 
 func normalizeSQLForKeywordScan(sqlText string) string {
@@ -83,6 +83,7 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 	pendingSpace := false
 	inString := false
 	inIdent := false
+	inDoubleQuoted := false
 	inLineComment := false
 	inBlockComment := false
 
@@ -125,6 +126,17 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 			i++
 			continue
 		}
+		if inDoubleQuoted {
+			if sqlText[i] == '"' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '"' {
+					i += 2
+					continue
+				}
+				inDoubleQuoted = false
+			}
+			i++
+			continue
+		}
 		if sqlText[i] == '-' && i+1 < len(sqlText) && sqlText[i+1] == '-' {
 			inLineComment = true
 			i += 2
@@ -142,6 +154,11 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 		}
 		if sqlText[i] == '`' {
 			inIdent = true
+			i++
+			continue
+		}
+		if sqlText[i] == '"' {
+			inDoubleQuoted = true
 			i++
 			continue
 		}
