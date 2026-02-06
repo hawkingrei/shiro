@@ -89,6 +89,8 @@ func TestShouldDetectSubqueryFeaturesSQL(t *testing.T) {
 		{sql: "SELECT column_in FROM table_in", want: false},
 		{sql: "SELECT column_exists FROM t", want: false},
 		{sql: "SELECT table_exists FROM exists_table", want: false},
+		{sql: "SELECT `a IN (1)` FROM t", want: false},
+		{sql: "SELECT `column_exists` FROM t", want: false},
 	}
 	for _, c := range cases {
 		if got := ShouldDetectSubqueryFeaturesSQL(c.sql); got != c.want {

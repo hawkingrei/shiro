@@ -82,6 +82,7 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 	b.Grow(len(sqlText))
 	pendingSpace := false
 	inString := false
+	inIdent := false
 	inLineComment := false
 	inBlockComment := false
 
@@ -113,6 +114,17 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 			i++
 			continue
 		}
+		if inIdent {
+			if sqlText[i] == '`' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '`' {
+					i += 2
+					continue
+				}
+				inIdent = false
+			}
+			i++
+			continue
+		}
 		if sqlText[i] == '-' && i+1 < len(sqlText) && sqlText[i+1] == '-' {
 			inLineComment = true
 			i += 2
@@ -125,6 +137,11 @@ func normalizeSQLForKeywordScan(sqlText string) string {
 		}
 		if sqlText[i] == '\'' {
 			inString = true
+			i++
+			continue
+		}
+		if sqlText[i] == '`' {
+			inIdent = true
 			i++
 			continue
 		}
