@@ -11,6 +11,23 @@ type AdaptiveWeights struct {
 	GroupByOrdProb  int
 }
 
+// QueryAnalysis captures deterministic flags and structural properties for reuse.
+type QueryAnalysis struct {
+	Deterministic bool
+	HasAggregate  bool
+	HasWindow     bool
+	HasSubquery   bool
+	HasLimit      bool
+	HasOrderBy    bool
+	HasGroupBy    bool
+	HasHaving     bool
+	HasDistinct   bool
+	HasCTE        bool
+	JoinCount     int
+	JoinTypeSeq   string
+	JoinGraphSig  string
+}
+
 // QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
 	JoinCount              int
@@ -33,6 +50,38 @@ type QueryFeatures struct {
 	SubqueryAttempts       int64
 	SubqueryBuilt          int64
 	SubqueryFailed         int64
+}
+
+// AnalyzeQuery summarizes a query for fast-path guards and shared checks.
+func AnalyzeQuery(query *SelectQuery) QueryAnalysis {
+	if query == nil {
+		return QueryAnalysis{}
+	}
+	features := AnalyzeQueryFeatures(query)
+	return QueryAnalysis{
+		Deterministic: QueryDeterministic(query),
+		HasAggregate:  features.HasAggregate,
+		HasWindow:     features.HasWindow,
+		HasSubquery:   features.HasSubquery,
+		HasLimit:      query.Limit != nil,
+		HasOrderBy:    len(query.OrderBy) > 0,
+		HasGroupBy:    len(query.GroupBy) > 0,
+		HasHaving:     query.Having != nil,
+		HasDistinct:   query.Distinct,
+		HasCTE:        len(query.With) > 0,
+		JoinCount:     features.JoinCount,
+		JoinTypeSeq:   features.JoinTypeSeq,
+		JoinGraphSig:  features.JoinGraphSig,
+	}
+}
+
+func (g *Generator) setQueryAnalysis(query *SelectQuery) {
+	if g == nil || query == nil {
+		return
+	}
+	analysis := AnalyzeQuery(query)
+	query.Analysis = &analysis
+	g.LastAnalysis = &analysis
 }
 
 // AnalyzeQueryFeatures summarizes a query for feature tracking.

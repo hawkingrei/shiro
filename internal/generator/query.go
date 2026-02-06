@@ -59,6 +59,7 @@ type SelectQuery struct {
 	Having   Expr
 	OrderBy  []OrderBy
 	Limit    *int
+	Analysis *QueryAnalysis
 }
 
 // Build emits the SQL for the select query into the builder.
@@ -163,6 +164,7 @@ func (q *SelectQuery) ColumnAliases() []string {
 // Clone creates a shallow copy of the query structure.
 func (q *SelectQuery) Clone() *SelectQuery {
 	clone := *q
+	clone.Analysis = nil
 	clone.Items = append([]SelectItem{}, q.Items...)
 	clone.GroupBy = append([]Expr{}, q.GroupBy...)
 	clone.OrderBy = append([]OrderBy{}, q.OrderBy...)
