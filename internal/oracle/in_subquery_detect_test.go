@@ -82,11 +82,13 @@ func TestShouldDetectSubqueryFeaturesSQL(t *testing.T) {
 		{sql: "INSERT INTO t SELECT * FROM t2 WHERE a IN (SELECT 1)", want: true},
 		{sql: "UPDATE t SET a = 1 WHERE b IN (SELECT 1)", want: true},
 		{sql: "DELETE FROM t WHERE EXISTS (SELECT 1)", want: true},
-		// Fast-path does not attempt to strip literals/comments/identifiers.
+		// Fast-path skips literals/comments and avoids matching identifiers for EXISTS.
 		{sql: "SELECT 'test IN query' FROM t", want: false},
 		{sql: "SELECT 'EXISTS' FROM t", want: false},
 		{sql: "SELECT 1 -- IN comment", want: false},
 		{sql: "SELECT column_in FROM table_in", want: false},
+		{sql: "SELECT column_exists FROM t", want: false},
+		{sql: "SELECT table_exists FROM exists_table", want: false},
 	}
 	for _, c := range cases {
 		if got := ShouldDetectSubqueryFeaturesSQL(c.sql); got != c.want {

@@ -37,7 +37,7 @@ func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
 	if !strings.Contains(upper, "IN") && !strings.Contains(upper, "EXISTS") {
 		return false
 	}
-	if strings.Contains(upper, "EXISTS") {
+	if containsKeywordToken(upper, "EXISTS") {
 		return true
 	}
 	if strings.Contains(upper, " NOT IN(") || strings.Contains(upper, " NOT IN (") ||
@@ -49,6 +49,32 @@ func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
 		return true
 	}
 	return false
+}
+
+func containsKeywordToken(text string, keyword string) bool {
+	if text == "" || keyword == "" {
+		return false
+	}
+	for idx := 0; idx < len(text); {
+		pos := strings.Index(text[idx:], keyword)
+		if pos < 0 {
+			return false
+		}
+		pos += idx
+		beforeIdx := pos - 1
+		afterIdx := pos + len(keyword)
+		beforeOK := beforeIdx < 0 || !isIdentByte(text[beforeIdx])
+		afterOK := afterIdx >= len(text) || !isIdentByte(text[afterIdx])
+		if beforeOK && afterOK {
+			return true
+		}
+		idx = pos + len(keyword)
+	}
+	return false
+}
+
+func isIdentByte(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '$'
 }
 
 func normalizeSQLForKeywordScan(sqlText string) string {
