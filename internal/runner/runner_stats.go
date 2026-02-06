@@ -67,6 +67,9 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
+		if !oracle.ShouldDetectSubqueryFeaturesSQL(sql) {
+			return
+		}
 		features := oracle.DetectSubqueryFeaturesSQL(sql)
 		r.sqlParseCalls++
 		if features.HasNotExists {
@@ -206,7 +209,7 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 	var notInCount int64
 	var parseCalls int64
 	for _, sqlText := range sqls {
-		if !strings.Contains(strings.ToUpper(sqlText), "IN") {
+		if !oracle.ShouldDetectSubqueryFeaturesSQL(sqlText) {
 			continue
 		}
 		parseCalls++

@@ -19,6 +19,31 @@ type SQLSubqueryFeatures struct {
 	HasNotExists      bool
 }
 
+// ShouldDetectSubqueryFeaturesSQL is a fast-path guard to avoid parser overhead
+// when the SQL text doesn't appear to reference IN/EXISTS patterns.
+func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
+	if strings.TrimSpace(sqlText) == "" {
+		return false
+	}
+	upper := strings.ToUpper(sqlText)
+	if !strings.Contains(upper, "IN") && !strings.Contains(upper, "EXISTS") {
+		return false
+	}
+	upper = strings.NewReplacer("\n", " ", "\t", " ", "\r", " ").Replace(upper)
+	if strings.Contains(upper, "EXISTS") {
+		return true
+	}
+	if strings.Contains(upper, " NOT IN(") || strings.Contains(upper, " NOT IN (") ||
+		strings.Contains(upper, "NOT IN(") || strings.Contains(upper, "NOT IN (") {
+		return true
+	}
+	if strings.Contains(upper, " IN(") || strings.Contains(upper, " IN (") ||
+		strings.Contains(upper, "IN(") || strings.Contains(upper, "IN (") {
+		return true
+	}
+	return false
+}
+
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.
 func DetectSubqueryFeaturesSQL(sqlText string) (features SQLSubqueryFeatures) {
 	if strings.TrimSpace(sqlText) == "" {

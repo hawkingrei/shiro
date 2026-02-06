@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Added SQL keyword fast-path before subquery feature parsing (2026-02-05).
 - Defined shared core-oracle list for summary logging (2026-02-05).
 - Logged per-oracle skip/effective ratios in interval stats (2026-02-05).
 - Adjusted parser-call counting order and simplified variant parse guard (2026-02-05).
