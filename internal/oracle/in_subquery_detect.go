@@ -2,6 +2,8 @@ package oracle
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
@@ -17,6 +19,168 @@ type SQLSubqueryFeatures struct {
 	HasNotInList      bool
 	HasExistsSubquery bool
 	HasNotExists      bool
+}
+
+// ShouldDetectSubqueryFeaturesSQL is a fast-path guard to avoid parser overhead
+// when the SQL text doesn't appear to reference IN/EXISTS patterns. It skips
+// string literals and comments, but may still return true (causing a full
+// parse) when IN/EXISTS only appear in identifiers. This function prioritizes
+// avoiding false negatives over avoiding false positives.
+func ShouldDetectSubqueryFeaturesSQL(sqlText string) bool {
+	if strings.TrimSpace(sqlText) == "" {
+		return false
+	}
+	upper := normalizeSQLForKeywordScan(sqlText)
+	if upper == "" {
+		return false
+	}
+	if !strings.Contains(upper, "IN") && !strings.Contains(upper, "EXISTS") {
+		return false
+	}
+	if containsKeywordToken(upper, "EXISTS") {
+		return true
+	}
+	if strings.Contains(upper, " NOT IN(") || strings.Contains(upper, " NOT IN (") ||
+		strings.HasPrefix(upper, "NOT IN(") || strings.HasPrefix(upper, "NOT IN (") {
+		return true
+	}
+	if strings.Contains(upper, " IN(") || strings.Contains(upper, " IN (") ||
+		strings.HasPrefix(upper, "IN(") || strings.HasPrefix(upper, "IN (") {
+		return true
+	}
+	return false
+}
+
+func containsKeywordToken(text string, keyword string) bool {
+	if text == "" || keyword == "" {
+		return false
+	}
+	for idx := 0; idx < len(text); {
+		pos := strings.Index(text[idx:], keyword)
+		if pos < 0 {
+			return false
+		}
+		pos += idx
+		beforeIdx := pos - 1
+		afterIdx := pos + len(keyword)
+		beforeOK := beforeIdx < 0 || !isIdentByte(text[beforeIdx])
+		afterOK := afterIdx >= len(text) || !isIdentByte(text[afterIdx])
+		if beforeOK && afterOK {
+			return true
+		}
+		idx = pos + len(keyword)
+	}
+	return false
+}
+
+func isIdentByte(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '$'
+}
+
+func normalizeSQLForKeywordScan(sqlText string) string {
+	var b strings.Builder
+	b.Grow(len(sqlText))
+	pendingSpace := false
+	inString := false
+	inIdent := false
+	inDoubleQuoted := false
+	inLineComment := false
+	inBlockComment := false
+
+	for i := 0; i < len(sqlText); {
+		if inLineComment {
+			if sqlText[i] == '\n' || sqlText[i] == '\r' {
+				inLineComment = false
+			}
+			i++
+			continue
+		}
+		if inBlockComment {
+			if sqlText[i] == '*' && i+1 < len(sqlText) && sqlText[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+		if inString {
+			if sqlText[i] == '\'' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '\'' {
+					i += 2
+					continue
+				}
+				inString = false
+			}
+			i++
+			continue
+		}
+		if inIdent {
+			if sqlText[i] == '`' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '`' {
+					i += 2
+					continue
+				}
+				inIdent = false
+			}
+			i++
+			continue
+		}
+		if inDoubleQuoted {
+			if sqlText[i] == '"' {
+				if i+1 < len(sqlText) && sqlText[i+1] == '"' {
+					i += 2
+					continue
+				}
+				inDoubleQuoted = false
+			}
+			i++
+			continue
+		}
+		if sqlText[i] == '-' && i+1 < len(sqlText) && sqlText[i+1] == '-' {
+			inLineComment = true
+			i += 2
+			continue
+		}
+		if sqlText[i] == '/' && i+1 < len(sqlText) && sqlText[i+1] == '*' {
+			inBlockComment = true
+			i += 2
+			continue
+		}
+		if sqlText[i] == '\'' {
+			inString = true
+			i++
+			continue
+		}
+		if sqlText[i] == '`' {
+			inIdent = true
+			i++
+			continue
+		}
+		if sqlText[i] == '"' {
+			inDoubleQuoted = true
+			i++
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(sqlText[i:])
+		if r == utf8.RuneError && size == 1 {
+			i++
+			continue
+		}
+		if unicode.IsSpace(r) {
+			pendingSpace = true
+			i += size
+			continue
+		}
+		if pendingSpace && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		pendingSpace = false
+		b.WriteRune(unicode.ToUpper(r))
+		i += size
+	}
+	return b.String()
 }
 
 // DetectSubqueryFeaturesSQL parses SQL and reports IN/EXISTS usage.

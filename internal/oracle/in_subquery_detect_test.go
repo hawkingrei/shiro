@@ -62,3 +62,43 @@ func TestDetectSubqueryFeaturesSQL(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldDetectSubqueryFeaturesSQL(t *testing.T) {
+	cases := []struct {
+		sql  string
+		want bool
+	}{
+		{sql: "SELECT 1", want: false},
+		{sql: "select 1 where a in (select 1)", want: true},
+		{sql: "SELECT 1 WHERE a IN (1,2,3)", want: true},
+		{sql: "SELECT 1 WHERE a IN  (1,2,3)", want: true},
+		{sql: "SELECT 1 WHERE a IN (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE a NOT IN  (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE NOT IN(1,2,3)", want: true},
+		{sql: "SELECT 1 WHERE EXISTS (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE NOT  EXISTS (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE NOT\nEXISTS (SELECT 1)", want: true},
+		{sql: "SELECT 1 WHERE a IN\n(SELECT 1)", want: true},
+		{sql: "INSERT INTO t VALUES (1)", want: false},
+		{sql: "INSERT INTO t SELECT * FROM t2 WHERE a IN (SELECT 1)", want: true},
+		{sql: "UPDATE t SET a = 1 WHERE b IN (SELECT 1)", want: true},
+		{sql: "DELETE FROM t WHERE EXISTS (SELECT 1)", want: true},
+		// Fast-path skips literals/comments and avoids matching quoted identifiers.
+		{sql: "SELECT 'test IN query' FROM t", want: false},
+		{sql: "SELECT 'EXISTS' FROM t", want: false},
+		{sql: "SELECT 1 -- IN comment", want: false},
+		{sql: "SELECT 1 /* IN comment */", want: false},
+		{sql: "SELECT column_in FROM table_in", want: false},
+		{sql: "SELECT column_exists FROM t", want: false},
+		{sql: "SELECT table_exists FROM exists_table", want: false},
+		{sql: "SELECT `a IN (1)` FROM t", want: false},
+		{sql: "SELECT `column_exists` FROM t", want: false},
+		{sql: "SELECT \"column_IN_name\" FROM t", want: false},
+		{sql: "SELECT \"exists_column\" FROM t", want: false},
+	}
+	for _, c := range cases {
+		if got := ShouldDetectSubqueryFeaturesSQL(c.sql); got != c.want {
+			t.Fatalf("ShouldDetectSubqueryFeaturesSQL(%q) = %v, want %v", c.sql, got, c.want)
+		}
+	}
+}
