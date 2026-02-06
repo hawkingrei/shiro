@@ -226,13 +226,13 @@ type subqueryFeatureEntry struct {
 	features SQLSubqueryFeatures
 }
 
-func newSubqueryFeatureLRU(max int) *subqueryFeatureLRU {
-	if max <= 0 {
-		max = 128
+func newSubqueryFeatureLRU(maxSize int) *subqueryFeatureLRU {
+	if maxSize <= 0 {
+		maxSize = 128
 	}
 	return &subqueryFeatureLRU{
-		max:   max,
-		items: make(map[string]*list.Element, max),
+		max:   maxSize,
+		items: make(map[string]*list.Element, maxSize),
 		order: list.New(),
 	}
 }
