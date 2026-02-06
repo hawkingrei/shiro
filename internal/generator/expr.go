@@ -372,10 +372,13 @@ func (e CompareSubqueryExpr) Columns() []ColumnRef {
 
 // Deterministic reports whether the expression is deterministic.
 func (e CompareSubqueryExpr) Deterministic() bool {
-	if e.Left == nil {
+	if e.Left != nil && !e.Left.Deterministic() {
+		return false
+	}
+	if e.Query == nil {
 		return true
 	}
-	return e.Left.Deterministic()
+	return QueryDeterministic(e.Query)
 }
 
 // WindowExpr renders a window function expression.
