@@ -477,6 +477,12 @@ func (g *Generator) joinCondition(left []schema.Table, right schema.Table) Expr 
 			return expr
 		}
 	}
+	policy := strings.ToLower(strings.TrimSpace(g.Config.Oracles.JoinOnPolicy))
+	if policy == "simple" && g.Config.Oracles.JoinUsingProb >= 100 {
+		if l, r, ok := g.pickLooseJoinColumnPair(left, right); ok {
+			return BinaryExpr{Left: ColumnExpr{Ref: l}, Op: "<=>", Right: ColumnExpr{Ref: r}}
+		}
+	}
 	return g.falseExpr()
 }
 
@@ -630,6 +636,29 @@ func (g *Generator) pickJoinColumnPair(left []schema.Table, right schema.Table) 
 		return
 	}
 	return
+}
+
+func (g *Generator) pickLooseJoinColumnPair(left []schema.Table, right schema.Table) (leftCol ColumnRef, rightCol ColumnRef, ok bool) {
+	leftCols := g.collectColumns(left)
+	rightCols := g.collectColumns([]schema.Table{right})
+	if len(leftCols) == 0 || len(rightCols) == 0 {
+		return ColumnRef{}, ColumnRef{}, false
+	}
+	pairs := make([]columnPair, 0, 8)
+	for _, l := range leftCols {
+		for _, r := range rightCols {
+			if compatibleColumnType(l.Type, r.Type) {
+				pairs = append(pairs, columnPair{Left: l, Right: r})
+			}
+		}
+	}
+	if len(pairs) == 0 {
+		leftCol = leftCols[g.Rand.Intn(len(leftCols))]
+		rightCol = rightCols[g.Rand.Intn(len(rightCols))]
+		return leftCol, rightCol, true
+	}
+	pair := pairs[g.Rand.Intn(len(pairs))]
+	return pair.Left, pair.Right, true
 }
 
 func (g *Generator) pickCorrelatedJoinPair(outerTables []schema.Table, inner schema.Table) (outerCol ColumnRef, innerCol ColumnRef, ok bool) {

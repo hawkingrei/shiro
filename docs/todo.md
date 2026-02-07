@@ -21,10 +21,12 @@ Last review: 2026-02-06. Added frontend CI pipeline (compile/lint/test), plus re
 3. Update report UI to load the index first, then fetch individual `summary.json` files on demand; add paging and client-side caching; keep a compatibility mode to read legacy `report.json` when index is missing.
 4. Add `report_base_url` (or reuse existing config) to allow loading reports from a public S3/HTTP endpoint; ensure CORS guidance is documented.
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
-6. Cloudflare metadata plane: Workers + D1 append/update case records (`uuid`, labels, error_type, linked_issue, S3 keys, R2 manifest URL) when new manifests arrive. (skeleton done in `web/cloudflare-worker`; production auth/rate-limit/audit pending)
-7. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
-8. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
-9. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
+6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
+7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
+8. Cloudflare metadata plane: Workers + D1 append/update case records (`uuid`, labels, error_type, linked_issue, S3 keys, R2 manifest URL) when new manifests arrive. (skeleton done in `web/cloudflare-worker`; production auth/rate-limit/audit pending)
+9. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
+10. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
+11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 
 ## Coverage / Guidance
 

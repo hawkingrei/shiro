@@ -112,12 +112,23 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			details["error_reason"] = "runtime_error"
 		}
 	}
+	errorReason := ""
+	if reason, ok := details["error_reason"].(string); ok {
+		errorReason = reason
+	}
+	bugHint := ""
+	if hint, ok := details["bug_hint"].(string); ok {
+		bugHint = hint
+	}
 
 	summary := report.Summary{
 		Oracle:        result.Oracle,
 		SQL:           result.SQL,
 		Expected:      result.Expected,
 		Actual:        result.Actual,
+		ErrorReason:   errorReason,
+		BugHint:       bugHint,
+		ReplaySQL:     replaySQL,
 		Flaky:         flaky,
 		Details:       details,
 		Seed:          r.gen.Seed,
@@ -165,6 +176,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 	if result.Err != nil {
 		summary.Error = result.Err.Error()
+		if summary.ErrorSQL == "" {
+			if replaySQL != "" {
+				summary.ErrorSQL = replaySQL
+			} else if len(result.SQL) > 0 {
+				summary.ErrorSQL = result.SQL[0]
+			}
+		}
 	}
 	if shouldReportRows(result) {
 		maxRows := r.cfg.MaxRowsPerTable

@@ -30,6 +30,8 @@ Links:
 - Created branch `feat/fuzz-display-query-capability` in dedicated worktree for fuzz display/query capability enhancement; currently in requirements phase before implementation (2026-02-06).
 - Captured requirements: use UUIDv7 as canonical bug id across runner/report/frontend, upload artifacts under `s3://<bucket>/<uuid>/`, push report manifests to Cloudflare for search, and support frontend archive download per case with Cloudflare Worker+D1+AI search infra (2026-02-06).
 - Chosen cloud split for this project: case artifacts remain in S3, aggregated `reports.json` is published to Cloudflare R2, and metadata/tagging/search APIs run on Cloudflare Workers + D1 + AI search (2026-02-06).
+- Fixed `sqlErrorReason(nil)` to return an empty reason and added a regression test; clarified EET ORDER BY drop semantics with inline comments (2026-02-06).
+- Added error_reason classification for DQP/NoREC, surfaced error_reason/bug_hint/error_sql/replay_sql in summaries, reduced CODDTest skips by disabling disallowed features during builds, added GroundTruth join fallback on missing join pairs, and relaxed EET ORDER BY skips without LIMIT (2026-02-06).
 - Reviewed logs/reports; EET cases show schema column missing errors, CODDTest mostly skips on aggregate/join/predicate/type, GroundTruth key_missing dominates, EET skips on ORDER BY constraints, and non-EET error reasons lack detail (2026-02-06).
 - Added QuerySpec and expanded SelectQueryBuilder constraints to move oracle guardrails into build-time checks (2026-02-06).
 - Added QueryAnalysis and wired oracle query helpers to reuse generator analysis (2026-02-06).
