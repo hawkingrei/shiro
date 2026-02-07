@@ -8,7 +8,7 @@
     "start": "next start",
     "compile": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test test/**/*.test.ts"
+    "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
     "next": "^16.1.6",
