@@ -201,9 +201,11 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			_ = r.reporter.WriteText(caseData, "actual.tsv", actualRows)
 		}
 	}
+	spec := replaySpec{}
 	minimizeStatus := "disabled"
 	if r.cfg.Minimize.Enabled {
-		if buildReplaySpec(result).kind == "" {
+		spec = buildReplaySpec(result)
+		if spec.kind == "" {
 			minimizeStatus = "not_applicable"
 		} else {
 			minimizeStatus = "in_progress"
@@ -215,10 +217,10 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
-	if r.cfg.Minimize.Enabled {
-		minimized := r.minimizeCase(ctx, result)
+	if r.cfg.Minimize.Enabled && spec.kind != "" {
+		minimized := r.minimizeCase(ctx, result, spec)
+		applyMinimizeOutcome(&summary, details, minimized)
 		if minimized.minimized {
-			summary.MinimizeStatus = "success"
 			if len(minimized.caseSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
 			}
@@ -228,8 +230,6 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			if len(minimized.reproSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/repro.sql", minimized.reproSQL)
 			}
-		} else if summary.MinimizeStatus == "in_progress" {
-			summary.MinimizeStatus = "skipped"
 		}
 		_ = r.reporter.WriteSummary(caseData, summary)
 	}
@@ -372,6 +372,33 @@ func groundTruthDSGMismatchReasonFromDetails(details map[string]any) string {
 		return "unknown"
 	default:
 		return ""
+	}
+}
+
+func applyMinimizeOutcome(summary *report.Summary, details map[string]any, output minimizeOutput) {
+	if summary == nil {
+		return
+	}
+	status := strings.TrimSpace(output.status)
+	if status == "" {
+		if output.minimized {
+			status = "success"
+		} else if summary.MinimizeStatus == "in_progress" {
+			status = "skipped"
+		}
+	}
+	if status != "" {
+		summary.MinimizeStatus = status
+	}
+	reason := strings.TrimSpace(output.reason)
+	if details != nil && reason != "" {
+		details["minimize_reason"] = reason
+	}
+	if output.flaky {
+		summary.Flaky = true
+		if details != nil && reason != "" {
+			details["flaky_reason"] = reason
+		}
 	}
 }
 

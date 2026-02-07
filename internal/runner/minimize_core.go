@@ -28,20 +28,24 @@ type minimizeOutput struct {
 	insertSQL []string
 	reproSQL  []string
 	minimized bool
+	status    string
+	reason    string
+	flaky     bool
 }
 
-func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result) minimizeOutput {
+const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
+
+func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec replaySpec) minimizeOutput {
 	if !r.cfg.Minimize.Enabled {
-		return minimizeOutput{}
+		return minimizeOutput{status: "disabled"}
+	}
+	if spec.kind == "" {
+		return minimizeOutput{status: "not_applicable"}
 	}
 	tablesUsed := tablesForMinimize(result)
 	schemaSQL := r.schemaSQL(ctx, tablesUsed)
 	if len(schemaSQL) == 0 {
-		return minimizeOutput{}
-	}
-	spec := buildReplaySpec(result)
-	if spec.kind == "" {
-		return minimizeOutput{}
+		return minimizeOutput{status: "skipped", reason: "schema_unavailable"}
 	}
 
 	timeout := time.Duration(r.cfg.Minimize.TimeoutSeconds) * time.Second
@@ -62,6 +66,13 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result) minimiz
 	origCase := append([]string{}, result.SQL...)
 
 	origInserts = expandInsertStatements(origInserts)
+	if !test(origInserts, origCase) {
+		return minimizeOutput{
+			status: "skipped",
+			reason: minimizeReasonBaseReplayNotReproducible,
+			flaky:  true,
+		}
+	}
 	dedupedInserts := dedupeStatements(origInserts)
 	if len(dedupedInserts) > 0 && test(dedupedInserts, origCase) {
 		origInserts = dedupedInserts
@@ -117,6 +128,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result) minimiz
 		insertSQL: minInserts,
 		reproSQL:  reproSQL,
 		minimized: true,
+		status:    "success",
 	}
 }
 

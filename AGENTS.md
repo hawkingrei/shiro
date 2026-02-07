@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Impo seed-query guardrail skips now retain the last concrete failure reason (`seed_guardrail:<reason>`), and minimize now runs a mandatory base-replay precheck: non-reproducible cases are marked `minimize_status=skipped` plus top-level `flaky=true` with `minimize_reason`/`flaky_reason=base_replay_not_reproducible`; added regression tests (2026-02-07).
 - GroundTruth now rewrites `USING` joins to explicit `ON` predicates before edge extraction/execution to avoid ambiguous `USING` resolution on multi-table left factors; EET adds stronger pre-guards (`scope_invalid`, DISTINCT+ORDER BY compatibility) and scope validation now treats NATURAL joins like USING for qualified-column visibility; report summaries switch minimize status flow to `in_progress/success/skipped/interrupted` with deferred interrupted fallback (2026-02-07).
 - Reduced oracle skip noise by adding QuerySpec `MaxTries` for constrained builders (TLP/DQP/NoREC/EET), disallowing TLP set operations at build-time, retrying GroundTruth candidate picking across empty/guardrail/edge-mismatch cases, and retrying Impo seed-query selection before skip; added TLP set-op skip regression test (2026-02-07).
 - Report capture now logs early case allocation and persists top-level `minimize_status` in `summary.json` (`disabled` / `not_applicable` / `in_progress` / `success` / `skipped` / `interrupted`) for better logs/reports consistency (2026-02-07).

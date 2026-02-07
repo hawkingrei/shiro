@@ -244,6 +244,7 @@ func implicationExpected(isUpper bool) string {
 
 func pickImpoSeedQuery(gen *generator.Generator, state *schema.State, metrics map[string]int64) (*generator.SelectQuery, string) {
 	sawEmpty := false
+	lastGuardrailReason := ""
 	for attempt := 0; attempt < impoSeedBuildRetries; attempt++ {
 		candidate := gen.GenerateSelectQuery()
 		if candidate == nil {
@@ -251,21 +252,26 @@ func pickImpoSeedQuery(gen *generator.Generator, state *schema.State, metrics ma
 			continue
 		}
 		if !queryDeterministic(candidate) {
+			lastGuardrailReason = "nondeterministic"
 			continue
 		}
 		if hasAggregate(candidate) {
+			lastGuardrailReason = "aggregate_query"
 			continue
 		}
 		candidate = candidate.Clone()
 		rewriteUsingToOn(candidate, state)
 		if containsScalarSubquery(candidate) {
+			lastGuardrailReason = "scalar_subquery"
 			continue
 		}
 		if hasPlanCacheHintsOrVars(candidate.SQLString()) {
+			lastGuardrailReason = "plan_cache_hint_or_var"
 			continue
 		}
 		sanitized := sanitizeQueryColumns(candidate, state)
 		if ok, _ := queryColumnsValid(candidate, state, nil); !ok {
+			lastGuardrailReason = "invalid_columns"
 			continue
 		}
 		if sanitized {
@@ -273,10 +279,18 @@ func pickImpoSeedQuery(gen *generator.Generator, state *schema.State, metrics ma
 		}
 		return candidate, ""
 	}
-	if sawEmpty {
-		return nil, "empty_query"
+	return nil, impoSeedSkipReason(sawEmpty, lastGuardrailReason)
+}
+
+func impoSeedSkipReason(sawEmpty bool, lastGuardrailReason string) string {
+	reason := strings.TrimSpace(lastGuardrailReason)
+	if reason != "" {
+		return "seed_guardrail:" + reason
 	}
-	return nil, "seed_guardrail"
+	if sawEmpty {
+		return "empty_query"
+	}
+	return "seed_guardrail"
 }
 
 func cmpString(cmp int) string {
