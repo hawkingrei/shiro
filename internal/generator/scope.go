@@ -31,39 +31,7 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, scopeTablesForQuery(query.From.BaseQuery, nil), tableScope{}) {
 		return false
 	}
-	for _, item := range query.Items {
-		if !m.validateExpr(item.Expr, scope, outer) {
-			return false
-		}
-	}
-	if query.Where != nil && !m.validateExpr(query.Where, scope, outer) {
-		return false
-	}
-	for _, expr := range query.GroupBy {
-		if !m.validateExpr(expr, scope, outer) {
-			return false
-		}
-	}
-	if query.Having != nil && !m.validateExpr(query.Having, scope, outer) {
-		return false
-	}
-	for _, def := range query.WindowDefs {
-		for _, expr := range def.PartitionBy {
-			if !m.validateExpr(expr, scope, outer) {
-				return false
-			}
-		}
-		for _, ob := range def.OrderBy {
-			if !m.validateExpr(ob.Expr, scope, outer) {
-				return false
-			}
-		}
-	}
-	for _, ob := range query.OrderBy {
-		if !m.validateExpr(ob.Expr, scope, outer) {
-			return false
-		}
-	}
+	currentScope := scope
 	if len(query.From.Joins) > 0 {
 		visible := []string{}
 		if baseName := query.From.baseName(); baseName != "" {
@@ -73,16 +41,56 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, scopeTablesForQuery(join.TableQuery, nil), tableScope{}) {
 				return false
 			}
-			joinScope := scopeForTables(scope, visible)
+			joinScope := scopeForTables(currentScope, visible)
 			if joinName := join.tableName(); joinName != "" {
-				joinScope = scopeForTables(scope, append(visible, joinName))
+				joinScope = scopeForTables(currentScope, append(visible, joinName))
 			}
 			if join.On != nil && !m.validateExpr(join.On, joinScope, outer) {
 				return false
 			}
+			if usingCols := joinUsingColumns(join); len(usingCols) > 0 {
+				affected := append([]string{}, visible...)
+				if joinName := join.tableName(); joinName != "" {
+					affected = append(affected, joinName)
+				}
+				currentScope = hideQualifiedColumns(currentScope, affected, usingCols)
+			}
 			if joinName := join.tableName(); joinName != "" {
 				visible = append(visible, joinName)
 			}
+		}
+	}
+	for _, item := range query.Items {
+		if !m.validateExpr(item.Expr, currentScope, outer) {
+			return false
+		}
+	}
+	if query.Where != nil && !m.validateExpr(query.Where, currentScope, outer) {
+		return false
+	}
+	for _, expr := range query.GroupBy {
+		if !m.validateExpr(expr, currentScope, outer) {
+			return false
+		}
+	}
+	if query.Having != nil && !m.validateExpr(query.Having, currentScope, outer) {
+		return false
+	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !m.validateExpr(expr, currentScope, outer) {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !m.validateExpr(ob.Expr, currentScope, outer) {
+				return false
+			}
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if !m.validateExpr(ob.Expr, currentScope, outer) {
+			return false
 		}
 	}
 	return true
@@ -246,6 +254,61 @@ func mergeTableScopes(left tableScope, right tableScope) tableScope {
 		}
 	}
 	return out
+}
+
+func cloneScope(scope tableScope) tableScope {
+	out := tableScope{
+		tables:  tableSet{},
+		columns: map[string]map[string]struct{}{},
+	}
+	for name := range scope.tables {
+		out.tables[name] = struct{}{}
+	}
+	for table, cols := range scope.columns {
+		copied := make(map[string]struct{}, len(cols))
+		for col := range cols {
+			copied[col] = struct{}{}
+		}
+		out.columns[table] = copied
+	}
+	return out
+}
+
+func hideQualifiedColumns(scope tableScope, tables []string, columns []string) tableScope {
+	if len(tables) == 0 || len(columns) == 0 {
+		return scope
+	}
+	out := cloneScope(scope)
+	for _, table := range tables {
+		colSet, ok := out.columns[table]
+		if !ok || len(colSet) == 0 {
+			continue
+		}
+		for _, col := range columns {
+			delete(colSet, col)
+		}
+		out.columns[table] = colSet
+	}
+	return out
+}
+
+func joinUsingColumns(join Join) []string {
+	if len(join.Using) == 0 {
+		return nil
+	}
+	cols := make([]string, 0, len(join.Using))
+	seen := make(map[string]struct{}, len(join.Using))
+	for _, col := range join.Using {
+		if col == "" {
+			continue
+		}
+		if _, ok := seen[col]; ok {
+			continue
+		}
+		seen[col] = struct{}{}
+		cols = append(cols, col)
+	}
+	return cols
 }
 
 func (g *Generator) validateQueryScope(query *SelectQuery) bool {

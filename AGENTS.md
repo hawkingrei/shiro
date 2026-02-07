@@ -21,6 +21,8 @@ Links:
 
 ## Recent updates
 
+- Scope manager now enforces `USING` column visibility for qualified references in query-body clauses (SELECT/WHERE/GROUP/HAVING/WINDOW/ORDER), with regression tests for hidden/common columns and preserved non-USING columns (2026-02-07).
+- Systematically tightened NoREC query constraints by adding builder-level `DisallowSetOps`, refactoring shared constraint evaluation in `SelectQueryBuilder`, moving NoREC guardrails into `QueryGuardReason` (set-op / limit-without-order / predicate-subquery), and adding regression tests for constraint reasons and NoREC guard behavior (2026-02-07).
 - P1 skip-reduction batch 1: tightened GroundTruth/CODDTest oracle overrides (disable views/derived/set-op/subquery-heavy features per oracle), switched CODDTest predicate mode to simple-columns, and widened CODDTest type guard to all supported scalar column types; added runner/oracle tests (2026-02-07).
 - Added shared runner-side result annotation to classify `error_reason`/`bug_hint` (including PlanCache error paths) and tagged GroundTruth mismatches as `groundtruth:count_mismatch`; added runner unit tests for reason/hint mapping (2026-02-07).
 - Disabled `INTERSECT ALL` generation for TiDB compatibility (matching existing `EXCEPT ALL` disablement) and added a regression test to ensure both stay non-ALL (2026-02-07).

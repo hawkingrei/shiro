@@ -47,6 +47,9 @@ func TestAnalyzeQuery(t *testing.T) {
 	if !analysis.HasLimit || !analysis.HasOrderBy || !analysis.HasGroupBy || !analysis.HasHaving || !analysis.HasDistinct || !analysis.HasCTE {
 		t.Fatalf("expected limit/order-by/group-by/having/distinct/cte flags to be set")
 	}
+	if analysis.HasSetOps {
+		t.Fatalf("did not expect set-op flag")
+	}
 	if analysis.JoinCount != 1 {
 		t.Fatalf("expected join count 1, got %d", analysis.JoinCount)
 	}
@@ -111,6 +114,9 @@ func TestAnalyzeQueryWithDerivedAndSetOpQuantifiedSubquery(t *testing.T) {
 	analysis := AnalyzeQuery(query)
 	if !analysis.HasSubquery {
 		t.Fatalf("expected analysis to mark subquery")
+	}
+	if !analysis.HasSetOps {
+		t.Fatalf("expected analysis to mark set operations")
 	}
 	if analysis.HasOrderBy || analysis.HasLimit || analysis.HasGroupBy || analysis.HasHaving {
 		t.Fatalf("unexpected order/limit/group/having flags")

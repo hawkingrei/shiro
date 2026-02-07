@@ -117,6 +117,40 @@ func TestSelectQueryBuilderMinJoinTables(t *testing.T) {
 	}
 }
 
+func TestConstraintViolationReasonDisallowSetOps(t *testing.T) {
+	base := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  FromClause{BaseTable: "t0"},
+		SetOps: []SetOperation{{
+			Type: SetOperationUnion,
+			Query: &SelectQuery{
+				Items: []SelectItem{{Expr: LiteralExpr{Value: 2}, Alias: "c0"}},
+				From:  FromClause{BaseTable: "t1"},
+			},
+		}},
+	}
+
+	reason := constraintViolationReason(base, SelectQueryConstraints{DisallowSetOps: true}, AnalyzeQueryFeatures(base))
+	if reason != "constraint:set_ops" {
+		t.Fatalf("expected constraint:set_ops, got %s", reason)
+	}
+}
+
+func TestSelectQueryBuilderDisallowSetOps(t *testing.T) {
+	gen := newTestGenerator(t)
+	gen.Config.Features.SetOperations = true
+	query := NewSelectQueryBuilder(gen).
+		DisallowSetOps().
+		MaxTries(50).
+		Build()
+	if query == nil {
+		t.Fatalf("expected query")
+	}
+	if len(query.SetOps) > 0 {
+		t.Fatalf("unexpected set operations")
+	}
+}
+
 func newTestGenerator(t *testing.T) *Generator {
 	t.Helper()
 	cfg, err := config.Load("../../config.yaml")
@@ -132,6 +166,7 @@ func newTestGenerator(t *testing.T) *Generator {
 	cfg.Features.OrderBy = true
 	cfg.Features.Distinct = true
 	cfg.Features.WindowFuncs = true
+	cfg.Features.SetOperations = true
 
 	state := schema.State{
 		Tables: []schema.Table{

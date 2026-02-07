@@ -44,20 +44,22 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 			DisallowDistinct:     true,
 			DisallowGroupBy:      true,
 			DisallowHaving:       true,
+			DisallowSetOps:       true,
+			QueryGuardReason:     noRECQueryGuardReason,
 		},
 		SkipReasonOverrides: map[string]string{
-			"constraint:aggregate": "norec:guardrail",
-			"constraint:distinct":  "norec:guardrail",
-			"constraint:group_by":  "norec:guardrail",
-			"constraint:having":    "norec:guardrail",
+			"constraint:aggregate":              "norec:guardrail",
+			"constraint:distinct":               "norec:guardrail",
+			"constraint:group_by":               "norec:guardrail",
+			"constraint:having":                 "norec:guardrail",
+			"constraint:set_ops":                "norec:guardrail",
+			"constraint:limit_without_order_by": "norec:guardrail",
+			"constraint:predicate_subquery":     "norec:guardrail",
 		},
 	}
 	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: details}
-	}
-	if shouldSkipNoREC(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "norec:guardrail"}}
 	}
 	optimized := query.SQLString()
 	optimizedCount := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", optimized)
@@ -117,23 +119,28 @@ func buildNoRECQuery(query *generator.SelectQuery) string {
 	return fmt.Sprintf("SELECT (CASE WHEN %s THEN 1 ELSE 0 END) AS b FROM %s%s", buildExpr(query.Where), buildFrom(query), buildOrderLimit(query))
 }
 
-func shouldSkipNoREC(query *generator.SelectQuery) bool {
+func noRECQueryGuardReason(query *generator.SelectQuery) (bool, string) {
 	if query == nil {
-		return true
+		return false, "constraint:query_guard"
 	}
-	// NoREC requires a flat predicate. The following constructs break equivalence:
+	// NoREC requires a flat predicate in a single SELECT block.
+	// The following constructs break equivalence:
+	// - Set operations: unoptimized rewrite is defined on one SELECT block only.
 	// - LIMIT without ORDER BY: non-deterministic top-N selection.
 	//   Example:
 	//     Optimized:   SELECT COUNT(*) FROM (SELECT * FROM t WHERE a > 0 LIMIT 5) q;
 	//     Unoptimized: SELECT IFNULL(SUM(CASE WHEN a > 0 THEN 1 ELSE 0 END),0) FROM t;
 	// - Subquery in WHERE: predicate is no longer flat.
+	if len(query.SetOps) > 0 {
+		return false, "constraint:set_ops"
+	}
 	if query.Limit != nil && len(query.OrderBy) == 0 {
-		return true
+		return false, "constraint:limit_without_order_by"
 	}
-	if queryHasAggregate(query) || hasSubqueryInPredicate(query) {
-		return true
+	if hasSubqueryInPredicate(query) {
+		return false, "constraint:predicate_subquery"
 	}
-	return false
+	return true, ""
 }
 
 func hasSubqueryInPredicate(query *generator.SelectQuery) bool {

@@ -23,6 +23,7 @@ type QueryAnalysis struct {
 	HasHaving     bool
 	HasDistinct   bool
 	HasCTE        bool
+	HasSetOps     bool
 	JoinCount     int
 	JoinTypeSeq   string
 	JoinGraphSig  string
@@ -69,6 +70,7 @@ func AnalyzeQuery(query *SelectQuery) QueryAnalysis {
 		HasHaving:     query.Having != nil,
 		HasDistinct:   query.Distinct,
 		HasCTE:        len(query.With) > 0,
+		HasSetOps:     len(query.SetOps) > 0,
 		JoinCount:     features.JoinCount,
 		JoinTypeSeq:   features.JoinTypeSeq,
 		JoinGraphSig:  features.JoinGraphSig,
