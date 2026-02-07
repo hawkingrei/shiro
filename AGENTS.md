@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Hardened expression determinism/build paths against nil operands in `UnaryExpr`/`BinaryExpr`, and added regression coverage for nil binary operands to prevent `QueryDeterministic` panic (2026-02-07).
 - Simplified `EXCEPT ALL` gating to the default non-ALL path and added a regression test to ensure `EXCEPT ALL` is never generated for TiDB compatibility (2026-02-07).
 - Added broader SQL2023-focused tests: recursive CTE numeric guard, FULL JOIN emulation key-selection edge cases, named-window override rendering, grouping ordinal unwrap, window-def determinism, and oracle SQL helper fast-path/build coverage (2026-02-07).
 - Added SQL2023-oriented generation features: NATURAL JOIN, FULL JOIN semantic emulation (`LEFT/RIGHT + UNION ALL`), recursive CTE (`WITH RECURSIVE`), window frame + named WINDOW clauses, GROUP BY WITH ROLLUP (+ GROUPING item), and INTERVAL arithmetic; added generator/oracle compatibility updates and tests (2026-02-06).

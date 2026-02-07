@@ -80,3 +80,18 @@ func TestQueryDeterministicRecursesIntoWindowDefs(t *testing.T) {
 		t.Fatalf("expected nondeterministic query when window definition contains nondeterministic expression")
 	}
 }
+
+func TestQueryDeterministicHandlesNilBinaryOperand(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  FromClause{BaseTable: "t0"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+			Op:    "=",
+			Right: nil,
+		},
+	}
+	if QueryDeterministic(query) {
+		t.Fatalf("expected nondeterministic query when binary operand is nil")
+	}
+}

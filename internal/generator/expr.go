@@ -128,14 +128,28 @@ type UnaryExpr struct {
 func (e UnaryExpr) Build(b *SQLBuilder) {
 	b.Write(e.Op)
 	b.Write(" ")
+	if e.Expr == nil {
+		b.Write("NULL")
+		return
+	}
 	e.Expr.Build(b)
 }
 
 // Columns reports the column references used.
-func (e UnaryExpr) Columns() []ColumnRef { return e.Expr.Columns() }
+func (e UnaryExpr) Columns() []ColumnRef {
+	if e.Expr == nil {
+		return nil
+	}
+	return e.Expr.Columns()
+}
 
 // Deterministic reports whether the expression is deterministic.
-func (e UnaryExpr) Deterministic() bool { return e.Expr.Deterministic() }
+func (e UnaryExpr) Deterministic() bool {
+	if e.Expr == nil {
+		return false
+	}
+	return e.Expr.Deterministic()
+}
 
 // BinaryExpr renders a binary expression.
 type BinaryExpr struct {
@@ -147,23 +161,39 @@ type BinaryExpr struct {
 // Build emits the binary expression with parentheses.
 func (e BinaryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
-	e.Left.Build(b)
+	if e.Left == nil {
+		b.Write("NULL")
+	} else {
+		e.Left.Build(b)
+	}
 	b.Write(" ")
 	b.Write(e.Op)
 	b.Write(" ")
-	e.Right.Build(b)
+	if e.Right == nil {
+		b.Write("NULL")
+	} else {
+		e.Right.Build(b)
+	}
 	b.Write(")")
 }
 
 // Columns reports the column references used.
 func (e BinaryExpr) Columns() []ColumnRef {
-	cols := append([]ColumnRef{}, e.Left.Columns()...)
-	cols = append(cols, e.Right.Columns()...)
+	cols := make([]ColumnRef, 0, 4)
+	if e.Left != nil {
+		cols = append(cols, e.Left.Columns()...)
+	}
+	if e.Right != nil {
+		cols = append(cols, e.Right.Columns()...)
+	}
 	return cols
 }
 
 // Deterministic reports whether the expression is deterministic.
 func (e BinaryExpr) Deterministic() bool {
+	if e.Left == nil || e.Right == nil {
+		return false
+	}
 	return e.Left.Deterministic() && e.Right.Deterministic()
 }
 
