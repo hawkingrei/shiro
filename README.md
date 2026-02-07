@@ -22,7 +22,7 @@ go run ./cmd/shiro -config config.yaml
 
 Shiro prints the final resolved configuration at startup.
 
-Reports are written under `reports/`.
+Reports are written under `reports/` by default.
 
 ## Concurrency
 Set `workers` in `config.yaml`. Each worker runs in its own database (`<database>_wN`) to keep session variables isolated.
@@ -80,6 +80,8 @@ Generate a JSON report that a static frontend can consume:
 go run ./cmd/shiro-report -input reports -output web/public
 ```
 
+`cmd/shiro-report` now defaults to reading `.report`; pass `-input` when your run output directory is different (for example the default runner output `reports/`).
+
 For S3 inputs, provide a config with `storage.s3` enabled:
 
 ```bash
@@ -98,9 +100,31 @@ Or run both steps with:
 make report-web
 ```
 
-Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `report.json` at runtime, so you only need to update the JSON to refresh the view.
+Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `reports.json` (fallback `report.json`) at runtime, so you only need to update the JSON to refresh the view.
 
 The report JSON now includes `plan_signature` (QPG EXPLAIN hash) and `plan_signature_format` (plain/json); the UI can filter by both.
+Each case entry also includes `case_id`, `archive_name`, `archive_codec`, `archive_url`, and `report_url`.
+
+To publish report manifests to an S3-compatible endpoint (for example Cloudflare R2) and sync metadata to Cloudflare Worker + D1:
+
+```bash
+go run ./cmd/shiro-report \
+  -input s3://my-bucket/shiro-reports/ \
+  -config config.yaml \
+  -output web/public \
+  -publish-endpoint https://<accountid>.r2.cloudflarestorage.com \
+  -publish-region auto \
+  -publish-bucket <r2-bucket> \
+  -publish-prefix shiro/manifests/latest \
+  -publish-access-key-id <r2-access-key> \
+  -publish-secret-access-key <r2-secret-key> \
+  -publish-public-base-url https://<r2-public-domain> \
+  -worker-sync-endpoint https://<worker-domain>/api/v1/cases/sync \
+  -worker-sync-token <worker-api-token>
+```
+
+When publish/sync flags are omitted, `cmd/shiro-report` keeps existing local behavior.
+Cloudflare metadata/search worker code is under `web/cloudflare-worker/`.
 
 ## Dynamic state dump
 At each report interval, Shiro writes `dynamic_state.json` in the working directory with bandit/QPG/feature weights so runs can be resumed or compared.
@@ -122,4 +146,6 @@ At each report interval, Shiro writes `dynamic_state.json` in the working direct
 | Testing Database Engines via Query Plan Guidance (QPG) | QPG | Guides test-case generation toward diverse query plans by mutating database state to trigger previously unseen plans. |
 
 ## S3 upload
-Configure `storage.s3` in `config.yaml`. When enabled, each case directory is uploaded as-is and the summary includes `upload_location`.
+Configure `storage.s3` in `config.yaml`. When enabled, each case is uploaded under UUID path (`s3://<bucket>/<prefix>/<case_id>/...`), and the summary includes `upload_location`.
+
+When `storage.s3.enabled=false`, Shiro keeps legacy local report layout (`case_XXXX_uuid` directories) and summary-only artifact flow.

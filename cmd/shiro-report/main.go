@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,6 +43,7 @@ type CaseEntry struct {
 	Timestamp           string                 `json:"timestamp"`
 	TiDBVersion         string                 `json:"tidb_version"`
 	TiDBCommit          string                 `json:"tidb_commit"`
+	ErrorReason         string                 `json:"error_reason"`
 	PlanSignature       string                 `json:"plan_signature"`
 	PlanSigFormat       string                 `json:"plan_signature_format"`
 	Expected            string                 `json:"expected"`
@@ -51,7 +53,12 @@ type CaseEntry struct {
 	NoRECOptimizedSQL   string                 `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL string                 `json:"norec_unoptimized_sql"`
 	NoRECPredicate      string                 `json:"norec_predicate"`
+	CaseID              string                 `json:"case_id"`
 	CaseDir             string                 `json:"case_dir"`
+	ArchiveName         string                 `json:"archive_name"`
+	ArchiveCodec        string                 `json:"archive_codec"`
+	ArchiveURL          string                 `json:"archive_url"`
+	ReportURL           string                 `json:"report_url"`
 	SQL                 []string               `json:"sql"`
 	PlanReplay          string                 `json:"plan_replayer"`
 	UploadLocation      string                 `json:"upload_location"`
@@ -71,12 +78,51 @@ type loadOptions struct {
 	MaxZipBytes int
 }
 
+type publishOptions struct {
+	S3            config.S3Config
+	PublicBaseURL string
+}
+
+type workerSyncOptions struct {
+	Endpoint string
+	Token    string
+}
+
+type workerSyncPayload struct {
+	ManifestURL string           `json:"manifest_url"`
+	GeneratedAt string           `json:"generated_at"`
+	Source      string           `json:"source"`
+	Cases       []workerSyncCase `json:"cases"`
+}
+
+type workerSyncCase struct {
+	CaseID         string `json:"case_id"`
+	Oracle         string `json:"oracle"`
+	Timestamp      string `json:"timestamp"`
+	ErrorReason    string `json:"error_reason"`
+	Error          string `json:"error"`
+	UploadLocation string `json:"upload_location"`
+	ReportURL      string `json:"report_url"`
+	ArchiveURL     string `json:"archive_url"`
+}
+
 func main() {
-	input := flag.String("input", "reports", "input directory or s3://bucket/prefix")
-	output := flag.String("output", "web/public", "output directory for report.json")
+	input := flag.String("input", ".report", "input directory or s3://bucket/prefix")
+	output := flag.String("output", "web/public", "output directory for report.json/reports.json")
 	configPath := flag.String("config", "config.yaml", "path to config file (for S3 access)")
 	maxBytes := flag.Int("max-bytes", 64*1024, "max bytes to read per case file")
 	maxZipBytes := flag.Int("max-zip-bytes", 20*1024*1024, "max bytes to read for plan_replayer.zip")
+	publishEndpoint := flag.String("publish-endpoint", "", "S3-compatible endpoint for publishing report.json/reports.json (for example Cloudflare R2)")
+	publishRegion := flag.String("publish-region", "auto", "region for publish endpoint")
+	publishBucket := flag.String("publish-bucket", "", "target bucket for publishing report manifests")
+	publishPrefix := flag.String("publish-prefix", "", "target prefix for publishing report manifests")
+	publishAccessKey := flag.String("publish-access-key-id", "", "access key for publishing report manifests")
+	publishSecret := flag.String("publish-secret-access-key", "", "secret key for publishing report manifests")
+	publishSessionToken := flag.String("publish-session-token", "", "session token for publishing report manifests")
+	publishUsePathStyle := flag.Bool("publish-use-path-style", true, "whether to use path-style S3 addressing for publish endpoint")
+	publishPublicBaseURL := flag.String("publish-public-base-url", "", "public base URL for published manifests")
+	workerSyncEndpoint := flag.String("worker-sync-endpoint", "", "cloudflare worker sync endpoint for D1 metadata upsert")
+	workerSyncToken := flag.String("worker-sync-token", "", "bearer token used for worker sync endpoint")
 	flag.Parse()
 
 	opts := loadOptions{MaxBytes: *maxBytes, MaxZipBytes: *maxZipBytes}
@@ -116,7 +162,41 @@ func main() {
 	if err := writeJSON(*output, site); err != nil {
 		fail("write json: %v", err)
 	}
-	fmt.Printf("report json written to %s\n", filepath.Join(*output, "report.json"))
+
+	publishCfg := publishOptions{
+		S3: config.S3Config{
+			Enabled:         strings.TrimSpace(*publishBucket) != "",
+			Endpoint:        strings.TrimSpace(*publishEndpoint),
+			Region:          strings.TrimSpace(*publishRegion),
+			Bucket:          strings.TrimSpace(*publishBucket),
+			Prefix:          strings.TrimSpace(*publishPrefix),
+			AccessKeyID:     strings.TrimSpace(*publishAccessKey),
+			SecretAccessKey: strings.TrimSpace(*publishSecret),
+			SessionToken:    strings.TrimSpace(*publishSessionToken),
+			UsePathStyle:    *publishUsePathStyle,
+		},
+		PublicBaseURL: strings.TrimSpace(*publishPublicBaseURL),
+	}
+	manifestURL, err := publishReports(ctx, publishCfg, *output)
+	if err != nil {
+		fail("publish reports: %v", err)
+	}
+	if manifestURL != "" {
+		fmt.Printf("published report manifests to %s\n", manifestURL)
+	}
+
+	syncCfg := workerSyncOptions{
+		Endpoint: strings.TrimSpace(*workerSyncEndpoint),
+		Token:    strings.TrimSpace(*workerSyncToken),
+	}
+	if err := syncWorkerMetadata(ctx, syncCfg, manifestURL, site); err != nil {
+		fail("sync worker metadata: %v", err)
+	}
+	if syncCfg.Endpoint != "" {
+		fmt.Printf("synced %d cases to %s\n", len(site.Cases), syncCfg.Endpoint)
+	}
+
+	fmt.Printf("report json written to %s and %s\n", filepath.Join(*output, "report.json"), filepath.Join(*output, "reports.json"))
 }
 
 func fail(format string, args ...any) {
@@ -125,20 +205,27 @@ func fail(format string, args ...any) {
 }
 
 func loadLocalCases(root string, opts loadOptions) ([]CaseEntry, error) {
-	pattern := filepath.Join(root, "case_*", "summary.json")
-	summaries, err := filepath.Glob(pattern)
+	dirs, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
-	cases := make([]CaseEntry, 0, len(summaries))
-	for _, path := range summaries {
-		dir := filepath.Dir(path)
+	cases := make([]CaseEntry, 0, len(dirs))
+	for _, dirEntry := range dirs {
+		if !dirEntry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, dirEntry.Name())
+		if _, err := os.Stat(filepath.Join(dir, "summary.json")); err != nil {
+			continue
+		}
 		entry, err := readCaseFromDir(dir, opts)
 		if err != nil {
 			continue
 		}
 		entry.Dir = dir
-		entry.ID = filepath.Base(dir)
+		if strings.TrimSpace(entry.ID) == "" {
+			entry.ID = dirEntry.Name()
+		}
 		cases = append(cases, entry)
 	}
 	return cases, nil
@@ -159,18 +246,27 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 	files["schema.sql"] = mustReadFile(filepath.Join(dir, "schema.sql"), opts.MaxBytes)
 	files["inserts.sql"] = mustReadFile(filepath.Join(dir, "inserts.sql"), opts.MaxBytes)
 	files["data.tsv"] = mustReadFile(filepath.Join(dir, "data.tsv"), opts.MaxBytes)
+	files["report.json"] = mustReadFile(filepath.Join(dir, "report.json"), opts.MaxBytes)
 	if _, err := os.Stat(filepath.Join(dir, "plan_replayer.zip")); err == nil {
 		files["plan_replayer.zip"] = FileContent{Name: "plan_replayer.zip", Content: "(binary)", Truncated: true}
+	}
+	if _, err := os.Stat(filepath.Join(dir, report.CaseArchiveName)); err == nil {
+		files[report.CaseArchiveName] = FileContent{Name: report.CaseArchiveName, Content: "(binary)", Truncated: true}
 	}
 	commit := extractCommit(summary.TiDBVersion)
 	if commit == "" {
 		commit = extractCommitFromPlanReplayer(filepath.Join(dir, "plan_replayer.zip"), opts.MaxZipBytes)
 	}
+	caseID := caseIDFromSummary(summary, filepath.Base(dir))
+	caseDir := caseDirFromSummary(summary, caseID)
+	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName)
 	return CaseEntry{
+		ID:                  caseID,
 		Oracle:              summary.Oracle,
 		Timestamp:           summary.Timestamp,
 		TiDBVersion:         summary.TiDBVersion,
 		TiDBCommit:          commit,
+		ErrorReason:         summaryErrorReason(summary),
 		PlanSignature:       summary.PlanSignature,
 		PlanSigFormat:       summary.PlanSigFormat,
 		Expected:            summary.Expected,
@@ -180,7 +276,12 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
 		NoRECPredicate:      summary.NoRECPredicate,
-		CaseDir:             summary.CaseDir,
+		CaseID:              caseID,
+		CaseDir:             caseDir,
+		ArchiveName:         summary.ArchiveName,
+		ArchiveCodec:        summary.ArchiveCodec,
+		ArchiveURL:          archiveURL,
+		ReportURL:           reportURL,
 		SQL:                 summary.SQL,
 		PlanReplay:          summary.PlanReplay,
 		UploadLocation:      summary.UploadLocation,
@@ -219,7 +320,14 @@ func writeJSON(output string, site SiteData) error {
 	if err := os.MkdirAll(output, 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(filepath.Join(output, "report.json"))
+	if err := writeJSONFile(filepath.Join(output, "report.json"), site); err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(output, "reports.json"), site)
+}
+
+func writeJSONFile(path string, site SiteData) error {
+	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
@@ -264,7 +372,9 @@ func loadS3Cases(ctx context.Context, cfg config.S3Config, bucket, prefix string
 			continue
 		}
 		entry.Dir = "s3://" + bucket + "/" + dir
-		entry.ID = filepath.Base(dir)
+		if strings.TrimSpace(entry.ID) == "" {
+			entry.ID = filepath.Base(dir)
+		}
 		cases = append(cases, entry)
 	}
 	return cases, nil
@@ -306,24 +416,43 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	files["schema.sql"] = readObjectFile(ctx, client, bucket, dir+"/schema.sql", opts.MaxBytes)
 	files["inserts.sql"] = readObjectFile(ctx, client, bucket, dir+"/inserts.sql", opts.MaxBytes)
 	files["data.tsv"] = readObjectFile(ctx, client, bucket, dir+"/data.tsv", opts.MaxBytes)
+	files["report.json"] = readObjectFile(ctx, client, bucket, dir+"/report.json", opts.MaxBytes)
+	if objectExists(ctx, client, bucket, dir+"/plan_replayer.zip") {
+		files["plan_replayer.zip"] = FileContent{Name: "plan_replayer.zip", Content: "(binary)", Truncated: true}
+	}
+	archiveKey := dir + "/" + report.CaseArchiveName
+	if objectExists(ctx, client, bucket, archiveKey) {
+		files[report.CaseArchiveName] = FileContent{Name: report.CaseArchiveName, Content: "(binary)", Truncated: true}
+	}
 	commit := extractCommit(summary.TiDBVersion)
 	if commit == "" {
 		commit = extractCommitFromPlanReplayerS3(ctx, client, bucket, dir+"/plan_replayer.zip", opts.MaxZipBytes)
 	}
+	caseID := caseIDFromSummary(summary, filepath.Base(dir))
+	caseDir := caseDirFromSummary(summary, caseID)
+	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName)
 	return CaseEntry{
+		ID:                  caseID,
 		Oracle:              summary.Oracle,
 		Timestamp:           summary.Timestamp,
 		TiDBVersion:         summary.TiDBVersion,
 		TiDBCommit:          commit,
+		ErrorReason:         summaryErrorReason(summary),
 		PlanSignature:       summary.PlanSignature,
 		PlanSigFormat:       summary.PlanSigFormat,
 		Expected:            summary.Expected,
 		Actual:              summary.Actual,
 		Error:               summary.Error,
+		Flaky:               summary.Flaky,
 		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
 		NoRECPredicate:      summary.NoRECPredicate,
-		CaseDir:             summary.CaseDir,
+		CaseID:              caseID,
+		CaseDir:             caseDir,
+		ArchiveName:         summary.ArchiveName,
+		ArchiveCodec:        summary.ArchiveCodec,
+		ArchiveURL:          archiveURL,
+		ReportURL:           reportURL,
 		SQL:                 summary.SQL,
 		PlanReplay:          summary.PlanReplay,
 		UploadLocation:      summary.UploadLocation,
@@ -338,6 +467,14 @@ func readObjectFile(ctx context.Context, client *s3.Client, bucket, key string, 
 		return FileContent{Name: filepath.Base(key)}
 	}
 	return FileContent{Name: filepath.Base(key), Content: content, Truncated: truncated}
+}
+
+func objectExists(ctx context.Context, client *s3.Client, bucket, key string) bool {
+	_, err := client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	return err == nil
 }
 
 func readObjectBytesLimited(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, bool, error) {
@@ -416,6 +553,153 @@ func s3ClientFromConfig(ctx context.Context, cfg config.S3Config) (*s3.Client, e
 		o.UsePathStyle = cfg.UsePathStyle
 	})
 	return client, nil
+}
+
+func caseIDFromSummary(summary report.Summary, fallback string) string {
+	if id := strings.TrimSpace(summary.CaseID); id != "" {
+		return id
+	}
+	if id := strings.TrimSpace(summary.CaseDir); id != "" {
+		return id
+	}
+	return fallback
+}
+
+func caseDirFromSummary(summary report.Summary, caseID string) string {
+	if v := strings.TrimSpace(summary.CaseDir); v != "" {
+		return v
+	}
+	return caseID
+}
+
+func deriveObjectURLs(uploadLocation, archiveName string) (reportURL string, archiveURL string) {
+	base := strings.TrimSpace(uploadLocation)
+	if base == "" {
+		return "", ""
+	}
+	reportURL = objectURL(base, "report.json")
+	if strings.TrimSpace(archiveName) != "" {
+		archiveURL = objectURL(base, archiveName)
+	}
+	return reportURL, archiveURL
+}
+
+func objectURL(base, name string) string {
+	trimmedBase := strings.TrimRight(strings.TrimSpace(base), "/")
+	trimmedName := strings.TrimLeft(strings.TrimSpace(name), "/")
+	if trimmedBase == "" || trimmedName == "" {
+		return ""
+	}
+	return trimmedBase + "/" + trimmedName
+}
+
+func summaryErrorReason(summary report.Summary) string {
+	if summary.Details == nil {
+		return ""
+	}
+	v, ok := summary.Details["error_reason"]
+	if !ok {
+		return ""
+	}
+	reason, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(reason)
+}
+
+func publishReports(ctx context.Context, opts publishOptions, output string) (string, error) {
+	if !opts.S3.Enabled {
+		return "", nil
+	}
+	if strings.TrimSpace(opts.S3.Bucket) == "" {
+		return "", fmt.Errorf("publish bucket is required when publish is enabled")
+	}
+	client, err := s3ClientFromConfig(ctx, opts.S3)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range []string{"report.json", "reports.json"} {
+		data, err := os.ReadFile(filepath.Join(output, name))
+		if err != nil {
+			return "", err
+		}
+		key := objectKey(opts.S3.Prefix, name)
+		_, err = client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:        aws.String(opts.S3.Bucket),
+			Key:           aws.String(key),
+			Body:          bytes.NewReader(data),
+			ContentLength: aws.Int64(int64(len(data))),
+			ContentType:   aws.String("application/json"),
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	reportKey := objectKey(opts.S3.Prefix, "reports.json")
+	if strings.TrimSpace(opts.PublicBaseURL) != "" {
+		return objectURL(opts.PublicBaseURL, reportKey), nil
+	}
+	return fmt.Sprintf("s3://%s/%s", opts.S3.Bucket, reportKey), nil
+}
+
+func objectKey(prefix, name string) string {
+	trimmedPrefix := strings.Trim(prefix, "/")
+	trimmedName := strings.TrimLeft(strings.TrimSpace(name), "/")
+	if trimmedPrefix == "" {
+		return trimmedName
+	}
+	return trimmedPrefix + "/" + trimmedName
+}
+
+func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL string, site SiteData) error {
+	if strings.TrimSpace(opts.Endpoint) == "" {
+		return nil
+	}
+	payload := workerSyncPayload{
+		ManifestURL: manifestURL,
+		GeneratedAt: site.GeneratedAt,
+		Source:      site.Source,
+		Cases:       make([]workerSyncCase, 0, len(site.Cases)),
+	}
+	for _, c := range site.Cases {
+		caseID := strings.TrimSpace(c.CaseID)
+		if caseID == "" {
+			caseID = strings.TrimSpace(c.ID)
+		}
+		payload.Cases = append(payload.Cases, workerSyncCase{
+			CaseID:         caseID,
+			Oracle:         strings.TrimSpace(c.Oracle),
+			Timestamp:      strings.TrimSpace(c.Timestamp),
+			ErrorReason:    strings.TrimSpace(c.ErrorReason),
+			Error:          strings.TrimSpace(c.Error),
+			UploadLocation: strings.TrimSpace(c.UploadLocation),
+			ReportURL:      strings.TrimSpace(c.ReportURL),
+			ArchiveURL:     strings.TrimSpace(c.ArchiveURL),
+		})
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, opts.Endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token := strings.TrimSpace(opts.Token); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer util.CloseWithErr(resp.Body, "worker sync response")
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return nil
+	}
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	return fmt.Errorf("worker sync failed status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(msg)))
 }
 
 var commitPattern = regexp.MustCompile(`(?i)(?:git commit hash|git hash|commit|git commit)\s*:\s*([0-9a-f]{7,40})`)

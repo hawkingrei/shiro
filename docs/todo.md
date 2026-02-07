@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-05. Added parser fast-path guard; remaining optional parser LRU.
+Last review: 2026-02-06. Added Cloudflare worker skeleton under `web/cloudflare-worker`, optional manifest publish/sync in `cmd/shiro-report`, and in-page similar-case UX.
 
 ## Generator / Oracles
 
@@ -21,6 +21,9 @@ Last review: 2026-02-05. Added parser fast-path guard; remaining optional parser
 3. Update report UI to load the index first, then fetch individual `summary.json` files on demand; add paging and client-side caching; keep a compatibility mode to read legacy `report.json` when index is missing.
 4. Add `report_base_url` (or reuse existing config) to allow loading reports from a public S3/HTTP endpoint; ensure CORS guidance is documented.
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+6. Cloudflare metadata plane: Workers + D1 append/update case records (`uuid`, labels, error_type, linked_issue, S3 keys, R2 manifest URL) when new manifests arrive. (skeleton done in `web/cloudflare-worker`; production auth/rate-limit/audit pending)
+7. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
+8. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
 
 ## Coverage / Guidance
 

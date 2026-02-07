@@ -17,6 +17,7 @@ type CaseEntry = {
   timestamp: string;
   tidb_version: string;
   tidb_commit: string;
+  error_reason?: string;
   plan_signature: string;
   plan_signature_format: string;
   expected: string;
@@ -26,7 +27,12 @@ type CaseEntry = {
   norec_optimized_sql: string;
   norec_unoptimized_sql: string;
   norec_predicate: string;
+  case_id?: string;
   case_dir: string;
+  archive_name?: string;
+  archive_codec?: string;
+  archive_url?: string;
+  report_url?: string;
   sql: string[];
   plan_replayer: string;
   upload_location: string;
@@ -38,6 +44,23 @@ type ReportPayload = {
   generated_at: string;
   source: string;
   cases: CaseEntry[];
+};
+
+type SimilarCase = {
+  case_id?: string;
+  oracle?: string;
+  error_reason?: string;
+  error_type?: string;
+  labels?: string[];
+  similarity_score?: number;
+  report_url?: string;
+  archive_url?: string;
+};
+
+type SimilarPayload = {
+  target?: SimilarCase;
+  answer?: string;
+  matches?: SimilarCase[];
 };
 
 const detailString = (details: Record<string, unknown> | null, key: string): string => {
@@ -56,6 +79,41 @@ const detailBool = (details: Record<string, unknown> | null, key: string): boole
 
 const caseHasTruncation = (c: CaseEntry): boolean => {
   return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
+};
+
+const objectURL = (base: string, name: string): string => {
+  const trimmedBase = (base || "").trim().replace(/\/+$/, "");
+  const trimmedName = (name || "").trim().replace(/^\/+/, "");
+  if (!trimmedBase || !trimmedName) return "";
+  return `${trimmedBase}/${trimmedName}`;
+};
+
+const caseID = (c: CaseEntry): string => {
+  return (c.case_id || c.case_dir || c.id || "").trim();
+};
+
+const caseArchiveURL = (c: CaseEntry): string => {
+  if ((c.archive_url || "").trim()) return (c.archive_url || "").trim();
+  return objectURL(c.upload_location || "", c.archive_name || "");
+};
+
+const caseReportURL = (c: CaseEntry): string => {
+  if ((c.report_url || "").trim()) return (c.report_url || "").trim();
+  return objectURL(c.upload_location || "", "report.json");
+};
+
+const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
+
+const similarCasesURL = (c: CaseEntry): string => {
+  const cid = caseID(c);
+  if (!workerBaseURL || !cid) return "";
+  return `${workerBaseURL}/api/v1/cases/${encodeURIComponent(cid)}/similar?limit=20&ai=1`;
+};
+
+const workerDownloadURL = (c: CaseEntry): string => {
+  const cid = caseID(c);
+  if (!workerBaseURL || !cid) return "";
+  return `${workerBaseURL}/api/v1/cases/${encodeURIComponent(cid)}/download`;
 };
 
 const copyText = async (label: string, text: string) => {
@@ -149,6 +207,8 @@ const renderBlock = (block: CaseBlock | null) => {
 };
 
 const reasonForCase = (c: CaseEntry): string => {
+  const explicit = (c.error_reason || "").trim();
+  if (explicit) return explicit;
   if (c.error) return "exec_error";
   const details = c.details as Record<string, unknown> | null;
   const missWithoutWarnings = Boolean(details && details.miss_without_warnings);
@@ -162,6 +222,9 @@ const reasonForCase = (c: CaseEntry): string => {
 
 export default function Page() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
+  const [similarByCase, setSimilarByCase] = useState<Record<string, SimilarPayload>>({});
+  const [similarLoadingByCase, setSimilarLoadingByCase] = useState<Record<string, boolean>>({});
+  const [similarErrorByCase, setSimilarErrorByCase] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
   const [oracle, setOracle] = useState("");
   const [commit, setCommit] = useState("");
@@ -169,23 +232,38 @@ export default function Page() {
   const [planSigFormat, setPlanSigFormat] = useState("");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [showExplainSame, setShowExplainSame] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "waterfall">("list");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("./report.json", { cache: "no-cache" })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`failed to load report.json: ${res.status}`);
+    let canceled = false;
+    const load = async () => {
+      let lastErr: Error | null = null;
+      for (const url of ["./reports.json", "./report.json"]) {
+        try {
+          const res = await fetch(url, { cache: "no-cache" });
+          if (!res.ok) {
+            throw new Error(`failed to load ${url}: ${res.status}`);
+          }
+          const data: ReportPayload = await res.json();
+          if (!canceled) {
+            setPayload(data);
+            setError(null);
+          }
+          return;
+        } catch (err) {
+          lastErr = err instanceof Error ? err : new Error(String(err));
         }
-        return res.json();
-      })
-      .then((data: ReportPayload) => {
-        setPayload(data);
-      })
-      .catch((err: Error) => {
-        setError(err.message);
-      });
+      }
+      if (!canceled && lastErr) {
+        setError(lastErr.message);
+      }
+    };
+    void load();
+    return () => {
+      canceled = true;
+    };
   }, []);
 
   const cases = useMemo(() => payload?.cases ?? [], [payload]);
@@ -245,6 +323,27 @@ export default function Page() {
     });
   }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, q]);
 
+  const loadSimilarCases = async (cid: string) => {
+    const caseIDValue = (cid || "").trim();
+    if (!workerBaseURL || !caseIDValue) return;
+    setSimilarLoadingByCase((prev) => ({ ...prev, [caseIDValue]: true }));
+    setSimilarErrorByCase((prev) => ({ ...prev, [caseIDValue]: "" }));
+    try {
+      const url = `${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseIDValue)}/similar?limit=20&ai=1`;
+      const res = await fetch(url, { cache: "no-cache" });
+      if (!res.ok) {
+        throw new Error(`failed to load similar cases: ${res.status}`);
+      }
+      const data: SimilarPayload = await res.json();
+      setSimilarByCase((prev) => ({ ...prev, [caseIDValue]: data }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSimilarErrorByCase((prev) => ({ ...prev, [caseIDValue]: msg }));
+    } finally {
+      setSimilarLoadingByCase((prev) => ({ ...prev, [caseIDValue]: false }));
+    }
+  };
+
   const summary = useMemo(() => {
     const byReason = new Map<string, number>();
     const byOracle = new Map<string, number>();
@@ -275,7 +374,7 @@ export default function Page() {
   }, [filtered]);
 
   if (error) {
-    return <div className="page"><div className="error">Failed to load report.json: {error}</div></div>;
+    return <div className="page"><div className="error">Failed to load reports.json/report.json: {error}</div></div>;
   }
 
   return (
@@ -285,7 +384,7 @@ export default function Page() {
           <div className="hero__kicker">Shiro Fuzzing</div>
           <h1>Case Report Index</h1>
           <p className="hero__sub">
-            Static frontend reading <code>report.json</code>. Deploy to GitHub Pages or Vercel and update the JSON to refresh.
+            Static frontend reading <code>reports.json</code> with fallback to <code>report.json</code>. Deploy to GitHub Pages or Vercel and update the JSON to refresh.
           </p>
           <div className="hero__meta">
             <span>Generated: {payload?.generated_at ?? "-"}</span>
@@ -309,38 +408,42 @@ export default function Page() {
                 </option>
               ))}
             </select>
-          <select value={commit} onChange={(e) => setCommit(e.target.value)}>
-            <option value="">All commits</option>
-            {commitOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-          <select value={planSig} onChange={(e) => setPlanSig(e.target.value)}>
-            <option value="">All plan signatures</option>
-            {planSigOptions.map((item) => (
-              <option key={item} value={item}>
-                {item.slice(0, 12)}
-              </option>
-            ))}
-          </select>
-          <select value={planSigFormat} onChange={(e) => setPlanSigFormat(e.target.value)}>
-            <option value="">All plan formats</option>
-            {planSigFormatOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-          <select value={reason} onChange={(e) => setReason(e.target.value)}>
-            <option value="">All reasons</option>
-            {reasonOptions.map((item) => (
-              <option key={item} value={item}>
-                {item.replace(/_/g, " ")}
-              </option>
-            ))}
-          </select>
+            <select value={commit} onChange={(e) => setCommit(e.target.value)}>
+              <option value="">All commits</option>
+              {commitOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+            <select value={planSig} onChange={(e) => setPlanSig(e.target.value)}>
+              <option value="">All plan signatures</option>
+              {planSigOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item.slice(0, 12)}
+                </option>
+              ))}
+            </select>
+            <select value={planSigFormat} onChange={(e) => setPlanSigFormat(e.target.value)}>
+              <option value="">All plan formats</option>
+              {planSigFormatOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+            <select value={reason} onChange={(e) => setReason(e.target.value)}>
+              <option value="">All reasons</option>
+              {reasonOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <select value={viewMode} onChange={(e) => setViewMode(e.target.value as "list" | "waterfall")}>
+              <option value="list">List view</option>
+              <option value="waterfall">Waterfall view</option>
+            </select>
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
@@ -400,8 +503,19 @@ export default function Page() {
         </div>
       </section>
 
-      <main className="cases">
+      <main className={`cases ${viewMode === "waterfall" ? "cases--waterfall" : ""}`}>
         {filtered.map((c, idx) => {
+          const cid = caseID(c);
+          const archiveURL = caseArchiveURL(c);
+          const workerArchiveURL = workerDownloadURL(c);
+          const downloadURL = workerArchiveURL || archiveURL;
+          const reportURL = caseReportURL(c);
+          const similarURL = similarCasesURL(c);
+          const similarPayload = cid ? similarByCase[cid] : undefined;
+          const similarList = similarPayload?.matches || [];
+          const similarAnswer = (similarPayload?.answer || "").trim();
+          const similarLoading = cid ? Boolean(similarLoadingByCase[cid]) : false;
+          const similarError = cid ? (similarErrorByCase[cid] || "").trim() : "";
           const reasonLabel = reasonForCase(c);
           const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
           const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
@@ -524,13 +638,13 @@ export default function Page() {
             diffBlocks.push(optimizedDiffBlock);
           }
           return (
-            <details className="case" key={c.id || idx}>
+            <details className="case" key={c.id || cid || idx}>
               <summary>
                 <span className="case__title">
                   {c.timestamp} {c.oracle}
                 </span>
                 <span className="case__toggle" aria-hidden="true" />
-                {c.case_dir && <span className="pill">{c.case_dir}</span>}
+                {cid && <span className="pill">{cid}</span>}
                 {c.flaky && <span className="pill pill--flaky">flaky</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
                 {(expectedRowsTruncated || actualRowsTruncated) && (
@@ -548,6 +662,85 @@ export default function Page() {
                 {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
               </summary>
               <div className="case__grid">
+                {(downloadURL || reportURL || similarURL) && (
+                  <div className="case__actions">
+                    {downloadURL && (
+                      <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer">
+                        Download archive
+                      </a>
+                    )}
+                    {reportURL && (
+                      <a className="action-link" href={reportURL} target="_blank" rel="noreferrer">
+                        Open report.json
+                      </a>
+                    )}
+                    {similarURL && (
+                      <a className="action-link" href={similarURL} target="_blank" rel="noreferrer">
+                        Open similar API
+                      </a>
+                    )}
+                    {workerBaseURL && cid && (
+                      <button
+                        className="action-link action-link--button"
+                        type="button"
+                        onClick={() => void loadSimilarCases(cid)}
+                        disabled={similarLoading}
+                      >
+                        {similarLoading ? "Loading similar..." : "Find similar in page"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {(similarError || similarAnswer || similarList.length > 0) && (
+                  <div className="similar-panel">
+                    <LabelRow label="Similar bugs" />
+                    {similarError && <div className="error">{similarError}</div>}
+                    {similarAnswer && <p className="similar-panel__answer">{similarAnswer}</p>}
+                    {similarList.length > 0 && (
+                      <div className="similar-panel__list">
+                        {similarList.map((item, itemIdx) => {
+                          const sid = (item.case_id || "").trim();
+                          const score = typeof item.similarity_score === "number" ? item.similarity_score : null;
+                          const itemArchiveURL = (item.archive_url || "").trim();
+                          const itemReportURL = (item.report_url || "").trim();
+                          return (
+                            <div className="similar-panel__item" key={`${sid || "similar"}-${itemIdx}`}>
+                              <div className="similar-panel__meta">
+                                <span className="pill">{sid || `#${itemIdx + 1}`}</span>
+                                {item.oracle && <span className="pill">{item.oracle}</span>}
+                                {item.error_reason && <span className="pill">{item.error_reason}</span>}
+                                {item.error_type && <span className="pill">{item.error_type}</span>}
+                                {score !== null && <span className="pill">score {score.toFixed(3)}</span>}
+                              </div>
+                              <div className="similar-panel__actions">
+                                {itemArchiveURL && (
+                                  <a className="action-link" href={itemArchiveURL} target="_blank" rel="noreferrer">
+                                    Archive
+                                  </a>
+                                )}
+                                {itemReportURL && (
+                                  <a className="action-link" href={itemReportURL} target="_blank" rel="noreferrer">
+                                    Report
+                                  </a>
+                                )}
+                                {workerBaseURL && sid && (
+                                  <a
+                                    className="action-link"
+                                    href={`${workerBaseURL}/api/v1/cases/${encodeURIComponent(sid)}/similar?limit=20&ai=1`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    More like this
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="case__meta">
                   {c.error && (
                     <>

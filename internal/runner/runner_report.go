@@ -134,7 +134,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			RowCount: result.Truth.RowCount,
 		}
 	}
+	summary.CaseID = caseData.ID
 	summary.CaseDir = filepath.Base(caseData.Dir)
+	if r.cfg.Storage.S3.Enabled {
+		summary.CaseDir = caseData.ID
+		summary.ArchiveName = report.CaseArchiveName
+		summary.ArchiveCodec = report.CaseArchiveCodec
+	}
 	if result.Oracle == "NoREC" && result.Details != nil {
 		if optimized, ok := result.Details["norec_optimized_sql"].(string); ok {
 			summary.NoRECOptimizedSQL = optimized
@@ -180,7 +186,6 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			_ = r.reporter.WriteText(caseData, "actual.tsv", actualRows)
 		}
 	}
-	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
@@ -200,11 +205,26 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		}
 	}
 
+	_ = r.reporter.WriteSummary(caseData, summary)
+	if r.cfg.Storage.S3.Enabled {
+		_ = r.reporter.WriteReport(caseData, summary)
+		if _, _, archiveErr := r.reporter.WriteCaseArchive(caseData); archiveErr != nil {
+			util.Warnf("case archive failed dir=%s err=%v", caseData.Dir, archiveErr)
+			summary.ArchiveName = ""
+			summary.ArchiveCodec = ""
+			_ = r.reporter.WriteSummary(caseData, summary)
+			_ = r.reporter.WriteReport(caseData, summary)
+		}
+	}
+
 	if r.uploader.Enabled() {
 		location, err := r.uploader.UploadDir(ctx, caseData.Dir)
 		if err == nil {
 			summary.UploadLocation = location
 			_ = r.reporter.WriteSummary(caseData, summary)
+			if r.cfg.Storage.S3.Enabled {
+				_ = r.reporter.WriteReport(caseData, summary)
+			}
 		}
 	}
 

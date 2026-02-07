@@ -19,6 +19,15 @@ Links:
 
 ## Recent updates
 
+- Added Cloudflare metadata plane skeleton under `web/cloudflare-worker/` with D1 schema, sync/list/patch/download APIs, and per-case similar-bug endpoint (`/api/v1/cases/:case_id/similar`) with optional AI summary (2026-02-06).
+- Extended `cmd/shiro-report` with optional manifest publish flags (R2/S3-compatible) and optional Worker metadata sync callback; default behavior remains unchanged when flags are omitted (2026-02-06).
+- Updated web report UI without changing core layout: added optional in-page similar-bug panel, Worker-backed archive download path, and `reports.json` fallback loading improvements (2026-02-06).
+- Added compatibility guardrail: when `storage.s3.enabled=false`, keep legacy local reporting flow (`case_XXXX_uuid` directories and summary-only artifacts); enable UUID-as-path, per-case `report.json`, and `case.tar.zst` only in S3 cloud mode (2026-02-06).
+- Updated report frontend to load `reports.json` with fallback to `report.json`, added waterfall/list view toggle, and added per-case archive/report download links (2026-02-06).
+- Completed P1-P4 for fuzz cloud reporting baseline: switched case directories to UUIDv7 IDs, aligned runner/report/shiro-report `case_id`, generated per-case `report.json` plus `case.tar.zst`, uploaded S3 paths as `s3://<bucket>/<uuid>/...`, and made `cmd/shiro-report` emit both `report.json` and `reports.json` with archive/report URLs in entries (2026-02-06).
+- Created branch `feat/fuzz-display-query-capability` in dedicated worktree for fuzz display/query capability enhancement; currently in requirements phase before implementation (2026-02-06).
+- Captured requirements: use UUIDv7 as canonical bug id across runner/report/frontend, upload artifacts under `s3://<bucket>/<uuid>/`, push report manifests to Cloudflare for search, and support frontend archive download per case with Cloudflare Worker+D1+AI search infra (2026-02-06).
+- Chosen cloud split for this project: case artifacts remain in S3, aggregated `reports.json` is published to Cloudflare R2, and metadata/tagging/search APIs run on Cloudflare Workers + D1 + AI search (2026-02-06).
 - Reviewed logs/reports; EET cases show schema column missing errors, CODDTest mostly skips on aggregate/join/predicate/type, GroundTruth key_missing dominates, EET skips on ORDER BY constraints, and non-EET error reasons lack detail (2026-02-06).
 - Added QuerySpec and expanded SelectQueryBuilder constraints to move oracle guardrails into build-time checks (2026-02-06).
 - Added QueryAnalysis and wired oracle query helpers to reuse generator analysis (2026-02-06).
