@@ -210,6 +210,9 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 			sawEmptyQuery = true
 			continue
 		}
+		// Avoid ambiguous USING resolution on joined left factors by rewriting
+		// USING into explicit ON predicates before guardrails/extraction.
+		rewriteUsingToOn(query, state)
 		if shouldSkipGroundTruth(query) {
 			sawGuardrail = true
 			continue

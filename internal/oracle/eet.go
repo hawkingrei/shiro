@@ -76,6 +76,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	if queryHasUsingQualifiedRefs(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
 	}
+	if gen != nil && !gen.ValidateQueryScope(query) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:scope_invalid"}}
+	}
 	if len(query.OrderBy) > 0 {
 		if orderByAllConstant(query.OrderBy, len(query.Items)) {
 			if query.Limit != nil {
@@ -90,6 +93,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			// Non-deterministic ORDER BY is irrelevant to signature without LIMIT; drop it instead of skipping.
 			query.OrderBy = nil
 		}
+	}
+	if !eetDistinctOrderByCompatible(query) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:distinct_order_by"}}
 	}
 	if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
@@ -264,6 +270,53 @@ func queryHasUsingQualifiedRefs(query *generator.SelectQuery) bool {
 		}
 	}
 	return false
+}
+
+func eetDistinctOrderByCompatible(query *generator.SelectQuery) bool {
+	if query == nil || !query.Distinct || len(query.OrderBy) == 0 {
+		return true
+	}
+	selectExprs := make(map[string]struct{}, len(query.Items))
+	selectAliases := make(map[string]struct{}, len(query.Items))
+	for _, item := range query.Items {
+		if item.Expr != nil {
+			selectExprs[eetExprKey(item.Expr)] = struct{}{}
+		}
+		alias := strings.TrimSpace(strings.ToLower(item.Alias))
+		if alias != "" {
+			selectAliases[alias] = struct{}{}
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if ordinal, ok := orderByLiteralInt(ob.Expr); ok {
+			if ordinal >= 1 && ordinal <= len(query.Items) {
+				continue
+			}
+			return false
+		}
+		if col, ok := ob.Expr.(generator.ColumnExpr); ok && col.Ref.Table == "" {
+			name := strings.TrimSpace(strings.ToLower(col.Ref.Name))
+			if name != "" {
+				if _, ok := selectAliases[name]; ok {
+					continue
+				}
+			}
+		}
+		if _, ok := selectExprs[eetExprKey(ob.Expr)]; ok {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func eetExprKey(expr generator.Expr) string {
+	if expr == nil {
+		return ""
+	}
+	b := generator.SQLBuilder{}
+	expr.Build(&b)
+	return strings.ToLower(strings.TrimSpace(b.String()))
 }
 
 func hasUsingQualifiedRef(expr generator.Expr, usingCols map[string]struct{}) bool {

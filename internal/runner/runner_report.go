@@ -134,6 +134,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		PlanSignature:                planSignature,
 		PlanSigFormat:                planSigFormat,
 	}
+	defer func() {
+		if summary.MinimizeStatus != "in_progress" {
+			return
+		}
+		summary.MinimizeStatus = "interrupted"
+		_ = r.reporter.WriteSummary(caseData, summary)
+	}()
 	if result.Truth != nil && result.Truth.Enabled {
 		summary.GroundTruth = &report.TruthSummary{
 			Mismatch: result.Truth.Mismatch,
@@ -199,7 +206,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		if buildReplaySpec(result).kind == "" {
 			minimizeStatus = "not_applicable"
 		} else {
-			minimizeStatus = "pending"
+			minimizeStatus = "in_progress"
 		}
 	}
 	summary.MinimizeStatus = minimizeStatus
@@ -221,7 +228,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			if len(minimized.reproSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/repro.sql", minimized.reproSQL)
 			}
-		} else if summary.MinimizeStatus == "pending" {
+		} else if summary.MinimizeStatus == "in_progress" {
 			summary.MinimizeStatus = "skipped"
 		}
 		_ = r.reporter.WriteSummary(caseData, summary)
