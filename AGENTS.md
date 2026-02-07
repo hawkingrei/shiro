@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Systematically fixed PR-77 follow-ups: normalized set-operation ORDER/LIMIT handling to avoid branch-only binding, unified inline-subquery `WITH` guardrails across scalar/EXISTS/quantified expressions, and aligned runner `bug_hint` to `tidb:plan_reference_missing`; added regression tests (2026-02-07).
 - Scope manager now enforces `USING` column visibility for qualified references in query-body clauses (SELECT/WHERE/GROUP/HAVING/WINDOW/ORDER), with regression tests for hidden/common columns and preserved non-USING columns (2026-02-07).
 - Systematically tightened NoREC query constraints by adding builder-level `DisallowSetOps`, refactoring shared constraint evaluation in `SelectQueryBuilder`, moving NoREC guardrails into `QueryGuardReason` (set-op / limit-without-order / predicate-subquery), and adding regression tests for constraint reasons and NoREC guard behavior (2026-02-07).
 - P1 skip-reduction batch 1: tightened GroundTruth/CODDTest oracle overrides (disable views/derived/set-op/subquery-heavy features per oracle), switched CODDTest predicate mode to simple-columns, and widened CODDTest type guard to all supported scalar column types; added runner/oracle tests (2026-02-07).

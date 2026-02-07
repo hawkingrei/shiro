@@ -111,7 +111,7 @@ func classifyResultError(oracleName string, err error) (reason string, bugHint s
 		return prefix + ":missing_column", "tidb:schema_column_missing"
 	}
 	if oracle.IsPlanRefMissingErr(err) {
-		return prefix + ":plan_ref_missing", "tidb:planner_ref_missing"
+		return prefix + ":plan_ref_missing", "tidb:plan_reference_missing"
 	}
 	if isUnknownColumnWhereErr(err) {
 		return prefix + ":unknown_column_where", ""

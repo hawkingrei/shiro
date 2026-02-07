@@ -271,3 +271,50 @@ func TestPickSetOperationAllIntersectAndExceptAlwaysFalse(t *testing.T) {
 		}
 	}
 }
+
+func TestClearSetOperationOrderLimit(t *testing.T) {
+	rootLimit := 5
+	rhsLimit := 3
+	rhs := &SelectQuery{
+		Items:   []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0"}}, Alias: "c0"}},
+		From:    FromClause{BaseTable: "t1"},
+		OrderBy: []OrderBy{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0"}}}},
+		Limit:   &rhsLimit,
+	}
+	query := &SelectQuery{
+		Items:   []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, Alias: "c0"}},
+		From:    FromClause{BaseTable: "t0"},
+		OrderBy: []OrderBy{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}}},
+		Limit:   &rootLimit,
+		SetOps: []SetOperation{{
+			Type:  SetOperationUnion,
+			All:   true,
+			Query: rhs,
+		}},
+	}
+
+	clearSetOperationOrderLimit(query)
+
+	if len(query.OrderBy) != 0 || query.Limit != nil {
+		t.Fatalf("expected root set-op ORDER/LIMIT to be cleared")
+	}
+	if rhs == nil || len(rhs.OrderBy) != 0 || rhs.Limit != nil {
+		t.Fatalf("expected operand set-op ORDER/LIMIT to be cleared")
+	}
+}
+
+func TestClearSetOperationOrderLimitKeepsPlainQuery(t *testing.T) {
+	limit := 2
+	query := &SelectQuery{
+		Items:   []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, Alias: "c0"}},
+		From:    FromClause{BaseTable: "t0"},
+		OrderBy: []OrderBy{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}}},
+		Limit:   &limit,
+	}
+
+	clearSetOperationOrderLimit(query)
+
+	if len(query.OrderBy) == 0 || query.Limit == nil || *query.Limit != 2 {
+		t.Fatalf("expected plain query ORDER/LIMIT to be preserved")
+	}
+}

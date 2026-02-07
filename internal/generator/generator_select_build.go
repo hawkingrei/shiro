@@ -134,6 +134,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		query.OrderBy = g.ensureDeterministicOrderBy(query, queryTables)
 	}
 	g.maybeAttachSetOperations(query, queryTables)
+	// Current set-operation modeling does not track expression-level ORDER BY/LIMIT.
+	// Keep this normalized so we do not accidentally bind ORDER/LIMIT to one branch.
+	clearSetOperationOrderLimit(query)
 
 	if !g.validateQueryScope(query) {
 		return nil
@@ -241,10 +244,37 @@ func (g *Generator) maybeAttachSetOperations(query *SelectQuery, tables []schema
 	if len(ops) == 0 {
 		return
 	}
-	// Keep set-operation operands portable across engines by avoiding operand ORDER/LIMIT.
-	query.OrderBy = nil
-	query.Limit = nil
 	query.SetOps = append(query.SetOps, ops...)
+	clearSetOperationOrderLimit(query)
+}
+
+func clearSetOperationOrderLimit(query *SelectQuery) {
+	clearSetOperationOrderLimitInSetExpr(query, false)
+}
+
+func clearSetOperationOrderLimitInSetExpr(query *SelectQuery, inSetExpr bool) {
+	if query == nil {
+		return
+	}
+	currentInSetExpr := inSetExpr || len(query.SetOps) > 0
+	if currentInSetExpr {
+		query.OrderBy = nil
+		query.Limit = nil
+	}
+	for i := range query.With {
+		clearSetOperationOrderLimitInSetExpr(query.With[i].Query, false)
+	}
+	if query.From.BaseQuery != nil {
+		clearSetOperationOrderLimitInSetExpr(query.From.BaseQuery, false)
+	}
+	for i := range query.From.Joins {
+		if query.From.Joins[i].TableQuery != nil {
+			clearSetOperationOrderLimitInSetExpr(query.From.Joins[i].TableQuery, false)
+		}
+	}
+	for _, op := range query.SetOps {
+		clearSetOperationOrderLimitInSetExpr(op.Query, true)
+	}
 }
 
 func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []schema.Table) *SelectQuery {

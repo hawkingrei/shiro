@@ -1,6 +1,10 @@
 package generator
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 type compareNonDetExpr struct{}
 
@@ -74,4 +78,76 @@ func TestExistsExprDeterministicIncludesSubquery(t *testing.T) {
 	if expr.Deterministic() {
 		t.Fatalf("expected nondeterministic when EXISTS subquery is nondeterministic")
 	}
+}
+
+func TestSubqueryExprBuildRejectsInlineWith(t *testing.T) {
+	expr := SubqueryExpr{
+		Query: &SelectQuery{
+			With: []CTE{{
+				Name: "c",
+				Query: &SelectQuery{
+					Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+					From:  FromClause{BaseTable: "t0"},
+				},
+			}},
+			Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "c", Name: "c0"}}, Alias: "c0"}},
+			From:  FromClause{BaseTable: "c"},
+		},
+	}
+	var b SQLBuilder
+	assertPanicContains(t, "nested WITH is not supported in scalar subquery", func() { expr.Build(&b) })
+}
+
+func TestExistsExprBuildRejectsInlineWith(t *testing.T) {
+	expr := ExistsExpr{
+		Query: &SelectQuery{
+			With: []CTE{{
+				Name: "c",
+				Query: &SelectQuery{
+					Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+					From:  FromClause{BaseTable: "t0"},
+				},
+			}},
+			Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "c", Name: "c0"}}, Alias: "c0"}},
+			From:  FromClause{BaseTable: "c"},
+		},
+	}
+	var b SQLBuilder
+	assertPanicContains(t, "nested WITH is not supported in exists subquery", func() { expr.Build(&b) })
+}
+
+func TestCompareSubqueryExprBuildRejectsInlineWith(t *testing.T) {
+	expr := CompareSubqueryExpr{
+		Left:       ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+		Op:         "=",
+		Quantifier: "ANY",
+		Query: &SelectQuery{
+			With: []CTE{{
+				Name: "c",
+				Query: &SelectQuery{
+					Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+					From:  FromClause{BaseTable: "t0"},
+				},
+			}},
+			Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "c", Name: "c0"}}, Alias: "c0"}},
+			From:  FromClause{BaseTable: "c"},
+		},
+	}
+	var b SQLBuilder
+	assertPanicContains(t, "nested WITH is not supported in quantified subquery", func() { expr.Build(&b) })
+}
+
+func assertPanicContains(t *testing.T, want string, fn func()) {
+	t.Helper()
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatalf("expected panic containing %q", want)
+		}
+		msg := fmt.Sprint(v)
+		if !strings.Contains(msg, want) {
+			t.Fatalf("unexpected panic: %q", msg)
+		}
+	}()
+	fn()
 }

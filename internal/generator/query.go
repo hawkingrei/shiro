@@ -279,13 +279,22 @@ func writeWindowSpec(b *SQLBuilder, partitionBy []Expr, orderBy []OrderBy, frame
 	}
 }
 
-// Inline subqueries are currently rendered without WITH. Keep this explicit so we
-// can safely enable nested WITH later without silently changing SQL semantics.
+// requireNoInlineWith enforces that inline query contexts (for example CTE bodies,
+// set-operation operands, derived tables, and expression subqueries) do not carry
+// their own WITH clause. Keeping this explicit makes it safer to relax later.
 func requireNoInlineWith(query *SelectQuery, context string) {
 	if query == nil || len(query.With) == 0 {
 		return
 	}
 	panic(fmt.Sprintf("nested WITH is not supported in %s", context))
+}
+
+func writeInlineQueryExpression(b *SQLBuilder, query *SelectQuery, context string) {
+	if query == nil {
+		panic(fmt.Sprintf("nil inline query in %s", context))
+	}
+	requireNoInlineWith(query, context)
+	query.buildQueryExpression(b, false)
 }
 
 func (f FromClause) baseName() string {

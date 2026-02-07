@@ -22,7 +22,7 @@ func TestClassifyResultErrorPlanCacheMissingColumn(t *testing.T) {
 
 func TestClassifyResultErrorUsesMySQLErrorCode(t *testing.T) {
 	err := &mysql.MySQLError{
-		Number: 1054,
+		Number:  1054,
 		Message: "Unknown column 't1.k0' in 'on clause'",
 	}
 	reason, hint := classifyResultError("PlanCache", err)
@@ -30,6 +30,17 @@ func TestClassifyResultErrorUsesMySQLErrorCode(t *testing.T) {
 		t.Fatalf("unexpected reason: %s", reason)
 	}
 	if hint != "" {
+		t.Fatalf("unexpected hint: %s", hint)
+	}
+}
+
+func TestClassifyResultErrorPlanRefMissingUsesCanonicalHint(t *testing.T) {
+	err := errors.New("Cannot find the reference from its child")
+	reason, hint := classifyResultError("EET", err)
+	if reason != "eet:plan_ref_missing" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if hint != "tidb:plan_reference_missing" {
 		t.Fatalf("unexpected hint: %s", hint)
 	}
 }
@@ -67,4 +78,3 @@ func TestAnnotateResultForReportingKeepsExistingReason(t *testing.T) {
 		t.Fatalf("existing reason should be preserved, got %s", reason)
 	}
 }
-

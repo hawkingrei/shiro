@@ -299,7 +299,7 @@ type SubqueryExpr struct {
 // Build emits the scalar subquery expression.
 func (e SubqueryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
-	e.Query.Build(b)
+	writeInlineQueryExpression(b, e.Query, "scalar subquery")
 	b.Write(")")
 }
 
@@ -322,7 +322,7 @@ type ExistsExpr struct {
 // Build emits the EXISTS predicate.
 func (e ExistsExpr) Build(b *SQLBuilder) {
 	b.Write("EXISTS (")
-	e.Query.Build(b)
+	writeInlineQueryExpression(b, e.Query, "exists subquery")
 	b.Write(")")
 }
 
@@ -397,7 +397,7 @@ func (e CompareSubqueryExpr) Build(b *SQLBuilder) {
 	b.Write(strings.ToUpper(strings.TrimSpace(e.Quantifier)))
 	b.Write(" (")
 	if e.Query != nil {
-		e.Query.Build(b)
+		writeInlineQueryExpression(b, e.Query, "quantified subquery")
 	}
 	b.Write("))")
 }

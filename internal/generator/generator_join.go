@@ -790,6 +790,7 @@ func (g *Generator) applyFullJoinEmulation(query *SelectQuery) bool {
 		All:   true,
 		Query: right,
 	}}
+	clearSetOperationOrderLimit(query)
 	return true
 }
 
