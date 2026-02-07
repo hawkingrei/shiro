@@ -1171,6 +1171,13 @@ func (r *Runner) startStatsLogger() func() {
 									}
 								}
 							}
+							if dsgReasons := collectGroundTruthDSGMismatchReasons(deltaFunnel); len(dsgReasons) > 0 {
+								util.Infof(
+									"groundtruth_dsg_mismatch_reason last interval top=%d: %s",
+									topOracleSummaryN,
+									formatTopJoinSigs(dsgReasons, topOracleSummaryN),
+								)
+							}
 						}
 						r.updateOracleBanditFromFunnel(deltaFunnel)
 					}
@@ -1509,6 +1516,46 @@ func formatTopJoinCount(counts map[int]int64, topN int) string {
 		parts = append(parts, fmt.Sprintf("%d=%d", items[i].key, items[i].count))
 	}
 	return strings.Join(parts, " ")
+}
+
+func collectGroundTruthDSGMismatchReasons(deltaFunnel map[string]oracleFunnel) map[string]int64 {
+	if len(deltaFunnel) == 0 {
+		return nil
+	}
+	delta, ok := deltaFunnel["GroundTruth"]
+	if !ok || len(delta.SkipReasons) == 0 {
+		return nil
+	}
+	const mismatchPrefix = "groundtruth:dsg_key_mismatch"
+	out := make(map[string]int64)
+	for reason, count := range delta.SkipReasons {
+		if count <= 0 {
+			continue
+		}
+		if !strings.HasPrefix(reason, mismatchPrefix) {
+			continue
+		}
+		var label string
+		switch {
+		case reason == mismatchPrefix:
+			label = "unknown"
+		case strings.HasPrefix(reason, mismatchPrefix+"_"):
+			label = strings.TrimPrefix(reason, mismatchPrefix+"_")
+		case strings.HasPrefix(reason, mismatchPrefix+":"):
+			label = strings.TrimPrefix(reason, mismatchPrefix+":")
+		default:
+			label = strings.TrimPrefix(reason, mismatchPrefix)
+			label = strings.Trim(label, "_:")
+		}
+		if strings.TrimSpace(label) == "" {
+			label = "unknown"
+		}
+		out[label] += count
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func formatOracleFunnel(stats map[string]oracleFunnel) string {

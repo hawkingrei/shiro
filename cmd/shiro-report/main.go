@@ -37,33 +37,34 @@ type FileContent struct {
 
 // CaseEntry represents a report case entry.
 type CaseEntry struct {
-	ID                  string                 `json:"id"`
-	Dir                 string                 `json:"dir"`
-	Oracle              string                 `json:"oracle"`
-	Timestamp           string                 `json:"timestamp"`
-	TiDBVersion         string                 `json:"tidb_version"`
-	TiDBCommit          string                 `json:"tidb_commit"`
-	ErrorReason         string                 `json:"error_reason"`
-	PlanSignature       string                 `json:"plan_signature"`
-	PlanSigFormat       string                 `json:"plan_signature_format"`
-	Expected            string                 `json:"expected"`
-	Actual              string                 `json:"actual"`
-	Error               string                 `json:"error"`
-	Flaky               bool                   `json:"flaky"`
-	NoRECOptimizedSQL   string                 `json:"norec_optimized_sql"`
-	NoRECUnoptimizedSQL string                 `json:"norec_unoptimized_sql"`
-	NoRECPredicate      string                 `json:"norec_predicate"`
-	CaseID              string                 `json:"case_id"`
-	CaseDir             string                 `json:"case_dir"`
-	ArchiveName         string                 `json:"archive_name"`
-	ArchiveCodec        string                 `json:"archive_codec"`
-	ArchiveURL          string                 `json:"archive_url"`
-	ReportURL           string                 `json:"report_url"`
-	SQL                 []string               `json:"sql"`
-	PlanReplay          string                 `json:"plan_replayer"`
-	UploadLocation      string                 `json:"upload_location"`
-	Details             map[string]any         `json:"details"`
-	Files               map[string]FileContent `json:"files"`
+	ID                           string                 `json:"id"`
+	Dir                          string                 `json:"dir"`
+	Oracle                       string                 `json:"oracle"`
+	Timestamp                    string                 `json:"timestamp"`
+	TiDBVersion                  string                 `json:"tidb_version"`
+	TiDBCommit                   string                 `json:"tidb_commit"`
+	ErrorReason                  string                 `json:"error_reason"`
+	PlanSignature                string                 `json:"plan_signature"`
+	PlanSigFormat                string                 `json:"plan_signature_format"`
+	Expected                     string                 `json:"expected"`
+	Actual                       string                 `json:"actual"`
+	Error                        string                 `json:"error"`
+	GroundTruthDSGMismatchReason string                 `json:"groundtruth_dsg_mismatch_reason"`
+	Flaky                        bool                   `json:"flaky"`
+	NoRECOptimizedSQL            string                 `json:"norec_optimized_sql"`
+	NoRECUnoptimizedSQL          string                 `json:"norec_unoptimized_sql"`
+	NoRECPredicate               string                 `json:"norec_predicate"`
+	CaseID                       string                 `json:"case_id"`
+	CaseDir                      string                 `json:"case_dir"`
+	ArchiveName                  string                 `json:"archive_name"`
+	ArchiveCodec                 string                 `json:"archive_codec"`
+	ArchiveURL                   string                 `json:"archive_url"`
+	ReportURL                    string                 `json:"report_url"`
+	SQL                          []string               `json:"sql"`
+	PlanReplay                   string                 `json:"plan_replayer"`
+	UploadLocation               string                 `json:"upload_location"`
+	Details                      map[string]any         `json:"details"`
+	Files                        map[string]FileContent `json:"files"`
 }
 
 // SiteData is the JSON payload for the static site.
@@ -267,32 +268,33 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 	caseDir := caseDirFromSummary(summary, caseID)
 	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName, opts.ArtifactPublicBaseURL)
 	return CaseEntry{
-		ID:                  caseID,
-		Oracle:              summary.Oracle,
-		Timestamp:           summary.Timestamp,
-		TiDBVersion:         summary.TiDBVersion,
-		TiDBCommit:          commit,
-		ErrorReason:         summaryErrorReason(summary),
-		PlanSignature:       summary.PlanSignature,
-		PlanSigFormat:       summary.PlanSigFormat,
-		Expected:            summary.Expected,
-		Actual:              summary.Actual,
-		Error:               summary.Error,
-		Flaky:               summary.Flaky,
-		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
-		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
-		NoRECPredicate:      summary.NoRECPredicate,
-		CaseID:              caseID,
-		CaseDir:             caseDir,
-		ArchiveName:         summary.ArchiveName,
-		ArchiveCodec:        summary.ArchiveCodec,
-		ArchiveURL:          archiveURL,
-		ReportURL:           reportURL,
-		SQL:                 summary.SQL,
-		PlanReplay:          summary.PlanReplay,
-		UploadLocation:      summary.UploadLocation,
-		Details:             summary.Details,
-		Files:               files,
+		ID:                           caseID,
+		Oracle:                       summary.Oracle,
+		Timestamp:                    summary.Timestamp,
+		TiDBVersion:                  summary.TiDBVersion,
+		TiDBCommit:                   commit,
+		ErrorReason:                  summaryErrorReason(summary),
+		PlanSignature:                summary.PlanSignature,
+		PlanSigFormat:                summary.PlanSigFormat,
+		Expected:                     summary.Expected,
+		Actual:                       summary.Actual,
+		Error:                        summary.Error,
+		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		Flaky:                        summary.Flaky,
+		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
+		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
+		NoRECPredicate:               summary.NoRECPredicate,
+		CaseID:                       caseID,
+		CaseDir:                      caseDir,
+		ArchiveName:                  summary.ArchiveName,
+		ArchiveCodec:                 summary.ArchiveCodec,
+		ArchiveURL:                   archiveURL,
+		ReportURL:                    reportURL,
+		SQL:                          summary.SQL,
+		PlanReplay:                   summary.PlanReplay,
+		UploadLocation:               summary.UploadLocation,
+		Details:                      summary.Details,
+		Files:                        files,
 	}, nil
 }
 
@@ -440,32 +442,33 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	caseDir := caseDirFromSummary(summary, caseID)
 	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName, opts.ArtifactPublicBaseURL)
 	return CaseEntry{
-		ID:                  caseID,
-		Oracle:              summary.Oracle,
-		Timestamp:           summary.Timestamp,
-		TiDBVersion:         summary.TiDBVersion,
-		TiDBCommit:          commit,
-		ErrorReason:         summaryErrorReason(summary),
-		PlanSignature:       summary.PlanSignature,
-		PlanSigFormat:       summary.PlanSigFormat,
-		Expected:            summary.Expected,
-		Actual:              summary.Actual,
-		Error:               summary.Error,
-		Flaky:               summary.Flaky,
-		NoRECOptimizedSQL:   summary.NoRECOptimizedSQL,
-		NoRECUnoptimizedSQL: summary.NoRECUnoptimizedSQL,
-		NoRECPredicate:      summary.NoRECPredicate,
-		CaseID:              caseID,
-		CaseDir:             caseDir,
-		ArchiveName:         summary.ArchiveName,
-		ArchiveCodec:        summary.ArchiveCodec,
-		ArchiveURL:          archiveURL,
-		ReportURL:           reportURL,
-		SQL:                 summary.SQL,
-		PlanReplay:          summary.PlanReplay,
-		UploadLocation:      summary.UploadLocation,
-		Details:             summary.Details,
-		Files:               files,
+		ID:                           caseID,
+		Oracle:                       summary.Oracle,
+		Timestamp:                    summary.Timestamp,
+		TiDBVersion:                  summary.TiDBVersion,
+		TiDBCommit:                   commit,
+		ErrorReason:                  summaryErrorReason(summary),
+		PlanSignature:                summary.PlanSignature,
+		PlanSigFormat:                summary.PlanSigFormat,
+		Expected:                     summary.Expected,
+		Actual:                       summary.Actual,
+		Error:                        summary.Error,
+		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		Flaky:                        summary.Flaky,
+		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
+		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
+		NoRECPredicate:               summary.NoRECPredicate,
+		CaseID:                       caseID,
+		CaseDir:                      caseDir,
+		ArchiveName:                  summary.ArchiveName,
+		ArchiveCodec:                 summary.ArchiveCodec,
+		ArchiveURL:                   archiveURL,
+		ReportURL:                    reportURL,
+		SQL:                          summary.SQL,
+		PlanReplay:                   summary.PlanReplay,
+		UploadLocation:               summary.UploadLocation,
+		Details:                      summary.Details,
+		Files:                        files,
 	}, nil
 }
 
@@ -629,6 +632,9 @@ func objectURL(base, name string) string {
 }
 
 func summaryErrorReason(summary report.Summary) string {
+	if reason := strings.TrimSpace(summary.ErrorReason); reason != "" {
+		return reason
+	}
 	if summary.Details == nil {
 		return ""
 	}

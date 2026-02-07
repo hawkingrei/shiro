@@ -354,11 +354,15 @@ func (g *Generator) joinUsingProb() int {
 	return UsingJoinProb
 }
 
-func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
+func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*SelectQuery) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
 	}
 	from := FromClause{BaseTable: tables[0].Name}
+	if subq, ok := derived[from.BaseTable]; ok && subq != nil {
+		from.BaseQuery = subq
+		from.BaseAlias = from.BaseTable
+	}
 	if len(tables) == 1 || !g.Config.Features.Joins {
 		return from
 	}
@@ -379,9 +383,16 @@ func (g *Generator) buildFromClause(tables []schema.Table) FromClause {
 			}
 		}
 		join := Join{Type: joinType, Table: tables[i].Name}
+		if subq, ok := derived[join.Table]; ok && subq != nil {
+			join.TableQuery = subq
+			join.TableAlias = join.Table
+		}
 		if joinType != JoinCross {
 			using := g.pickUsingColumns(tables[:i], tables[i])
-			if len(using) > 0 && util.Chance(g.Rand, g.joinUsingProb()) {
+			if g.Config.Features.NaturalJoins && len(using) > 0 && util.Chance(g.Rand, NaturalJoinProb) {
+				join.Natural = true
+				join.Using = using
+			} else if len(using) > 0 && util.Chance(g.Rand, g.joinUsingProb()) {
 				join.Using = using
 			} else {
 				join.On = g.joinCondition(tables[:i], tables[i])
@@ -734,6 +745,126 @@ func hasCrossOrTrueJoin(from FromClause) bool {
 		}
 	}
 	return false
+}
+
+func (g *Generator) maybeEmulateFullJoin(query *SelectQuery) {
+	if query == nil || len(query.SetOps) > 0 || len(query.From.Joins) != 1 {
+		return
+	}
+	if !util.Chance(g.Rand, FullJoinEmulationProb) {
+		return
+	}
+	g.applyFullJoinEmulation(query)
+}
+
+func (g *Generator) applyFullJoinEmulation(query *SelectQuery) bool {
+	if query == nil || len(query.SetOps) > 0 || len(query.From.Joins) != 1 {
+		return false
+	}
+	base := query.From.baseName()
+	if base == "" {
+		return false
+	}
+	join := query.From.Joins[0]
+	if join.Type == JoinCross {
+		return false
+	}
+	nullFilter := fullJoinRightAntiFilter(base, join)
+	if nullFilter == nil {
+		return false
+	}
+	left := query.Clone()
+	right := query.Clone()
+	left.SetOps = nil
+	right.SetOps = nil
+	left.From.Joins[0].Type = JoinLeft
+	right.From.Joins[0].Type = JoinRight
+	if right.Where == nil {
+		right.Where = nullFilter
+	} else {
+		right.Where = BinaryExpr{Left: right.Where, Op: "AND", Right: nullFilter}
+	}
+	*query = *left
+	query.SetOps = []SetOperation{{
+		Type:  SetOperationUnion,
+		All:   true,
+		Query: right,
+	}}
+	clearSetOperationOrderLimit(query)
+	return true
+}
+
+func fullJoinRightAntiFilter(baseTable string, join Join) Expr {
+	if baseTable == "" {
+		return nil
+	}
+	if len(join.Using) > 0 {
+		usingCol := join.Using[0]
+		if usingCol == "" {
+			return nil
+		}
+		// USING/NATURAL join outputs merged columns; keep this unqualified to satisfy
+		// USING scope visibility rules.
+		return BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Name: usingCol}},
+			Op:    "IS",
+			Right: LiteralExpr{Value: nil},
+		}
+	}
+	if join.On == nil {
+		return nil
+	}
+	key, ok := pickBaseJoinKey(join.On, baseTable)
+	if !ok {
+		return nil
+	}
+	return BinaryExpr{
+		Left:  ColumnExpr{Ref: ColumnRef{Table: baseTable, Name: key}},
+		Op:    "IS",
+		Right: LiteralExpr{Value: nil},
+	}
+}
+
+func pickBaseJoinKey(expr Expr, baseTable string) (string, bool) {
+	switch e := expr.(type) {
+	case BinaryExpr:
+		switch e.Op {
+		case "AND":
+			if key, ok := pickBaseJoinKey(e.Left, baseTable); ok {
+				return key, true
+			}
+			return pickBaseJoinKey(e.Right, baseTable)
+		case "=", "<=>":
+			left, lok := exprColumnRef(e.Left)
+			right, rok := exprColumnRef(e.Right)
+			if !lok || !rok {
+				return "", false
+			}
+			if left.Table == baseTable && right.Table != baseTable {
+				return left.Name, true
+			}
+			if right.Table == baseTable && left.Table != baseTable {
+				return right.Name, true
+			}
+			return "", false
+		default:
+			return "", false
+		}
+	default:
+		return "", false
+	}
+}
+
+func exprColumnRef(expr Expr) (ColumnRef, bool) {
+	switch e := expr.(type) {
+	case ColumnExpr:
+		return e.Ref, true
+	case UnaryExpr:
+		if e.Op == "+" {
+			return exprColumnRef(e.Expr)
+		}
+	}
+	return ColumnRef{}, false
 }
 
 const (

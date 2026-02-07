@@ -42,6 +42,14 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 				}
 				return expr
 			}
+			if g.Config.Features.QuantifiedSubqueries && util.Chance(g.Rand, QuantifiedSubqueryProb) {
+				return CompareSubqueryExpr{
+					Left:       leftExpr,
+					Op:         g.pickQuantifiedComparison(),
+					Quantifier: g.pickSubqueryQuantifier(),
+					Query:      typedSub,
+				}
+			}
 			expr := Expr(InExpr{Left: leftExpr, List: []Expr{SubqueryExpr{Query: typedSub}}})
 			if g.Config.Features.NotIn && util.Chance(g.Rand, g.Config.Weights.Features.NotInProb) {
 				return UnaryExpr{Op: "NOT", Expr: expr}
@@ -160,4 +168,14 @@ func (g *Generator) GenerateScalarExpr(tables []schema.Table, depth int, allowSu
 
 func (g *Generator) falseExpr() Expr {
 	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 0}}
+}
+
+func (g *Generator) pickQuantifiedComparison() string {
+	ops := []string{"=", "!=", "<", "<=", ">", ">="}
+	return ops[g.Rand.Intn(len(ops))]
+}
+
+func (g *Generator) pickSubqueryQuantifier() string {
+	quantifiers := []string{"ANY", "SOME", "ALL"}
+	return quantifiers[g.Rand.Intn(len(quantifiers))]
 }

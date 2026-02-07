@@ -50,6 +50,14 @@ const (
 	CTEExtraProb = 50
 	// CTECountMax is the maximum number of CTEs to generate.
 	CTECountMax = 3
+	// SetOperationProb is the chance to attach a set operation to a query.
+	SetOperationProb = 25
+	// SetOperationChainProb is the chance to append a second set operation.
+	SetOperationChainProb = 20
+	// DerivedTableProb is the chance to wrap a table into a derived subquery.
+	DerivedTableProb = 30
+	// QuantifiedSubqueryProb is the chance to emit ANY/SOME/ALL subquery predicates.
+	QuantifiedSubqueryProb = 25
 	// CTELimitMax is the maximum LIMIT value for CTE queries.
 	CTELimitMax = 10
 	// SelectListMax is the maximum number of SELECT items for regular queries.
@@ -112,10 +120,24 @@ const (
 	UsingJoinProb = 20
 	// UsingColumnExtraProb is the chance to use two USING columns.
 	UsingColumnExtraProb = 30
+	// NaturalJoinProb is the chance to emit NATURAL join when common columns exist.
+	NaturalJoinProb = 25
+	// FullJoinEmulationProb is the chance to rewrite a 2-table join into FULL OUTER emulation.
+	FullJoinEmulationProb = 20
+	// RecursiveCTEProb is the chance to build a recursive CTE as the first CTE.
+	RecursiveCTEProb = 20
 	// ViewPickProb is the chance to pick a view for single-table queries.
 	ViewPickProb = 30
 	// ViewJoinReplaceProb is the chance to replace one join table with a view.
 	ViewJoinReplaceProb = 20
+	// GroupByRollupProb is the chance to append WITH ROLLUP when GROUP BY is present.
+	GroupByRollupProb = 30
+	// WindowFrameProb is the chance to append a frame clause to window definitions.
+	WindowFrameProb = 50
+	// NamedWindowProb is the chance to emit a WINDOW named specification.
+	NamedWindowProb = 40
+	// IntervalArithProb is the chance to emit date/timestamp +/- INTERVAL expressions.
+	IntervalArithProb = 20
 )
 
 const (

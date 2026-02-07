@@ -128,14 +128,28 @@ type UnaryExpr struct {
 func (e UnaryExpr) Build(b *SQLBuilder) {
 	b.Write(e.Op)
 	b.Write(" ")
+	if e.Expr == nil {
+		b.Write("NULL")
+		return
+	}
 	e.Expr.Build(b)
 }
 
 // Columns reports the column references used.
-func (e UnaryExpr) Columns() []ColumnRef { return e.Expr.Columns() }
+func (e UnaryExpr) Columns() []ColumnRef {
+	if e.Expr == nil {
+		return nil
+	}
+	return e.Expr.Columns()
+}
 
 // Deterministic reports whether the expression is deterministic.
-func (e UnaryExpr) Deterministic() bool { return e.Expr.Deterministic() }
+func (e UnaryExpr) Deterministic() bool {
+	if e.Expr == nil {
+		return false
+	}
+	return e.Expr.Deterministic()
+}
 
 // BinaryExpr renders a binary expression.
 type BinaryExpr struct {
@@ -147,23 +161,39 @@ type BinaryExpr struct {
 // Build emits the binary expression with parentheses.
 func (e BinaryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
-	e.Left.Build(b)
+	if e.Left == nil {
+		b.Write("NULL")
+	} else {
+		e.Left.Build(b)
+	}
 	b.Write(" ")
 	b.Write(e.Op)
 	b.Write(" ")
-	e.Right.Build(b)
+	if e.Right == nil {
+		b.Write("NULL")
+	} else {
+		e.Right.Build(b)
+	}
 	b.Write(")")
 }
 
 // Columns reports the column references used.
 func (e BinaryExpr) Columns() []ColumnRef {
-	cols := append([]ColumnRef{}, e.Left.Columns()...)
-	cols = append(cols, e.Right.Columns()...)
+	cols := make([]ColumnRef, 0, 4)
+	if e.Left != nil {
+		cols = append(cols, e.Left.Columns()...)
+	}
+	if e.Right != nil {
+		cols = append(cols, e.Right.Columns()...)
+	}
 	return cols
 }
 
 // Deterministic reports whether the expression is deterministic.
 func (e BinaryExpr) Deterministic() bool {
+	if e.Left == nil || e.Right == nil {
+		return false
+	}
 	return e.Left.Deterministic() && e.Right.Deterministic()
 }
 
@@ -269,7 +299,7 @@ type SubqueryExpr struct {
 // Build emits the scalar subquery expression.
 func (e SubqueryExpr) Build(b *SQLBuilder) {
 	b.Write("(")
-	e.Query.Build(b)
+	writeInlineQueryExpression(b, e.Query, "scalar subquery")
 	b.Write(")")
 }
 
@@ -277,7 +307,12 @@ func (e SubqueryExpr) Build(b *SQLBuilder) {
 func (e SubqueryExpr) Columns() []ColumnRef { return nil }
 
 // Deterministic reports whether the expression is deterministic.
-func (e SubqueryExpr) Deterministic() bool { return true }
+func (e SubqueryExpr) Deterministic() bool {
+	if e.Query == nil {
+		return true
+	}
+	return QueryDeterministic(e.Query)
+}
 
 // ExistsExpr renders an EXISTS predicate.
 type ExistsExpr struct {
@@ -287,7 +322,7 @@ type ExistsExpr struct {
 // Build emits the EXISTS predicate.
 func (e ExistsExpr) Build(b *SQLBuilder) {
 	b.Write("EXISTS (")
-	e.Query.Build(b)
+	writeInlineQueryExpression(b, e.Query, "exists subquery")
 	b.Write(")")
 }
 
@@ -295,7 +330,12 @@ func (e ExistsExpr) Build(b *SQLBuilder) {
 func (e ExistsExpr) Columns() []ColumnRef { return nil }
 
 // Deterministic reports whether the expression is deterministic.
-func (e ExistsExpr) Deterministic() bool { return true }
+func (e ExistsExpr) Deterministic() bool {
+	if e.Query == nil {
+		return true
+	}
+	return QueryDeterministic(e.Query)
+}
 
 // InExpr renders an IN predicate.
 type InExpr struct {
@@ -339,12 +379,116 @@ func (e InExpr) Deterministic() bool {
 	return true
 }
 
+// CompareSubqueryExpr renders a quantified subquery predicate (ANY/SOME/ALL).
+type CompareSubqueryExpr struct {
+	Left       Expr
+	Op         string
+	Quantifier string
+	Query      *SelectQuery
+}
+
+// Build emits the quantified subquery predicate.
+func (e CompareSubqueryExpr) Build(b *SQLBuilder) {
+	b.Write("(")
+	e.Left.Build(b)
+	b.Write(" ")
+	b.Write(e.Op)
+	b.Write(" ")
+	b.Write(strings.ToUpper(strings.TrimSpace(e.Quantifier)))
+	b.Write(" (")
+	if e.Query != nil {
+		writeInlineQueryExpression(b, e.Query, "quantified subquery")
+	}
+	b.Write("))")
+}
+
+// Columns reports the column references used.
+func (e CompareSubqueryExpr) Columns() []ColumnRef {
+	if e.Left == nil {
+		return nil
+	}
+	return e.Left.Columns()
+}
+
+// Deterministic reports whether the expression is deterministic.
+func (e CompareSubqueryExpr) Deterministic() bool {
+	if e.Left != nil && !e.Left.Deterministic() {
+		return false
+	}
+	if e.Query == nil {
+		return true
+	}
+	return QueryDeterministic(e.Query)
+}
+
+// IntervalExpr renders SQL INTERVAL literal (e.g., INTERVAL 1 DAY).
+type IntervalExpr struct {
+	Value int
+	Unit  string
+}
+
+// Build emits SQL interval literal.
+func (e IntervalExpr) Build(b *SQLBuilder) {
+	b.Write("INTERVAL ")
+	b.Write(fmt.Sprintf("%d", e.Value))
+	b.Write(" ")
+	unit := strings.ToUpper(strings.TrimSpace(e.Unit))
+	if unit == "" {
+		unit = "DAY"
+	}
+	b.Write(unit)
+}
+
+// Columns reports the column references used.
+func (e IntervalExpr) Columns() []ColumnRef { return nil }
+
+// Deterministic reports whether the expression is deterministic.
+func (e IntervalExpr) Deterministic() bool { return true }
+
+// WindowFrame describes a SQL window frame clause.
+type WindowFrame struct {
+	Unit  string
+	Start string
+	End   string
+}
+
+// Build emits SQL frame clause.
+func (f WindowFrame) Build(b *SQLBuilder) {
+	unit := strings.ToUpper(strings.TrimSpace(f.Unit))
+	if unit == "" {
+		unit = "ROWS"
+	}
+	start := strings.ToUpper(strings.TrimSpace(f.Start))
+	if start == "" {
+		start = "UNBOUNDED PRECEDING"
+	}
+	end := strings.ToUpper(strings.TrimSpace(f.End))
+	if end == "" {
+		end = "CURRENT ROW"
+	}
+	b.Write(unit)
+	b.Write(" BETWEEN ")
+	b.Write(start)
+	b.Write(" AND ")
+	b.Write(end)
+}
+
+// WindowDef describes a named WINDOW specification on SELECT query level.
+type WindowDef struct {
+	Name        string
+	PartitionBy []Expr
+	OrderBy     []OrderBy
+	Frame       *WindowFrame
+}
+
 // WindowExpr renders a window function expression.
 type WindowExpr struct {
 	Name        string
 	Args        []Expr
+	WindowName  string
 	PartitionBy []Expr
 	OrderBy     []OrderBy
+	Frame       *WindowFrame
 }
 
 // Build emits the window function expression.
@@ -357,33 +501,13 @@ func (e WindowExpr) Build(b *SQLBuilder) {
 		}
 		arg.Build(b)
 	}
+	if e.WindowName != "" && len(e.PartitionBy) == 0 && len(e.OrderBy) == 0 && e.Frame == nil {
+		b.Write(") OVER ")
+		b.Write(e.WindowName)
+		return
+	}
 	b.Write(") OVER (")
-	needSpace := false
-	if len(e.PartitionBy) > 0 {
-		b.Write("PARTITION BY ")
-		for i, expr := range e.PartitionBy {
-			if i > 0 {
-				b.Write(", ")
-			}
-			expr.Build(b)
-		}
-		needSpace = true
-	}
-	if len(e.OrderBy) > 0 {
-		if needSpace {
-			b.Write(" ")
-		}
-		b.Write("ORDER BY ")
-		for i, ob := range e.OrderBy {
-			if i > 0 {
-				b.Write(", ")
-			}
-			ob.Expr.Build(b)
-			if ob.Desc {
-				b.Write(" DESC")
-			}
-		}
-	}
+	writeWindowSpec(b, e.PartitionBy, e.OrderBy, e.Frame, e.WindowName)
 	b.Write(")")
 }
 

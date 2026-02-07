@@ -216,7 +216,8 @@ func (g *Generator) templateSemiAntiPredicate(tables []schema.Table, sub *Select
 }
 
 func (g *Generator) applyTemplateFrom(query *SelectQuery, tables []schema.Table) {
-	query.From = g.buildFromClause(tables)
+	derived := g.buildDerivedTableMap(tables)
+	query.From = g.buildFromClause(tables, derived)
 }
 
 func (g *Generator) applyTemplateSelect(query *SelectQuery, tables []schema.Table) {
@@ -237,6 +238,9 @@ func (g *Generator) applyTemplateJoinPredicate(query *SelectQuery, tables []sche
 
 func (g *Generator) applyTemplateGroupBy(query *SelectQuery, tables []schema.Table) bool {
 	query.GroupBy = g.GenerateGroupBy(tables)
+	if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
+		query.GroupByWithRollup = true
+	}
 	return len(query.GroupBy) > 0
 }
 

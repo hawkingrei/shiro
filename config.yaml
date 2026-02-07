@@ -41,17 +41,26 @@ storage:
 
 features:
   joins: true
+  natural_joins: true
+  full_join_emulation: true
   cte: true
+  recursive_cte: true
   subqueries: true
+  set_operations: true
+  derived_tables: true
+  quantified_subqueries: true
   aggregates: true
   group_by: true
+  group_by_rollup: true
   having: true
   order_by: true
   limit: true
   distinct: true
   plan_cache: true
   window_funcs: true
+  window_frames: true
   correlated_subqueries: true
+  interval_arith: true
   views: true
   view_max: 5
   indexes: true
