@@ -799,8 +799,14 @@ func fullJoinRightAntiFilter(baseTable string, join Join) Expr {
 		return nil
 	}
 	if len(join.Using) > 0 {
+		usingCol := join.Using[0]
+		if usingCol == "" {
+			return nil
+		}
+		// USING/NATURAL join outputs merged columns; keep this unqualified to satisfy
+		// USING scope visibility rules.
 		return BinaryExpr{
-			Left:  ColumnExpr{Ref: ColumnRef{Table: baseTable, Name: join.Using[0]}},
+			Left:  ColumnExpr{Ref: ColumnRef{Name: usingCol}},
 			Op:    "IS",
 			Right: LiteralExpr{Value: nil},
 		}

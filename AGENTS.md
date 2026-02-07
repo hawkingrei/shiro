@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Fixed remaining PR-77 review items: render base/join aliases for non-derived table factors (generator/oracle SQL builders), enforce nested-query scope validation with resolver-backed table columns (including strict empty-column-set checks), and make FULL JOIN emulation use unqualified USING anti-filters to satisfy scope rules; added regression tests (2026-02-07).
 - Removed two `ineffassign` findings by deleting an unused `lastKeyReason` assignment in GroundTruth query picking and simplifying DSG mismatch label initialization in runner stats (2026-02-07).
 - Report metadata now surfaces `groundtruth_dsg_mismatch_reason` at summary/index top level (runner summary write + shiro-report case entry), with runner tests covering detail/skip-reason extraction (2026-02-07).
 - Added top-level interval aggregation for `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas and covered the parser/aggregation with runner unit tests (2026-02-07).

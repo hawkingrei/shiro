@@ -249,3 +249,51 @@ func TestValidateQueryScopeUsingKeepsNonUsingQualifiedColumns(t *testing.T) {
 		t.Fatalf("expected non-USING qualified columns to remain visible")
 	}
 }
+
+func TestValidateQueryScopeNestedDerivedUsingHidesQualifiedColumns(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	derived := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					Using: []string{"k0"},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}}, Alias: "k0"},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseAlias: "d0",
+			BaseQuery: derived,
+		},
+		Items: []SelectItem{
+			{Expr: LiteralExpr{Value: 1}, Alias: "c0"},
+		},
+	}
+
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected nested derived query scope validation to hide USING-qualified column")
+	}
+}

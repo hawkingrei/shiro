@@ -9,7 +9,9 @@ type tableScope struct {
 	columns map[string]map[string]struct{}
 }
 
-type scopeManager struct{}
+type scopeManager struct {
+	tableResolver func(query *SelectQuery) []schema.Table
+}
 
 func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer tableScope) bool {
 	if query == nil {
@@ -19,16 +21,16 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 		if op.Query == nil {
 			continue
 		}
-		if !m.validateQuery(op.Query, scopeTablesForQuery(op.Query, nil), tableScope{}) {
+		if !m.validateQuery(op.Query, m.scopeForQuery(op.Query), tableScope{}) {
 			return false
 		}
 	}
 	for _, cte := range query.With {
-		if !m.validateQuery(cte.Query, scopeTablesForQuery(cte.Query, nil), tableScope{}) {
+		if !m.validateQuery(cte.Query, m.scopeForQuery(cte.Query), tableScope{}) {
 			return false
 		}
 	}
-	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, scopeTablesForQuery(query.From.BaseQuery, nil), tableScope{}) {
+	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, m.scopeForQuery(query.From.BaseQuery), tableScope{}) {
 		return false
 	}
 	currentScope := scope
@@ -38,7 +40,7 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			visible = append(visible, baseName)
 		}
 		for _, join := range query.From.Joins {
-			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, scopeTablesForQuery(join.TableQuery, nil), tableScope{}) {
+			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, m.scopeForQuery(join.TableQuery), tableScope{}) {
 				return false
 			}
 			joinScope := scopeForTables(currentScope, visible)
@@ -134,14 +136,14 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 		}
 		return m.validateExpr(e.Expr, scope, outer)
 	case SubqueryExpr:
-		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
 	case ExistsExpr:
-		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
 	case CompareSubqueryExpr:
 		if !m.validateExpr(e.Left, scope, outer) {
 			return false
 		}
-		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
 	case InExpr:
 		if !m.validateExpr(e.Left, scope, outer) {
 			return false
@@ -172,6 +174,16 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 	default:
 		return true
 	}
+}
+
+func (m scopeManager) scopeForQuery(query *SelectQuery) tableScope {
+	if query == nil {
+		return scopeTablesForQuery(nil, nil)
+	}
+	if m.tableResolver == nil {
+		return scopeTablesForQuery(query, nil)
+	}
+	return scopeTablesForQuery(query, m.tableResolver(query))
 }
 
 func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
@@ -313,7 +325,7 @@ func joinUsingColumns(join Join) []string {
 
 func (g *Generator) validateQueryScope(query *SelectQuery) bool {
 	tables := g.scopeTablesForQuery(query)
-	return scopeManager{}.validateQuery(query, scopeTablesForQuery(query, tables), tableScope{})
+	return scopeManager{tableResolver: g.scopeTablesForQuery}.validateQuery(query, scopeTablesForQuery(query, tables), tableScope{})
 }
 
 // ValidateExprInQueryScope reports whether an expression only uses columns visible in query.
@@ -323,7 +335,7 @@ func (g *Generator) ValidateExprInQueryScope(expr Expr, query *SelectQuery) bool
 	}
 	tables := g.scopeTablesForQuery(query)
 	scope := scopeTablesForQuery(query, tables)
-	return scopeManager{}.validateExpr(expr, scope, tableScope{})
+	return scopeManager{tableResolver: g.scopeTablesForQuery}.validateExpr(expr, scope, tableScope{})
 }
 
 // ValidateQueryScope reports whether query only uses columns visible in each scope.
@@ -379,14 +391,14 @@ func columnAllowed(ref ColumnRef, scope tableScope, outer tableScope) bool {
 		return true
 	}
 	if _, ok := scope.tables[ref.Table]; ok {
-		if cols, ok := scope.columns[ref.Table]; ok && len(cols) > 0 {
+		if cols, ok := scope.columns[ref.Table]; ok {
 			_, ok := cols[ref.Name]
 			return ok
 		}
 		return true
 	}
 	if _, ok := outer.tables[ref.Table]; ok {
-		if cols, ok := outer.columns[ref.Table]; ok && len(cols) > 0 {
+		if cols, ok := outer.columns[ref.Table]; ok {
 			_, ok := cols[ref.Name]
 			return ok
 		}

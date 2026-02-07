@@ -45,13 +45,41 @@ func TestBuildFromNaturalJoin(t *testing.T) {
 	}
 }
 
+func TestBuildFromKeepsBaseAndJoinAlias(t *testing.T) {
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "b",
+			Joins: []generator.Join{
+				{
+					Type:       generator.JoinInner,
+					Table:      "t1",
+					TableAlias: "j",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "b", Name: "id"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "j", Name: "id"}},
+					},
+				},
+			},
+		},
+	}
+	fromSQL := buildFrom(query)
+	if !strings.Contains(fromSQL, "t0 AS b") {
+		t.Fatalf("expected base alias in FROM SQL, got %s", fromSQL)
+	}
+	if !strings.Contains(fromSQL, "JOIN t1 AS j") {
+		t.Fatalf("expected join alias in FROM SQL, got %s", fromSQL)
+	}
+}
+
 func TestQueryHelperPreferAnalysisFastPath(t *testing.T) {
 	query := &generator.SelectQuery{
 		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
 		From:  generator.FromClause{BaseTable: "t0"},
 		Analysis: &generator.QueryAnalysis{
-			HasAggregate: true,
-			HasSubquery:  true,
+			HasAggregate:  true,
+			HasSubquery:   true,
 			Deterministic: false,
 		},
 	}
@@ -65,4 +93,3 @@ func TestQueryHelperPreferAnalysisFastPath(t *testing.T) {
 		t.Fatalf("expected queryDeterministic to use analysis fast-path")
 	}
 }
-

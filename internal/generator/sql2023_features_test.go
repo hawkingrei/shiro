@@ -47,6 +47,33 @@ func TestBuildNaturalJoin(t *testing.T) {
 	}
 }
 
+func TestBuildTableAliases(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "b", Name: "id"}}, Alias: "id"}},
+		From: FromClause{
+			BaseTable: "t0",
+			BaseAlias: "b",
+			Joins: []Join{{
+				Type:       JoinInner,
+				Table:      "t1",
+				TableAlias: "j",
+				On: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "b", Name: "id"}},
+					Op:    "=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "j", Name: "id"}},
+				},
+			}},
+		},
+	}
+	sql := query.SQLString()
+	if !strings.Contains(sql, "FROM t0 AS b") {
+		t.Fatalf("expected base table alias in SQL, got %s", sql)
+	}
+	if !strings.Contains(sql, "JOIN t1 AS j") {
+		t.Fatalf("expected join table alias in SQL, got %s", sql)
+	}
+}
+
 func TestBuildWindowNamedAndFrame(t *testing.T) {
 	query := &SelectQuery{
 		Items: []SelectItem{{
@@ -133,8 +160,11 @@ func TestApplyFullJoinEmulation(t *testing.T) {
 	if !strings.Contains(sql, "UNION ALL") {
 		t.Fatalf("expected UNION ALL in emulated SQL: %s", sql)
 	}
-	if !strings.Contains(sql, "t0.id IS NULL") {
+	if !strings.Contains(sql, "id IS NULL") {
 		t.Fatalf("expected anti-null filter in rhs branch: %s", sql)
+	}
+	if strings.Contains(sql, "t0.id IS NULL") {
+		t.Fatalf("expected anti-null filter to use unqualified USING column: %s", sql)
 	}
 }
 

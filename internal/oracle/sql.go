@@ -65,10 +65,16 @@ func buildFrom(query *generator.SelectQuery) string {
 
 func buildTableFactor(tableName string, alias string, subquery *generator.SelectQuery) string {
 	if subquery == nil {
-		return tableName
+		if alias == "" || alias == tableName {
+			return tableName
+		}
+		return fmt.Sprintf("%s AS %s", tableName, alias)
 	}
 	if alias == "" {
 		alias = tableName
+	}
+	if alias == "" {
+		alias = "derived"
 	}
 	return fmt.Sprintf("(%s) AS %s", subquery.SQLString(), alias)
 }

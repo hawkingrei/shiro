@@ -148,7 +148,7 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 		b.Write(item.Alias)
 	}
 	b.Write(" FROM ")
-	writeTableFactor(b, q.From.BaseTable, q.From.baseName(), q.From.BaseQuery)
+	writeTableFactor(b, q.From.BaseTable, q.From.BaseAlias, q.From.BaseQuery)
 	for _, join := range q.From.Joins {
 		b.Write(" ")
 		if join.Natural {
@@ -156,7 +156,7 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 		}
 		b.Write(string(join.Type))
 		b.Write(" ")
-		writeTableFactor(b, join.Table, join.tableName(), join.TableQuery)
+		writeTableFactor(b, join.Table, join.TableAlias, join.TableQuery)
 		if join.Natural {
 			continue
 		}
@@ -227,9 +227,19 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 func writeTableFactor(b *SQLBuilder, tableName string, alias string, subquery *SelectQuery) {
 	if subquery == nil {
 		b.Write(tableName)
+		if alias != "" && alias != tableName {
+			b.Write(" AS ")
+			b.Write(alias)
+		}
 		return
 	}
 	requireNoInlineWith(subquery, "derived table")
+	if alias == "" {
+		alias = tableName
+	}
+	if alias == "" {
+		alias = "derived"
+	}
 	b.Write("(")
 	subquery.buildQueryExpression(b, false)
 	b.Write(") AS ")
