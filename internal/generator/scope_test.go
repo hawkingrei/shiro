@@ -297,3 +297,80 @@ func TestValidateQueryScopeNestedDerivedUsingHidesQualifiedColumns(t *testing.T)
 		t.Fatalf("expected nested derived query scope validation to hide USING-qualified column")
 	}
 }
+
+func TestValidateQueryScopeNaturalJoinHidesQualifiedColumns(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:    JoinInner,
+					Table:   "t1",
+					Natural: true,
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0", Type: schema.TypeInt}}},
+		},
+	}
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected NATURAL join common column to be hidden for qualified references")
+	}
+}
+
+func TestValidateQueryScopeNaturalJoinKeepsNonCommonColumns(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:    JoinInner,
+					Table:   "t1",
+					Natural: true,
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}}},
+		},
+	}
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected NATURAL join non-common columns to remain visible")
+	}
+}

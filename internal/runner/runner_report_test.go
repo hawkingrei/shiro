@@ -1,6 +1,10 @@
 package runner
 
-import "testing"
+import (
+	"testing"
+
+	"shiro/internal/report"
+)
 
 func TestGroundTruthDSGMismatchReasonFromDetails(t *testing.T) {
 	cases := []struct {
@@ -56,5 +60,50 @@ func TestGroundTruthDSGMismatchReasonFromDetails(t *testing.T) {
 				t.Fatalf("groundTruthDSGMismatchReasonFromDetails()=%q want=%q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestApplyMinimizeOutcomeFlakyBaseReplay(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "in_progress",
+		Flaky:          false,
+	}
+	details := map[string]any{}
+	applyMinimizeOutcome(&summary, details, minimizeOutput{
+		status: "skipped",
+		reason: minimizeReasonBaseReplayNotReproducible,
+		flaky:  true,
+	})
+	if summary.MinimizeStatus != "skipped" {
+		t.Fatalf("MinimizeStatus=%q want=skipped", summary.MinimizeStatus)
+	}
+	if !summary.Flaky {
+		t.Fatalf("Flaky=false want=true")
+	}
+	if got := details["minimize_reason"]; got != minimizeReasonBaseReplayNotReproducible {
+		t.Fatalf("minimize_reason=%v want=%q", got, minimizeReasonBaseReplayNotReproducible)
+	}
+	if got := details["flaky_reason"]; got != minimizeReasonBaseReplayNotReproducible {
+		t.Fatalf("flaky_reason=%v want=%q", got, minimizeReasonBaseReplayNotReproducible)
+	}
+}
+
+func TestApplyMinimizeOutcomeSuccess(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "in_progress",
+	}
+	details := map[string]any{}
+	applyMinimizeOutcome(&summary, details, minimizeOutput{
+		minimized: true,
+		status:    "success",
+	})
+	if summary.MinimizeStatus != "success" {
+		t.Fatalf("MinimizeStatus=%q want=success", summary.MinimizeStatus)
+	}
+	if summary.Flaky {
+		t.Fatalf("Flaky=true want=false")
+	}
+	if _, ok := details["minimize_reason"]; ok {
+		t.Fatalf("unexpected minimize_reason detail")
 	}
 }

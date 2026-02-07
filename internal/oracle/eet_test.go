@@ -202,6 +202,36 @@ func TestOrderByDistinctKeys(t *testing.T) {
 	}
 }
 
+func TestEETDistinctOrderByCompatible(t *testing.T) {
+	query := &generator.SelectQuery{
+		Distinct: true,
+		Items: []generator.SelectItem{
+			{
+				Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}},
+				Alias: "c0",
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Name: "c0"}}},
+		},
+	}
+	if !eetDistinctOrderByCompatible(query) {
+		t.Fatalf("expected alias-based DISTINCT ORDER BY to be compatible")
+	}
+
+	query.OrderBy = []generator.OrderBy{{Expr: generator.LiteralExpr{Value: 1}}}
+	if !eetDistinctOrderByCompatible(query) {
+		t.Fatalf("expected ordinal DISTINCT ORDER BY to be compatible")
+	}
+
+	query.OrderBy = []generator.OrderBy{
+		{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c1"}}},
+	}
+	if eetDistinctOrderByCompatible(query) {
+		t.Fatalf("expected non-selected DISTINCT ORDER BY expression to be incompatible")
+	}
+}
+
 func TestRewriteLiteralNumericIdentity(t *testing.T) {
 	expr := ast.NewValueExpr(5, "", "")
 	next, ok := rewriteLiteralValue(expr, eetRewriteNumericIdentity)

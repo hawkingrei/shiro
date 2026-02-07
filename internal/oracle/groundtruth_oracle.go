@@ -201,26 +201,32 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 	}
 	lastKeyReason := ""
 	lastDSGReason := ""
+	sawEmptyQuery := false
+	sawGuardrail := false
+	sawEdgeMismatch := false
 	for attempt := 0; attempt < groundTruthPickRetries; attempt++ {
 		query := gen.GenerateSelectQuery()
 		if query == nil {
-			return nil, nil, "groundtruth:empty_query", "", ""
+			sawEmptyQuery = true
+			continue
 		}
+		// Avoid ambiguous USING resolution on joined left factors by rewriting
+		// USING into explicit ON predicates before guardrails/extraction.
+		rewriteUsingToOn(query, state)
 		if shouldSkipGroundTruth(query) {
-			return nil, nil, "groundtruth:guardrail", "", ""
+			sawGuardrail = true
+			continue
 		}
 		edges := groundtruth.JoinEdgesFromQuery(query, state)
 		edges = groundtruth.RefineJoinEdgesWithSQL(query.SQLString(), state, edges, len(query.From.Joins))
 		if len(edges) != len(query.From.Joins) {
-			return nil, nil, "groundtruth:edge_mismatch", "", ""
-		}
-		keyReason := firstKeyMissingReason(edges)
-		if keyReason == "no_equal_candidates:no_columns" {
-			lastKeyReason = keyReason
+			sawEdgeMismatch = true
 			continue
 		}
+		keyReason := firstKeyMissingReason(edges)
 		if keyReason != "" {
-			return query, edges, "", keyReason, ""
+			lastKeyReason = keyReason
+			continue
 		}
 		if gen.Config.Features.DSG {
 			if skip, reason := groundTruthDSGSkipReason(query.From.BaseTable, edges); skip != "" {
@@ -235,6 +241,15 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 	}
 	if lastKeyReason != "" {
 		return nil, nil, "groundtruth:key_missing", lastKeyReason, ""
+	}
+	if sawEdgeMismatch {
+		return nil, nil, "groundtruth:edge_mismatch", "", ""
+	}
+	if sawGuardrail {
+		return nil, nil, "groundtruth:guardrail", "", ""
+	}
+	if sawEmptyQuery {
+		return nil, nil, "groundtruth:empty_query", "", ""
 	}
 	return nil, nil, "groundtruth:key_missing", "no_equal_candidates:no_columns", ""
 }

@@ -11,7 +11,6 @@ import (
 	"shiro/internal/generator"
 	"shiro/internal/oracle/impo"
 	"shiro/internal/schema"
-	"shiro/internal/util"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -21,6 +20,8 @@ type Impo struct{}
 
 // Name returns the oracle identifier.
 func (o Impo) Name() string { return "Impo" }
+
+const impoSeedBuildRetries = 10
 
 // Run generates a seed query, applies approximate mutations, and checks
 // implication relations between the base and mutated results.
@@ -34,32 +35,11 @@ func (o Impo) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	defer func() {
 		gen.Config.Features.Aggregates = origAggregates
 	}()
-	seedQuery := gen.GenerateSelectQuery()
+	seedQuery, seedSkipReason := pickImpoSeedQuery(gen, state, metrics)
 	if seedQuery == nil {
-		return impoSkip(o.Name(), metrics, "empty_query")
+		return impoSkip(o.Name(), metrics, seedSkipReason)
 	}
-	if !queryDeterministic(seedQuery) {
-		return impoSkip(o.Name(), metrics, "nondeterministic")
-	}
-	if hasAggregate(seedQuery) {
-		util.Warnf("impo seed has aggregates with aggregates disabled")
-		return impoSkip(o.Name(), metrics, "aggregate_query")
-	}
-	seedQuery = seedQuery.Clone()
-	rewriteUsingToOn(seedQuery, state)
 	seedSQL := seedQuery.SQLString()
-	if hasPlanCacheHintsOrVars(seedSQL) {
-		return impoSkip(o.Name(), metrics, "plan_cache_hint")
-	}
-	if containsScalarSubquery(seedQuery) {
-		return impoSkip(o.Name(), metrics, "scalar_subquery")
-	}
-	if sanitizeQueryColumns(seedQuery, state) {
-		metrics["impo_sanitize"] = 1
-	}
-	if ok, _ := queryColumnsValid(seedQuery, state, nil); !ok {
-		return impoSkip(o.Name(), metrics, "invalid_columns")
-	}
 	initSQL, err := impo.InitWithOptions(seedSQL, impo.InitOptions{
 		DisableStage1: gen.Config.Oracles.ImpoDisableStage1,
 		KeepLRJoin:    gen.Config.Oracles.ImpoKeepLRJoin,
@@ -260,6 +240,57 @@ func implicationExpected(isUpper bool) string {
 		return "base_subset_of_mutated"
 	}
 	return "mutated_subset_of_base"
+}
+
+func pickImpoSeedQuery(gen *generator.Generator, state *schema.State, metrics map[string]int64) (*generator.SelectQuery, string) {
+	sawEmpty := false
+	lastGuardrailReason := ""
+	for attempt := 0; attempt < impoSeedBuildRetries; attempt++ {
+		candidate := gen.GenerateSelectQuery()
+		if candidate == nil {
+			sawEmpty = true
+			continue
+		}
+		if !queryDeterministic(candidate) {
+			lastGuardrailReason = "nondeterministic"
+			continue
+		}
+		if hasAggregate(candidate) {
+			lastGuardrailReason = "aggregate_query"
+			continue
+		}
+		candidate = candidate.Clone()
+		rewriteUsingToOn(candidate, state)
+		if containsScalarSubquery(candidate) {
+			lastGuardrailReason = "scalar_subquery"
+			continue
+		}
+		if hasPlanCacheHintsOrVars(candidate.SQLString()) {
+			lastGuardrailReason = "plan_cache_hint_or_var"
+			continue
+		}
+		sanitized := sanitizeQueryColumns(candidate, state)
+		if ok, _ := queryColumnsValid(candidate, state, nil); !ok {
+			lastGuardrailReason = "invalid_columns"
+			continue
+		}
+		if sanitized {
+			metrics["impo_sanitize"] = 1
+		}
+		return candidate, ""
+	}
+	return nil, impoSeedSkipReason(sawEmpty, lastGuardrailReason)
+}
+
+func impoSeedSkipReason(sawEmpty bool, lastGuardrailReason string) string {
+	reason := strings.TrimSpace(lastGuardrailReason)
+	if reason != "" {
+		return "seed_guardrail:" + reason
+	}
+	if sawEmpty {
+		return "empty_query"
+	}
+	return "seed_guardrail"
 }
 
 func cmpString(cmp int) string {
