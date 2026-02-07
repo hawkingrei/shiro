@@ -83,7 +83,7 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	if len(columns) == 0 {
 		return o.runIndependent(ctx, exec, gen, query, phi)
 	}
-	if !onlyIntOrBoolColumns(columns) {
+	if !onlySupportedCODDColumns(columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:type_guard"}}
 	}
 	if !o.noNullsInQuery(ctx, exec, state, columns) {
@@ -92,13 +92,22 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	return o.runDependent(ctx, exec, gen, query, phi, columns)
 }
 
-func onlyIntOrBoolColumns(columns []generator.ColumnRef) bool {
+func onlySupportedCODDColumns(columns []generator.ColumnRef) bool {
 	if len(columns) == 0 {
 		return false
 	}
 	for _, col := range columns {
 		switch col.Type {
-		case schema.TypeInt, schema.TypeBigInt, schema.TypeBool:
+		case schema.TypeInt,
+			schema.TypeBigInt,
+			schema.TypeFloat,
+			schema.TypeDouble,
+			schema.TypeDecimal,
+			schema.TypeVarchar,
+			schema.TypeDate,
+			schema.TypeDatetime,
+			schema.TypeTimestamp,
+			schema.TypeBool:
 			continue
 		default:
 			return false

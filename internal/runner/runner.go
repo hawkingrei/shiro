@@ -588,42 +588,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 			result.Err = nil
 		}
 	}
-	if result.Err != nil && isRuntimeError(result.Err) {
-		if result.Details == nil {
-			result.Details = map[string]any{}
-		}
-		if _, ok := result.Details["error_reason"]; !ok {
-			result.Details["error_reason"] = "runtime_error"
-		}
-		result.OK = false
-	}
-	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
-		if result.Details == nil {
-			result.Details = map[string]any{}
-		}
-		if _, ok := result.Details["error_reason"]; !ok {
-			result.Details["error_reason"] = "unknown_column"
-		}
-		result.OK = false
-	}
-	if result.Err != nil && oracle.IsSchemaColumnMissingErr(result.Err) {
-		if result.Details == nil {
-			result.Details = map[string]any{}
-		}
-		if _, ok := result.Details["error_reason"]; !ok {
-			result.Details["error_reason"] = "missing_column"
-		}
-		result.OK = false
-	}
-	if result.Err != nil && oracle.IsPlanRefMissingErr(result.Err) {
-		if result.Details == nil {
-			result.Details = map[string]any{}
-		}
-		if _, ok := result.Details["error_reason"]; !ok {
-			result.Details["error_reason"] = "planner_ref_missing"
-		}
-		result.OK = false
-	}
+	annotateResultForReporting(&result)
 	skipReason := oracleSkipReason(result)
 	isPanic := isPanicError(result.Err)
 	reported := !result.OK || isPanic

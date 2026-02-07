@@ -1,0 +1,82 @@
+package runner
+
+import (
+	"testing"
+
+	"shiro/internal/config"
+	"shiro/internal/generator"
+	"shiro/internal/schema"
+)
+
+func TestApplyOracleOverridesGroundTruth(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.Views = true
+	cfg.Features.DerivedTables = true
+	cfg.Features.SetOperations = true
+	cfg.Features.Subqueries = true
+	cfg.Features.NaturalJoins = true
+	cfg.Features.FullJoinEmulation = true
+	state := &schema.State{}
+	r := &Runner{gen: generator.New(cfg, state, 1)}
+
+	restore := r.applyOracleOverrides("GroundTruth")
+	defer restore()
+
+	if r.gen.Config.Features.Views {
+		t.Fatalf("groundtruth override should disable views")
+	}
+	if r.gen.Config.Features.DerivedTables {
+		t.Fatalf("groundtruth override should disable derived tables")
+	}
+	if r.gen.Config.Features.SetOperations {
+		t.Fatalf("groundtruth override should disable set operations")
+	}
+	if r.gen.Config.Features.Subqueries {
+		t.Fatalf("groundtruth override should disable subqueries")
+	}
+	if r.gen.Config.Features.NaturalJoins {
+		t.Fatalf("groundtruth override should disable natural joins")
+	}
+	if r.gen.Config.Features.FullJoinEmulation {
+		t.Fatalf("groundtruth override should disable full join emulation")
+	}
+	if r.gen.PredicateMode() != generator.PredicateModeNone {
+		t.Fatalf("groundtruth override should set predicate mode none")
+	}
+}
+
+func TestApplyOracleOverridesCODDTest(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.Subqueries = true
+	cfg.Features.Aggregates = true
+	cfg.Features.Views = true
+	cfg.Features.WindowFuncs = true
+	state := &schema.State{}
+	r := &Runner{gen: generator.New(cfg, state, 2)}
+
+	restore := r.applyOracleOverrides("CODDTest")
+	defer restore()
+
+	if r.gen.Config.Features.Subqueries {
+		t.Fatalf("coddtest override should disable subqueries")
+	}
+	if r.gen.Config.Features.Aggregates {
+		t.Fatalf("coddtest override should disable aggregates")
+	}
+	if r.gen.Config.Features.Views {
+		t.Fatalf("coddtest override should disable views")
+	}
+	if r.gen.Config.Features.WindowFuncs {
+		t.Fatalf("coddtest override should disable window funcs")
+	}
+	if r.gen.PredicateMode() != generator.PredicateModeSimpleColumns {
+		t.Fatalf("coddtest override should set predicate mode simple-columns")
+	}
+}
+

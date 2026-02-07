@@ -357,9 +357,8 @@ func (g *Generator) pickSetOperationAll(opType SetOperationType) bool {
 	switch opType {
 	case SetOperationUnion:
 		return util.Chance(g.Rand, 40)
-	case SetOperationIntersect:
-		return util.Chance(g.Rand, 20)
 	default:
+		// TiDB does not support INTERSECT ALL / EXCEPT ALL.
 		return false
 	}
 }

@@ -260,9 +260,12 @@ func TestMaybeAppendGroupingSelectItemUnwrapsOrdinal(t *testing.T) {
 	}
 }
 
-func TestPickSetOperationAllExceptAlwaysFalse(t *testing.T) {
+func TestPickSetOperationAllIntersectAndExceptAlwaysFalse(t *testing.T) {
 	gen := &Generator{Rand: rand.New(rand.NewSource(7))}
 	for i := 0; i < 50; i++ {
+		if gen.pickSetOperationAll(SetOperationIntersect) {
+			t.Fatalf("INTERSECT ALL should never be generated")
+		}
 		if gen.pickSetOperationAll(SetOperationExcept) {
 			t.Fatalf("EXCEPT ALL should never be generated")
 		}

@@ -101,17 +101,10 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if details == nil {
 		details = map[string]any{}
 	}
+	result.Details = details
+	annotateResultForReporting(&result)
+	details = result.Details
 	flaky := isFlakyExplain(details)
-	if result.Err != nil && isUnknownColumnWhereErr(result.Err) {
-		if _, ok := details["error_reason"]; !ok {
-			details["error_reason"] = "unknown_column"
-		}
-	}
-	if result.Err != nil && isRuntimeError(result.Err) {
-		if _, ok := details["error_reason"]; !ok {
-			details["error_reason"] = "runtime_error"
-		}
-	}
 	errorReason := ""
 	if reason, ok := details["error_reason"].(string); ok {
 		errorReason = reason

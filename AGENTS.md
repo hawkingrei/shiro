@@ -21,6 +21,9 @@ Links:
 
 ## Recent updates
 
+- P1 skip-reduction batch 1: tightened GroundTruth/CODDTest oracle overrides (disable views/derived/set-op/subquery-heavy features per oracle), switched CODDTest predicate mode to simple-columns, and widened CODDTest type guard to all supported scalar column types; added runner/oracle tests (2026-02-07).
+- Added shared runner-side result annotation to classify `error_reason`/`bug_hint` (including PlanCache error paths) and tagged GroundTruth mismatches as `groundtruth:count_mismatch`; added runner unit tests for reason/hint mapping (2026-02-07).
+- Disabled `INTERSECT ALL` generation for TiDB compatibility (matching existing `EXCEPT ALL` disablement) and added a regression test to ensure both stay non-ALL (2026-02-07).
 - Hardened expression determinism/build paths against nil operands in `UnaryExpr`/`BinaryExpr`, and added regression coverage for nil binary operands to prevent `QueryDeterministic` panic (2026-02-07).
 - Simplified `EXCEPT ALL` gating to the default non-ALL path and added a regression test to ensure `EXCEPT ALL` is never generated for TiDB compatibility (2026-02-07).
 - Added broader SQL2023-focused tests: recursive CTE numeric guard, FULL JOIN emulation key-selection edge cases, named-window override rendering, grouping ordinal unwrap, window-def determinism, and oracle SQL helper fast-path/build coverage (2026-02-07).

@@ -2,8 +2,10 @@ package runner
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
+	"shiro/internal/oracle"
 	"shiro/internal/util"
 
 	"github.com/go-sql-driver/mysql"
@@ -79,4 +81,82 @@ func isUnknownColumnWhereErr(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unknown column") && strings.Contains(msg, "in where clause")
+}
+
+func mysqlErrCode(err error) (uint16, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number, true
+	}
+	return 0, false
+}
+
+func errorReasonPrefix(oracleName string) string {
+	name := strings.ToLower(strings.TrimSpace(oracleName))
+	if name == "" {
+		return "oracle"
+	}
+	return name
+}
+
+func classifyResultError(oracleName string, err error) (reason string, bugHint string) {
+	if err == nil {
+		return "", ""
+	}
+	prefix := errorReasonPrefix(oracleName)
+	if oracle.IsSchemaColumnMissingErr(err) {
+		return prefix + ":missing_column", "tidb:schema_column_missing"
+	}
+	if oracle.IsPlanRefMissingErr(err) {
+		return prefix + ":plan_ref_missing", "tidb:planner_ref_missing"
+	}
+	if isUnknownColumnWhereErr(err) {
+		return prefix + ":unknown_column_where", ""
+	}
+	if isRuntimeError(err) {
+		return prefix + ":runtime_error", "tidb:runtime_error"
+	}
+	if code, ok := mysqlErrCode(err); ok {
+		return fmt.Sprintf("%s:sql_error_%d", prefix, code), ""
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "timeout") {
+		return prefix + ":timeout", ""
+	}
+	return prefix + ":sql_error", ""
+}
+
+func annotateResultForReporting(result *oracle.Result) {
+	if result == nil {
+		return
+	}
+	if result.Details == nil {
+		result.Details = map[string]any{}
+	}
+	if result.Err != nil {
+		reason, hint := classifyResultError(result.Oracle, result.Err)
+		if reason != "" {
+			if _, ok := result.Details["error_reason"]; !ok {
+				result.Details["error_reason"] = reason
+			}
+			result.OK = false
+		}
+		if hint != "" {
+			if _, ok := result.Details["bug_hint"]; !ok {
+				result.Details["bug_hint"] = hint
+			}
+		}
+		return
+	}
+	if strings.EqualFold(result.Oracle, "GroundTruth") && result.Truth != nil && result.Truth.Enabled && result.Truth.Mismatch {
+		if _, ok := result.Details["error_reason"]; !ok {
+			result.Details["error_reason"] = "groundtruth:count_mismatch"
+		}
+		if _, ok := result.Details["bug_hint"]; !ok {
+			result.Details["bug_hint"] = "tidb:result_inconsistency"
+		}
+	}
 }
