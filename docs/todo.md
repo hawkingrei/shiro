@@ -4,6 +4,7 @@ This file tracks current tasks and should stay aligned with `docs/notes/follow-u
 Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CTE guards, FULL JOIN emulation edge cases, window determinism/named-window overrides, GROUPING ordinal unwrap), oracle SQL helper fast-path/build tests, TiDB-compat regressions to keep `INTERSECT ALL`/`EXCEPT ALL` disabled, nil-operand hardening for expression determinism/build paths, runner-side `error_reason/bug_hint` classification for PlanCache and GroundTruth mismatch reporting, P1 batch-1 skip-reduction overrides for GroundTruth/CODDTest, systemic NoREC constraint tightening via builder-level set-op disallow + query guard reasons, scope-manager enforcement for `USING` qualified-column visibility with regression tests, set-op ORDER/LIMIT normalization, inline-subquery `WITH` guard unification, canonical `plan_reference_missing` bug-hint alignment, GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch picking, CODDTest build-time null/type prechecks, EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility, top-level interval aggregation for `groundtruth_dsg_mismatch_reason`, and summary/index top-level propagation of `groundtruth_dsg_mismatch_reason`.
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
+Latest sync: addressed PR #78 security/reliability findings for Worker auth defaults/body limits/download URL handling and `shiro-report` artifact URL generation (2026-02-07).
 
 ## Generator / Oracles
 
@@ -42,6 +43,10 @@ Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope 
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
 6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
 7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
+8. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
+9. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
+10. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
+11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 
 ## Coverage / Guidance
 
