@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
 import ReactDiffViewer from "react-diff-viewer-continued";
+import {
+  caseArchiveURL,
+  caseID,
+  caseReportURL,
+  similarCasesURL,
+  workerDownloadURL,
+} from "../lib/report-utils";
 
 type FileContent = {
   name?: string;
@@ -81,40 +88,7 @@ const caseHasTruncation = (c: CaseEntry): boolean => {
   return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
 };
 
-const objectURL = (base: string, name: string): string => {
-  const trimmedBase = (base || "").trim().replace(/\/+$/, "");
-  const trimmedName = (name || "").trim().replace(/^\/+/, "");
-  if (!trimmedBase || !trimmedName) return "";
-  return `${trimmedBase}/${trimmedName}`;
-};
-
-const caseID = (c: CaseEntry): string => {
-  return (c.case_id || c.case_dir || c.id || "").trim();
-};
-
-const caseArchiveURL = (c: CaseEntry): string => {
-  if ((c.archive_url || "").trim()) return (c.archive_url || "").trim();
-  return objectURL(c.upload_location || "", c.archive_name || "");
-};
-
-const caseReportURL = (c: CaseEntry): string => {
-  if ((c.report_url || "").trim()) return (c.report_url || "").trim();
-  return objectURL(c.upload_location || "", "report.json");
-};
-
 const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
-
-const similarCasesURL = (c: CaseEntry): string => {
-  const cid = caseID(c);
-  if (!workerBaseURL || !cid) return "";
-  return `${workerBaseURL}/api/v1/cases/${encodeURIComponent(cid)}/similar?limit=20&ai=1`;
-};
-
-const workerDownloadURL = (c: CaseEntry): string => {
-  const cid = caseID(c);
-  if (!workerBaseURL || !cid) return "";
-  return `${workerBaseURL}/api/v1/cases/${encodeURIComponent(cid)}/download`;
-};
 
 const copyText = async (label: string, text: string) => {
   if (!text) return;
@@ -192,7 +166,7 @@ const formatExplain = (text: string) => {
     .join("\n");
 };
 
-type CaseBlock = { label: string; content: JSX.Element; copyText?: string };
+type CaseBlock = { label: string; content: ReactNode; copyText?: string };
 
 const renderBlock = (block: CaseBlock | null) => {
   if (!block) {
@@ -507,10 +481,10 @@ export default function Page() {
         {filtered.map((c, idx) => {
           const cid = caseID(c);
           const archiveURL = caseArchiveURL(c);
-          const workerArchiveURL = workerDownloadURL(c);
+          const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
           const downloadURL = workerArchiveURL || archiveURL;
           const reportURL = caseReportURL(c);
-          const similarURL = similarCasesURL(c);
+          const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;
           const similarList = similarPayload?.matches || [];
           const similarAnswer = (similarPayload?.answer || "").trim();
@@ -597,7 +571,6 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />
@@ -617,7 +590,6 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />

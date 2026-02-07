@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added Cloudflare worker skeleton under `web/cloudflare-worker`, optional manifest publish/sync in `cmd/shiro-report`, and in-page similar-case UX.
+Last review: 2026-02-06. Added frontend CI pipeline (compile/lint/test), plus report-utils unit tests for URL/case-id derivation.
 
 ## Generator / Oracles
 
@@ -24,6 +24,7 @@ Last review: 2026-02-06. Added Cloudflare worker skeleton under `web/cloudflare-
 6. Cloudflare metadata plane: Workers + D1 append/update case records (`uuid`, labels, error_type, linked_issue, S3 keys, R2 manifest URL) when new manifests arrive. (skeleton done in `web/cloudflare-worker`; production auth/rate-limit/audit pending)
 7. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
 8. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
+9. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 
 ## Coverage / Guidance
 

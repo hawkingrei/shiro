@@ -19,6 +19,8 @@ Links:
 
 ## Recent updates
 
+- CI: added a dedicated frontend pipeline job in `.github/workflows/ci.yaml` that runs web compile (`tsc --noEmit`), lint, and tests; backend/integration job now depends on the web job (2026-02-06).
+- Added `web/lib/report-utils.ts` and unit tests (`web/test/report-utils.test.ts`) to cover report URL/case-id/worker-link derivation used by the frontend (2026-02-06).
 - Added Cloudflare metadata plane skeleton under `web/cloudflare-worker/` with D1 schema, sync/list/patch/download APIs, and per-case similar-bug endpoint (`/api/v1/cases/:case_id/similar`) with optional AI summary (2026-02-06).
 - Extended `cmd/shiro-report` with optional manifest publish flags (R2/S3-compatible) and optional Worker metadata sync callback; default behavior remains unchanged when flags are omitted (2026-02-06).
 - Updated web report UI without changing core layout: added optional in-page similar-bug panel, Worker-backed archive download path, and `reports.json` fallback loading improvements (2026-02-06).
