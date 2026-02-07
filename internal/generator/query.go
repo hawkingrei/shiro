@@ -25,6 +25,7 @@ const (
 // Join models a FROM join clause.
 type Join struct {
 	Type       JoinType
+	Natural    bool
 	Table      string
 	TableQuery *SelectQuery
 	TableAlias string
@@ -71,17 +72,20 @@ type SelectItem struct {
 
 // SelectQuery models a SELECT statement.
 type SelectQuery struct {
-	With     []CTE
-	SetOps   []SetOperation
-	Distinct bool
-	Items    []SelectItem
-	From     FromClause
-	Where    Expr
-	GroupBy  []Expr
-	Having   Expr
-	OrderBy  []OrderBy
-	Limit    *int
-	Analysis *QueryAnalysis
+	With              []CTE
+	WithRecursive     bool
+	SetOps            []SetOperation
+	Distinct          bool
+	Items             []SelectItem
+	From              FromClause
+	Where             Expr
+	GroupBy           []Expr
+	GroupByWithRollup bool
+	Having            Expr
+	WindowDefs        []WindowDef
+	OrderBy           []OrderBy
+	Limit             *int
+	Analysis          *QueryAnalysis
 }
 
 // Build emits the SQL for the select query into the builder.
@@ -92,12 +96,16 @@ func (q *SelectQuery) Build(b *SQLBuilder) {
 func (q *SelectQuery) buildQueryExpression(b *SQLBuilder, includeWith bool) {
 	if includeWith && len(q.With) > 0 {
 		b.Write("WITH ")
+		if q.WithRecursive {
+			b.Write("RECURSIVE ")
+		}
 		for i, cte := range q.With {
 			if i > 0 {
 				b.Write(", ")
 			}
 			b.Write(cte.Name)
 			b.Write(" AS (")
+			requireNoInlineWith(cte.Query, "cte body")
 			cte.Query.buildQueryExpression(b, false)
 			b.Write(")")
 		}
@@ -120,6 +128,7 @@ func (q *SelectQuery) buildQueryExpression(b *SQLBuilder, includeWith bool) {
 			b.Write(" ALL")
 		}
 		b.Write(" (")
+		requireNoInlineWith(op.Query, "set-operation operand")
 		op.Query.buildQueryExpression(b, false)
 		b.Write(")")
 	}
@@ -142,9 +151,15 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 	writeTableFactor(b, q.From.BaseTable, q.From.baseName(), q.From.BaseQuery)
 	for _, join := range q.From.Joins {
 		b.Write(" ")
+		if join.Natural {
+			b.Write("NATURAL ")
+		}
 		b.Write(string(join.Type))
 		b.Write(" ")
 		writeTableFactor(b, join.Table, join.tableName(), join.TableQuery)
+		if join.Natural {
+			continue
+		}
 		if len(join.Using) > 0 {
 			b.Write(" USING (")
 			for i, col := range join.Using {
@@ -171,10 +186,25 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 			}
 			expr.Build(b)
 		}
+		if q.GroupByWithRollup {
+			b.Write(" WITH ROLLUP")
+		}
 	}
 	if q.Having != nil {
 		b.Write(" HAVING ")
 		q.Having.Build(b)
+	}
+	if len(q.WindowDefs) > 0 {
+		b.Write(" WINDOW ")
+		for i, def := range q.WindowDefs {
+			if i > 0 {
+				b.Write(", ")
+			}
+			b.Write(def.Name)
+			b.Write(" AS (")
+			writeWindowSpec(b, def.PartitionBy, def.OrderBy, def.Frame, "")
+			b.Write(")")
+		}
 	}
 	if len(q.OrderBy) > 0 {
 		b.Write(" ORDER BY ")
@@ -199,10 +229,63 @@ func writeTableFactor(b *SQLBuilder, tableName string, alias string, subquery *S
 		b.Write(tableName)
 		return
 	}
+	requireNoInlineWith(subquery, "derived table")
 	b.Write("(")
 	subquery.buildQueryExpression(b, false)
 	b.Write(") AS ")
 	b.Write(alias)
+}
+
+func writeWindowSpec(b *SQLBuilder, partitionBy []Expr, orderBy []OrderBy, frame *WindowFrame, base string) {
+	needSpace := false
+	if base != "" {
+		b.Write(base)
+		needSpace = true
+	}
+	if len(partitionBy) > 0 {
+		if needSpace {
+			b.Write(" ")
+		}
+		b.Write("PARTITION BY ")
+		for i, expr := range partitionBy {
+			if i > 0 {
+				b.Write(", ")
+			}
+			expr.Build(b)
+		}
+		needSpace = true
+	}
+	if len(orderBy) > 0 {
+		if needSpace {
+			b.Write(" ")
+		}
+		b.Write("ORDER BY ")
+		for i, ob := range orderBy {
+			if i > 0 {
+				b.Write(", ")
+			}
+			ob.Expr.Build(b)
+			if ob.Desc {
+				b.Write(" DESC")
+			}
+		}
+		needSpace = true
+	}
+	if frame != nil {
+		if needSpace {
+			b.Write(" ")
+		}
+		frame.Build(b)
+	}
+}
+
+// Inline subqueries are currently rendered without WITH. Keep this explicit so we
+// can safely enable nested WITH later without silently changing SQL semantics.
+func requireNoInlineWith(query *SelectQuery, context string) {
+	if query == nil || len(query.With) == 0 {
+		return
+	}
+	panic(fmt.Sprintf("nested WITH is not supported in %s", context))
 }
 
 func (f FromClause) baseName() string {
@@ -242,6 +325,21 @@ func (q *SelectQuery) Clone() *SelectQuery {
 	clone.Items = append([]SelectItem{}, q.Items...)
 	clone.GroupBy = append([]Expr{}, q.GroupBy...)
 	clone.OrderBy = append([]OrderBy{}, q.OrderBy...)
+	if len(q.WindowDefs) > 0 {
+		clone.WindowDefs = make([]WindowDef, len(q.WindowDefs))
+		for i, def := range q.WindowDefs {
+			cloned := WindowDef{
+				Name:        def.Name,
+				PartitionBy: append([]Expr{}, def.PartitionBy...),
+				OrderBy:     append([]OrderBy{}, def.OrderBy...),
+			}
+			if def.Frame != nil {
+				frame := *def.Frame
+				cloned.Frame = &frame
+			}
+			clone.WindowDefs[i] = cloned
+		}
+	}
 	clone.With = make([]CTE, len(q.With))
 	for i, cte := range q.With {
 		clonedCTE := CTE{Name: cte.Name}

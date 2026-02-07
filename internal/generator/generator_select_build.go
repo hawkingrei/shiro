@@ -53,12 +53,18 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		cteCount := g.Rand.Intn(maxCTE) + 1
 		cteTables := make([]schema.Table, 0, cteCount)
 		for i := 0; i < cteCount; i++ {
+			cteName := fmt.Sprintf("cte_%d", i)
 			cteBase := baseTables[g.Rand.Intn(len(baseTables))]
 			if len(cteTables) > 0 && util.Chance(g.Rand, 30) {
 				cteBase = cteTables[g.Rand.Intn(len(cteTables))]
 			}
 			cteQuery := g.GenerateCTEQuery(cteBase)
-			cteName := fmt.Sprintf("cte_%d", i)
+			if i == 0 && g.Config.Features.RecursiveCTE && util.Chance(g.Rand, RecursiveCTEProb) {
+				if rq := g.GenerateRecursiveCTEQuery(cteBase, cteName); rq != nil {
+					cteQuery = rq
+					query.WithRecursive = true
+				}
+			}
 			cteCols := g.columnsFromSelectItems(cteQuery.Items)
 			if len(cteCols) == 0 {
 				cteCols = cteBase.Columns
@@ -105,7 +111,16 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		if len(query.GroupBy) > 0 && util.Chance(g.Rand, g.groupByOrdinalProb()) {
 			query.GroupBy = g.wrapGroupByOrdinals(query.GroupBy)
 		}
+		if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
+			query.GroupByWithRollup = true
+			g.maybeAppendGroupingSelectItem(query)
+		}
 	}
+
+	if g.Config.Features.FullJoinEmulation {
+		g.maybeEmulateFullJoin(query)
+	}
+	g.attachNamedWindows(query)
 
 	// Only emit LIMIT when paired with ORDER BY to keep top-N semantics.
 	if g.Config.Features.OrderBy && util.Chance(g.Rand, g.Config.Weights.Features.OrderByProb) {
@@ -125,6 +140,34 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	}
 	g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
 	return query
+}
+
+func (g *Generator) attachNamedWindows(query *SelectQuery) {
+	if query == nil || !g.Config.Features.WindowFuncs || !util.Chance(g.Rand, NamedWindowProb) {
+		return
+	}
+	for idx, item := range query.Items {
+		win, ok := item.Expr.(WindowExpr)
+		if !ok {
+			continue
+		}
+		if win.WindowName != "" {
+			continue
+		}
+		name := fmt.Sprintf("w%d", g.Rand.Intn(4))
+		query.WindowDefs = append(query.WindowDefs, WindowDef{
+			Name:        name,
+			PartitionBy: append([]Expr{}, win.PartitionBy...),
+			OrderBy:     append([]OrderBy{}, win.OrderBy...),
+			Frame:       win.Frame,
+		})
+		win.WindowName = name
+		win.PartitionBy = nil
+		win.OrderBy = nil
+		win.Frame = nil
+		query.Items[idx].Expr = win
+		return
+	}
 }
 
 // (constraints-based builder is implemented in select_query_builder.go)
@@ -237,8 +280,14 @@ func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []sche
 		withGroupBy := g.Config.Features.GroupBy && util.Chance(g.Rand, g.Config.Weights.Features.GroupByProb)
 		if withGroupBy {
 			query.GroupBy = g.GenerateGroupBy(rhsTables)
+			if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
+				query.GroupByWithRollup = true
+			}
 		}
 		query.Items = g.GenerateAggregateSelectList(rhsTables, query.GroupBy)
+		if query.GroupByWithRollup {
+			g.maybeAppendGroupingSelectItem(query)
+		}
 		if len(query.Items) != len(baseItems) {
 			query.Items = g.buildSetOperationItems(baseItems, rhsTables)
 		}
@@ -389,6 +438,20 @@ func (g *Generator) countViewsInQuery(query *SelectQuery) int {
 	return count
 }
 
+func (g *Generator) maybeAppendGroupingSelectItem(query *SelectQuery) {
+	if query == nil || len(query.GroupBy) == 0 {
+		return
+	}
+	groupExpr := query.GroupBy[0]
+	if ord, ok := groupExpr.(GroupByOrdinalExpr); ok && ord.Expr != nil {
+		groupExpr = ord.Expr
+	}
+	query.Items = append(query.Items, SelectItem{
+		Expr:  FuncExpr{Name: "GROUPING", Args: []Expr{groupExpr}},
+		Alias: "grp_flag",
+	})
+}
+
 func (g *Generator) positionCTETables(tables []schema.Table, with []CTE) []schema.Table {
 	if len(tables) == 0 || len(with) == 0 {
 		return tables
@@ -434,6 +497,55 @@ func (g *Generator) GenerateCTEQuery(tbl schema.Table) *SelectQuery {
 	query.Limit = &limit
 	query.OrderBy = g.GenerateCTEOrderBy(tbl)
 	return query
+}
+
+// GenerateRecursiveCTEQuery builds a simple numeric recursive CTE body.
+func (g *Generator) GenerateRecursiveCTEQuery(tbl schema.Table, cteName string) *SelectQuery {
+	if cteName == "" {
+		return nil
+	}
+	seedCol, ok := pickFirstNumericColumn(tbl)
+	if !ok {
+		return nil
+	}
+	seedRef := ColumnRef{Table: tbl.Name, Name: seedCol.Name, Type: seedCol.Type}
+	one := 1
+	seed := &SelectQuery{
+		Items: []SelectItem{{
+			Expr:  ColumnExpr{Ref: seedRef},
+			Alias: "c0",
+		}},
+		From: FromClause{BaseTable: tbl.Name},
+		OrderBy: []OrderBy{{
+			Expr: ColumnExpr{Ref: seedRef},
+		}},
+		Limit: &one,
+	}
+	recursiveRef := ColumnRef{Table: cteName, Name: "c0", Type: seedCol.Type}
+	recursive := &SelectQuery{
+		Items: []SelectItem{{
+			Expr:  BinaryExpr{Left: ColumnExpr{Ref: recursiveRef}, Op: "+", Right: LiteralExpr{Value: 1}},
+			Alias: "c0",
+		}},
+		From:  FromClause{BaseTable: cteName},
+		Where: BinaryExpr{Left: ColumnExpr{Ref: recursiveRef}, Op: "<", Right: LiteralExpr{Value: 3}},
+	}
+	seed.SetOps = []SetOperation{{
+		Type:  SetOperationUnion,
+		All:   true,
+		Query: recursive,
+	}}
+	return seed
+}
+
+func pickFirstNumericColumn(tbl schema.Table) (schema.Column, bool) {
+	for _, col := range tbl.Columns {
+		switch col.Type {
+		case schema.TypeInt, schema.TypeBigInt, schema.TypeFloat, schema.TypeDouble, schema.TypeDecimal:
+			return col, true
+		}
+	}
+	return schema.Column{}, false
 }
 
 // GenerateCTESelectList builds a small SELECT list for CTEs.

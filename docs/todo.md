@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added parser fast-path guard, SQL capability groundwork (set operations, derived tables, quantified subqueries), and follow-up fixes for set-op scope isolation/template-derived coverage/subquery determinism.
+Last review: 2026-02-06. Added parser fast-path guard, SQL capability groundwork (set operations, derived tables, quantified subqueries), follow-up fixes for set-op scope isolation/template-derived coverage/subquery determinism, PQS note/TODO refresh, Argus paper notes, and SQL2023 feature rollout (natural/full-join emulation, recursive CTE, window frame, rollup, interval arithmetic).
 
 ## Generator / Oracles
 
@@ -14,7 +14,17 @@ Last review: 2026-02-06. Added parser fast-path guard, SQL capability groundwork
 7. Wire GroundTruth join key extraction into oracle execution for JoinEdge building.
 8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles.
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
-10. Add NATURAL JOIN generation and optional FULL JOIN semantic emulation (`LEFT/RIGHT + UNION` templates) for compatibility-focused fuzzing.
+10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
+11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
+
+## PQS (Rigger OSDI20)
+
+1. Add a `PQS` oracle skeleton (`internal/oracle/pqs.go`) with an isolated capability profile and metrics namespace.
+2. Implement pivot-row sampling for generated queries (table/alias-aware), including deterministic row identity serialization for containment checks.
+3. Add a lightweight expression evaluator + rectifier for three-valued logic (`TRUE/FALSE/NULL`) that can force predicate truth for the sampled pivot row.
+4. Build PQS query synthesis paths for `WHERE` first, then `JOIN ON`, and add skip reasons when rectification is unsafe or unsupported.
+5. Add containment assertion SQL templates and reducer-friendly report fields (`pivot_values`, `rectified_predicates`, `containment_query`).
+6. Add staged tests: evaluator correctness, rectification invariants, pivot containment (single-table), then join-path containment.
 
 ## Reporting / Aggregation
 

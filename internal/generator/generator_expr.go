@@ -370,6 +370,11 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 		}
 		return g.randomLiteralExpr()
 	case 2:
+		if g.Config.Features.IntervalArith && util.Chance(g.Rand, IntervalArithProb) {
+			if expr, ok := g.generateIntervalArithmeticExpr(tables); ok {
+				return expr
+			}
+		}
 		left := g.GenerateNumericExpr(tables)
 		right := g.GenerateNumericExpr(tables)
 		return BinaryExpr{Left: left, Op: g.pickArithmetic(), Right: right}
@@ -396,6 +401,48 @@ func (g *Generator) generateScalarExpr(tables []schema.Table, depth int, allowSu
 	default:
 		return g.randomLiteralExpr()
 	}
+}
+
+func (g *Generator) generateIntervalArithmeticExpr(tables []schema.Table) (Expr, bool) {
+	ref, ok := g.pickTemporalColumn(tables)
+	if !ok {
+		return nil, false
+	}
+	units := []string{"DAY", "HOUR", "MINUTE", "SECOND"}
+	if ref.Type == schema.TypeDate {
+		units = []string{"DAY", "WEEK", "MONTH", "YEAR"}
+	}
+	unit := units[g.Rand.Intn(len(units))]
+	value := g.Rand.Intn(7) + 1
+	fn := "DATE_ADD"
+	if util.Chance(g.Rand, 40) {
+		fn = "DATE_SUB"
+	}
+	return FuncExpr{
+		Name: fn,
+		Args: []Expr{
+			ColumnExpr{Ref: ref},
+			IntervalExpr{Value: value, Unit: unit},
+		},
+	}, true
+}
+
+func (g *Generator) pickTemporalColumn(tables []schema.Table) (ColumnRef, bool) {
+	cols := g.collectColumns(tables)
+	if len(cols) == 0 {
+		return ColumnRef{}, false
+	}
+	candidates := make([]ColumnRef, 0, len(cols))
+	for _, col := range cols {
+		switch col.Type {
+		case schema.TypeDate, schema.TypeDatetime, schema.TypeTimestamp:
+			candidates = append(candidates, col)
+		}
+	}
+	if len(candidates) == 0 {
+		return ColumnRef{}, false
+	}
+	return candidates[g.Rand.Intn(len(candidates))], true
 }
 
 // GenerateSubquery builds a scalar subquery, optionally correlated.

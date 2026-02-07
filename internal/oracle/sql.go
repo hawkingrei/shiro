@@ -49,6 +49,10 @@ func buildExpr(expr generator.Expr) string {
 func buildFrom(query *generator.SelectQuery) string {
 	from := buildTableFactor(query.From.BaseTable, query.From.BaseAlias, query.From.BaseQuery)
 	for _, join := range query.From.Joins {
+		if join.Natural {
+			from += fmt.Sprintf(" NATURAL %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery))
+			continue
+		}
 		from += fmt.Sprintf(" %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery))
 		if len(join.Using) > 0 {
 			from += " USING (" + strings.Join(join.Using, ", ") + ")"
@@ -77,7 +81,11 @@ func buildWith(query *generator.SelectQuery) string {
 	for _, cte := range query.With {
 		parts = append(parts, fmt.Sprintf("%s AS (%s)", cte.Name, cte.Query.SQLString()))
 	}
-	return "WITH " + strings.Join(parts, ", ") + " "
+	prefix := "WITH "
+	if query.WithRecursive {
+		prefix = "WITH RECURSIVE "
+	}
+	return prefix + strings.Join(parts, ", ") + " "
 }
 
 func tablesForQuery(query *generator.SelectQuery, state *schema.State) []schema.Table {
@@ -902,6 +910,18 @@ func queryDeterministic(query *generator.SelectQuery) bool {
 	}
 	if query.Having != nil && !query.Having.Deterministic() {
 		return false
+	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !expr.Deterministic() {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !ob.Expr.Deterministic() {
+				return false
+			}
+		}
 	}
 	for _, expr := range query.GroupBy {
 		if !expr.Deterministic() {

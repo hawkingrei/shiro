@@ -363,6 +363,18 @@ func QueryDeterministic(query *SelectQuery) bool {
 	if query.Having != nil && !query.Having.Deterministic() {
 		return false
 	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !expr.Deterministic() {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !ob.Expr.Deterministic() {
+				return false
+			}
+		}
+	}
 	for _, expr := range query.GroupBy {
 		if !expr.Deterministic() {
 			return false

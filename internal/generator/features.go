@@ -225,7 +225,11 @@ func joinTypeSequence(query *SelectQuery) string {
 	}
 	parts := make([]string, 0, len(query.From.Joins))
 	for _, join := range query.From.Joins {
-		parts = append(parts, string(join.Type))
+		prefix := ""
+		if join.Natural {
+			prefix = "NATURAL "
+		}
+		parts = append(parts, prefix+string(join.Type))
 	}
 	return strings.Join(parts, "-")
 }
@@ -244,7 +248,11 @@ func joinGraphSignature(query *SelectQuery) string {
 	parts := make([]string, 0, len(query.From.Joins)+1)
 	parts = append(parts, base)
 	for _, join := range query.From.Joins {
-		parts = append(parts, string(join.Type)+":"+join.tableName())
+		prefix := ""
+		if join.Natural {
+			prefix = "NATURAL "
+		}
+		parts = append(parts, prefix+string(join.Type)+":"+join.tableName())
 	}
 	return strings.Join(parts, "->")
 }

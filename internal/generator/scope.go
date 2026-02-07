@@ -47,6 +47,18 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 	if query.Having != nil && !m.validateExpr(query.Having, scope, outer) {
 		return false
 	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !m.validateExpr(expr, scope, outer) {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !m.validateExpr(ob.Expr, scope, outer) {
+				return false
+			}
+		}
+	}
 	for _, ob := range query.OrderBy {
 		if !m.validateExpr(ob.Expr, scope, outer) {
 			return false

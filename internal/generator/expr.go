@@ -391,12 +391,74 @@ func (e CompareSubqueryExpr) Deterministic() bool {
 	return QueryDeterministic(e.Query)
 }
 
+// IntervalExpr renders SQL INTERVAL literal (e.g., INTERVAL 1 DAY).
+type IntervalExpr struct {
+	Value int
+	Unit  string
+}
+
+// Build emits SQL interval literal.
+func (e IntervalExpr) Build(b *SQLBuilder) {
+	b.Write("INTERVAL ")
+	b.Write(fmt.Sprintf("%d", e.Value))
+	b.Write(" ")
+	unit := strings.ToUpper(strings.TrimSpace(e.Unit))
+	if unit == "" {
+		unit = "DAY"
+	}
+	b.Write(unit)
+}
+
+// Columns reports the column references used.
+func (e IntervalExpr) Columns() []ColumnRef { return nil }
+
+// Deterministic reports whether the expression is deterministic.
+func (e IntervalExpr) Deterministic() bool { return true }
+
+// WindowFrame describes a SQL window frame clause.
+type WindowFrame struct {
+	Unit  string
+	Start string
+	End   string
+}
+
+// Build emits SQL frame clause.
+func (f WindowFrame) Build(b *SQLBuilder) {
+	unit := strings.ToUpper(strings.TrimSpace(f.Unit))
+	if unit == "" {
+		unit = "ROWS"
+	}
+	start := strings.ToUpper(strings.TrimSpace(f.Start))
+	if start == "" {
+		start = "UNBOUNDED PRECEDING"
+	}
+	end := strings.ToUpper(strings.TrimSpace(f.End))
+	if end == "" {
+		end = "CURRENT ROW"
+	}
+	b.Write(unit)
+	b.Write(" BETWEEN ")
+	b.Write(start)
+	b.Write(" AND ")
+	b.Write(end)
+}
+
+// WindowDef describes a named WINDOW specification on SELECT query level.
+type WindowDef struct {
+	Name        string
+	PartitionBy []Expr
+	OrderBy     []OrderBy
+	Frame       *WindowFrame
+}
+
 // WindowExpr renders a window function expression.
 type WindowExpr struct {
 	Name        string
 	Args        []Expr
+	WindowName  string
 	PartitionBy []Expr
 	OrderBy     []OrderBy
+	Frame       *WindowFrame
 }
 
 // Build emits the window function expression.
@@ -409,33 +471,13 @@ func (e WindowExpr) Build(b *SQLBuilder) {
 		}
 		arg.Build(b)
 	}
+	if e.WindowName != "" && len(e.PartitionBy) == 0 && len(e.OrderBy) == 0 && e.Frame == nil {
+		b.Write(") OVER ")
+		b.Write(e.WindowName)
+		return
+	}
 	b.Write(") OVER (")
-	needSpace := false
-	if len(e.PartitionBy) > 0 {
-		b.Write("PARTITION BY ")
-		for i, expr := range e.PartitionBy {
-			if i > 0 {
-				b.Write(", ")
-			}
-			expr.Build(b)
-		}
-		needSpace = true
-	}
-	if len(e.OrderBy) > 0 {
-		if needSpace {
-			b.Write(" ")
-		}
-		b.Write("ORDER BY ")
-		for i, ob := range e.OrderBy {
-			if i > 0 {
-				b.Write(", ")
-			}
-			ob.Expr.Build(b)
-			if ob.Desc {
-				b.Write(" DESC")
-			}
-		}
-	}
+	writeWindowSpec(b, e.PartitionBy, e.OrderBy, e.Frame, e.WindowName)
 	b.Write(")")
 }
 

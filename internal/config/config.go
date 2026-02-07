@@ -51,20 +51,26 @@ type PlanReplayer struct {
 // Features toggles SQL capabilities in generation.
 type Features struct {
 	Joins                bool `yaml:"joins"`
+	NaturalJoins         bool `yaml:"natural_joins"`
+	FullJoinEmulation    bool `yaml:"full_join_emulation"`
 	CTE                  bool `yaml:"cte"`
+	RecursiveCTE         bool `yaml:"recursive_cte"`
 	Subqueries           bool `yaml:"subqueries"`
 	SetOperations        bool `yaml:"set_operations"`
 	DerivedTables        bool `yaml:"derived_tables"`
 	QuantifiedSubqueries bool `yaml:"quantified_subqueries"`
 	Aggregates           bool `yaml:"aggregates"`
 	GroupBy              bool `yaml:"group_by"`
+	GroupByRollup        bool `yaml:"group_by_rollup"`
 	Having               bool `yaml:"having"`
 	OrderBy              bool `yaml:"order_by"`
 	Limit                bool `yaml:"limit"`
 	Distinct             bool `yaml:"distinct"`
 	PlanCache            bool `yaml:"plan_cache"`
 	WindowFuncs          bool `yaml:"window_funcs"`
+	WindowFrames         bool `yaml:"window_frames"`
 	CorrelatedSubq       bool `yaml:"correlated_subqueries"`
+	IntervalArith        bool `yaml:"interval_arith"`
 	Views                bool `yaml:"views"`
 	ViewMax              int  `yaml:"view_max"`
 	Indexes              bool `yaml:"indexes"`

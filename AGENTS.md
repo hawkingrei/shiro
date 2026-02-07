@@ -8,6 +8,8 @@ Links:
 - [Feature Notes](docs/notes/feature.md)
 - [Follow-ups](docs/notes/follow-ups.md)
 - [Roadmap](docs/roadmap.md)
+- [PQS Notes](docs/pqs.md)
+- [Argus Notes](docs/argus.md)
 - [Oracles](docs/oracles/README.md)
 - [Glossary](docs/glossary.md)
 - [Architecture Decisions](docs/decisions/README.md)
@@ -19,6 +21,9 @@ Links:
 
 ## Recent updates
 
+- Added SQL2023-oriented generation features: NATURAL JOIN, FULL JOIN semantic emulation (`LEFT/RIGHT + UNION ALL`), recursive CTE (`WITH RECURSIVE`), window frame + named WINDOW clauses, GROUP BY WITH ROLLUP (+ GROUPING item), and INTERVAL arithmetic; added generator/oracle compatibility updates and tests (2026-02-06).
+- Added `docs/argus.md` from paper `2510.06663v1` (Argus): CAQ-based oracle discovery with solver-backed verification and snippet-corpus instantiation flow (2026-02-06).
+- Read OSDI20 Rigger and added `docs/pqs.md` with a staged PQS integration outline; synced TODO/follow-ups with actionable PQS tasks (2026-02-06).
 - Fixed set-op scope visibility (operand tables no longer leak into main-query scope), enabled derived-table generation in template FROM paths, and made SubqueryExpr/ExistsExpr determinism checks recurse into subqueries; added regression tests (2026-02-06).
 - Added feature-flagged SQL capability groundwork for set operations (`UNION/INTERSECT/EXCEPT`), derived tables (`FROM/JOIN (subquery) AS alias`), and quantified subqueries (`ANY/SOME/ALL`), plus recursive query-analysis/oracle helper coverage and tests (2026-02-06).
 - Fixed `sqlErrorReason(nil)` to return an empty reason and added a regression test; clarified EET ORDER BY drop semantics with inline comments (2026-02-06).
