@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Removed two `ineffassign` findings by deleting an unused `lastKeyReason` assignment in GroundTruth query picking and simplifying DSG mismatch label initialization in runner stats (2026-02-07).
 - Report metadata now surfaces `groundtruth_dsg_mismatch_reason` at summary/index top level (runner summary write + shiro-report case entry), with runner tests covering detail/skip-reason extraction (2026-02-07).
 - Added top-level interval aggregation for `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas and covered the parser/aggregation with runner unit tests (2026-02-07).
 - Added GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch query picking, moved CODDTest null/type guards into build-time prechecks to reduce runtime skips, and added shared EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility; added regression tests (2026-02-07).

@@ -1535,7 +1535,7 @@ func collectGroundTruthDSGMismatchReasons(deltaFunnel map[string]oracleFunnel) m
 		if !strings.HasPrefix(reason, mismatchPrefix) {
 			continue
 		}
-		label := "unknown"
+		var label string
 		switch {
 		case reason == mismatchPrefix:
 			label = "unknown"

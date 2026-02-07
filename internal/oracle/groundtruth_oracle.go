@@ -220,7 +220,6 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 			continue
 		}
 		if keyReason != "" {
-			lastKeyReason = keyReason
 			return query, edges, "", keyReason, ""
 		}
 		if gen.Config.Features.DSG {
