@@ -1,6 +1,10 @@
 package generator
 
-import "shiro/internal/schema"
+import (
+	"sort"
+
+	"shiro/internal/schema"
+)
 
 type tableSet map[string]struct{}
 
@@ -50,7 +54,7 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			if join.On != nil && !m.validateExpr(join.On, joinScope, outer) {
 				return false
 			}
-			if usingCols := joinUsingColumns(join); len(usingCols) > 0 {
+			if usingCols := joinVisibilityColumns(join, currentScope, visible); len(usingCols) > 0 {
 				affected := append([]string{}, visible...)
 				if joinName := join.tableName(); joinName != "" {
 					affected = append(affected, joinName)
@@ -320,6 +324,49 @@ func joinUsingColumns(join Join) []string {
 		seen[col] = struct{}{}
 		cols = append(cols, col)
 	}
+	return cols
+}
+
+func joinVisibilityColumns(join Join, scope tableScope, leftTables []string) []string {
+	if cols := joinUsingColumns(join); len(cols) > 0 {
+		return cols
+	}
+	if !join.Natural {
+		return nil
+	}
+	return naturalJoinColumns(scope, leftTables, join.tableName())
+}
+
+func naturalJoinColumns(scope tableScope, leftTables []string, rightTable string) []string {
+	if rightTable == "" || len(leftTables) == 0 {
+		return nil
+	}
+	rightCols, ok := scope.columns[rightTable]
+	if !ok || len(rightCols) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	cols := make([]string, 0, len(rightCols))
+	for _, leftTable := range leftTables {
+		leftCols, ok := scope.columns[leftTable]
+		if !ok || len(leftCols) == 0 {
+			continue
+		}
+		for col := range rightCols {
+			if _, ok := leftCols[col]; !ok {
+				continue
+			}
+			if _, dup := seen[col]; dup {
+				continue
+			}
+			seen[col] = struct{}{}
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 {
+		return nil
+	}
+	sort.Strings(cols)
 	return cols
 }
 
