@@ -112,6 +112,7 @@ go run ./cmd/shiro-report \
   -input s3://my-bucket/shiro-reports/ \
   -config config.yaml \
   -output web/public \
+  -artifact-public-base-url https://<artifact-public-domain> \
   -publish-endpoint https://<accountid>.r2.cloudflarestorage.com \
   -publish-region auto \
   -publish-bucket <r2-bucket> \
@@ -124,6 +125,7 @@ go run ./cmd/shiro-report \
 ```
 
 When publish/sync flags are omitted, `cmd/shiro-report` keeps existing local behavior.
+When `-artifact-public-base-url` is not provided, per-case `report_url` and `archive_url` are only emitted when the source upload location is already HTTP(S).
 Cloudflare metadata/search worker code is under `web/cloudflare-worker/`.
 
 ## Dynamic state dump

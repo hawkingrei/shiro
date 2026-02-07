@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added frontend CI pipeline (compile/lint/test), plus report-utils unit tests for URL/case-id derivation.
+Last review: 2026-02-07. Addressed PR #78 security/reliability findings for Worker auth/body limits/download URL handling and shiro-report artifact URL generation.
 
 ## Generator / Oracles
 
@@ -23,7 +23,7 @@ Last review: 2026-02-06. Added frontend CI pipeline (compile/lint/test), plus re
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
 6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
 7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
-8. Cloudflare metadata plane: Workers + D1 append/update case records (`uuid`, labels, error_type, linked_issue, S3 keys, R2 manifest URL) when new manifests arrive. (skeleton done in `web/cloudflare-worker`; production auth/rate-limit/audit pending)
+8. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
 9. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
 10. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
 11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.

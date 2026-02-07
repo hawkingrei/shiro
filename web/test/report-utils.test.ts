@@ -5,6 +5,7 @@ import {
   caseArchiveURL,
   caseID,
   caseReportURL,
+  isHTTPURL,
   objectURL,
   similarCasesURL,
   workerDownloadURL,
@@ -22,15 +23,30 @@ test("caseID follows case_id -> case_dir -> id fallback", () => {
   assert.equal(caseID({ id: "id-2" }), "id-2");
 });
 
-test("caseArchiveURL and caseReportURL derive from upload location", () => {
+test("caseArchiveURL and caseReportURL only expose http(s) links", () => {
+  assert.equal(
+    caseArchiveURL({ upload_location: "https://cdn.example.com/abc/", archive_name: "case.tar.zst" }),
+    "https://cdn.example.com/abc/case.tar.zst",
+  );
+  assert.equal(
+    caseReportURL({ upload_location: "https://cdn.example.com/abc/" }),
+    "https://cdn.example.com/abc/report.json",
+  );
   assert.equal(
     caseArchiveURL({ upload_location: "s3://bucket/abc/", archive_name: "case.tar.zst" }),
-    "s3://bucket/abc/case.tar.zst",
+    "",
   );
   assert.equal(
     caseReportURL({ upload_location: "s3://bucket/abc/" }),
-    "s3://bucket/abc/report.json",
+    "",
   );
+});
+
+test("isHTTPURL validates link scheme", () => {
+  assert.equal(isHTTPURL("https://example.com/a"), true);
+  assert.equal(isHTTPURL("http://example.com/a"), true);
+  assert.equal(isHTTPURL("s3://bucket/a"), false);
+  assert.equal(isHTTPURL(""), false);
 });
 
 test("similar and worker download URL generation", () => {

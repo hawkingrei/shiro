@@ -19,6 +19,7 @@ Links:
 
 ## Recent updates
 
+- Addressed PR #78 review findings: Worker now defaults writes to deny without token (optional `ALLOW_INSECURE_WRITES` for local dev), enforces request body/sync-case limits, adds `Vary: Origin`, fixes PATCH empty-payload semantics, normalizes download/report/archive URLs to HTTP(S), hardens AI prompt user-input delimiters, and updates shiro-report with `-artifact-public-base-url`, worker sync timeout/error handling, and S3 listing-based sidecar detection; frontend now hides non-HTTP(S) artifact links (2026-02-07).
 - CI: added a dedicated frontend pipeline job in `.github/workflows/ci.yaml` that runs web compile (`tsc --noEmit`), lint, and tests; backend/integration job now depends on the web job (2026-02-06).
 - Added `web/lib/report-utils.ts` and unit tests (`web/test/report-utils.test.ts`) to cover report URL/case-id/worker-link derivation used by the frontend (2026-02-06).
 - Added Cloudflare metadata plane skeleton under `web/cloudflare-worker/` with D1 schema, sync/list/patch/download APIs, and per-case similar-bug endpoint (`/api/v1/cases/:case_id/similar`) with optional AI summary (2026-02-06).

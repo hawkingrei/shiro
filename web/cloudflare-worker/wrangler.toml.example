@@ -5,6 +5,8 @@ compatibility_date = "2026-02-06"
 [vars]
 ALLOW_ORIGIN = "*"
 # API_TOKEN = "replace-with-random-token"
+# ALLOW_INSECURE_WRITES = "1" # local dev only; do not enable in production
+# ARTIFACT_PUBLIC_BASE_URL = "https://<public-artifact-domain>"
 # AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 [[d1_databases]]

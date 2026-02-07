@@ -19,7 +19,8 @@ Schema is in `schema.sql`.
 - `GET /api/v1/cases/:case_id/download`
 - `POST /api/v1/cases/search`
 
-`/api/v1/cases/sync` and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is configured.
+`/api/v1/cases/sync` and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` by default.
+If you really need local insecure mode, set `ALLOW_INSECURE_WRITES=1`.
 
 ## Similar-bug search
 `GET /api/v1/cases/:case_id/similar?limit=20&ai=1`
@@ -70,6 +71,7 @@ Use these flags to publish report manifests to R2/S3-compatible storage and sync
 go run ./cmd/shiro-report \
   -input s3://<artifact-bucket>/<cases-prefix>/ \
   -output web/public \
+  -artifact-public-base-url https://<artifact-public-domain> \
   -publish-endpoint https://<accountid>.r2.cloudflarestorage.com \
   -publish-region auto \
   -publish-bucket <r2-bucket> \
@@ -82,3 +84,9 @@ go run ./cmd/shiro-report \
 ```
 
 If publish/sync flags are omitted, behavior stays unchanged.
+
+## Security and limits
+- Sync and patch request bodies are size-limited (`2 MiB` for sync, `64 KiB` for search/patch).
+- Sync rejects oversized `cases[]` payloads (limit `2000`).
+- CORS responses include `Vary: Origin`.
+- `ARTIFACT_PUBLIC_BASE_URL` can translate `s3://` artifact paths into browser-usable HTTP(S) links.

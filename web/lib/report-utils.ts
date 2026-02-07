@@ -8,6 +8,11 @@ export type CaseLike = {
   report_url?: string;
 };
 
+export const isHTTPURL = (value: string): boolean => {
+  const normalized = (value || "").trim().toLowerCase();
+  return normalized.startsWith("http://") || normalized.startsWith("https://");
+};
+
 export const objectURL = (base: string, name: string): string => {
   const trimmedBase = (base || "").trim().replace(/\/+$/, "");
   const trimmedName = (name || "").trim().replace(/^\/+/, "");
@@ -20,13 +25,19 @@ export const caseID = (c: CaseLike): string => {
 };
 
 export const caseArchiveURL = (c: CaseLike): string => {
-  if ((c.archive_url || "").trim()) return (c.archive_url || "").trim();
-  return objectURL(c.upload_location || "", c.archive_name || "");
+  const explicit = (c.archive_url || "").trim();
+  if (isHTTPURL(explicit)) return explicit;
+  const base = (c.upload_location || "").trim();
+  if (!isHTTPURL(base)) return "";
+  return objectURL(base, c.archive_name || "");
 };
 
 export const caseReportURL = (c: CaseLike): string => {
-  if ((c.report_url || "").trim()) return (c.report_url || "").trim();
-  return objectURL(c.upload_location || "", "report.json");
+  const explicit = (c.report_url || "").trim();
+  if (isHTTPURL(explicit)) return explicit;
+  const base = (c.upload_location || "").trim();
+  if (!isHTTPURL(base)) return "";
+  return objectURL(base, "report.json");
 };
 
 export const similarCasesURL = (workerBaseURL: string, c: CaseLike): string => {

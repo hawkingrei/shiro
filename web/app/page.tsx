@@ -7,6 +7,7 @@ import {
   caseArchiveURL,
   caseID,
   caseReportURL,
+  isHTTPURL,
   similarCasesURL,
   workerDownloadURL,
 } from "../lib/report-utils";
@@ -673,8 +674,10 @@ export default function Page() {
                         {similarList.map((item, itemIdx) => {
                           const sid = (item.case_id || "").trim();
                           const score = typeof item.similarity_score === "number" ? item.similarity_score : null;
-                          const itemArchiveURL = (item.archive_url || "").trim();
-                          const itemReportURL = (item.report_url || "").trim();
+                          const itemArchiveURLRaw = (item.archive_url || "").trim();
+                          const itemReportURLRaw = (item.report_url || "").trim();
+                          const itemArchiveURL = isHTTPURL(itemArchiveURLRaw) ? itemArchiveURLRaw : "";
+                          const itemReportURL = isHTTPURL(itemReportURLRaw) ? itemReportURLRaw : "";
                           return (
                             <div className="similar-panel__item" key={`${sid || "similar"}-${itemIdx}`}>
                               <div className="similar-panel__meta">

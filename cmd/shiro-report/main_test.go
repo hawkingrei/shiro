@@ -77,12 +77,28 @@ func TestObjectKey(t *testing.T) {
 }
 
 func TestDeriveObjectURLs(t *testing.T) {
-	reportURL, archiveURL := deriveObjectURLs("s3://bucket/abc/", "case.tar.zst")
-	if reportURL != "s3://bucket/abc/report.json" {
-		t.Fatalf("unexpected report url: %q", reportURL)
+	reportURL, archiveURL := deriveObjectURLs("s3://bucket/abc/", "case.tar.zst", "")
+	if reportURL != "" {
+		t.Fatalf("unexpected report url without public base: %q", reportURL)
 	}
-	if archiveURL != "s3://bucket/abc/case.tar.zst" {
-		t.Fatalf("unexpected archive url: %q", archiveURL)
+	if archiveURL != "" {
+		t.Fatalf("unexpected archive url without public base: %q", archiveURL)
+	}
+
+	reportURL, archiveURL = deriveObjectURLs("s3://bucket/abc/", "case.tar.zst", "https://cdn.example.com")
+	if reportURL != "https://cdn.example.com/abc/report.json" {
+		t.Fatalf("unexpected report url with public base: %q", reportURL)
+	}
+	if archiveURL != "https://cdn.example.com/abc/case.tar.zst" {
+		t.Fatalf("unexpected archive url with public base: %q", archiveURL)
+	}
+
+	reportURL, archiveURL = deriveObjectURLs("https://cdn.example.com/abc/", "case.tar.zst", "")
+	if reportURL != "https://cdn.example.com/abc/report.json" {
+		t.Fatalf("unexpected report url from https upload location: %q", reportURL)
+	}
+	if archiveURL != "https://cdn.example.com/abc/case.tar.zst" {
+		t.Fatalf("unexpected archive url from https upload location: %q", archiveURL)
 	}
 }
 

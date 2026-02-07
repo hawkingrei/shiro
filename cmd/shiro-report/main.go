@@ -74,8 +74,9 @@ type SiteData struct {
 }
 
 type loadOptions struct {
-	MaxBytes    int
-	MaxZipBytes int
+	MaxBytes              int
+	MaxZipBytes           int
+	ArtifactPublicBaseURL string
 }
 
 type publishOptions struct {
@@ -121,11 +122,16 @@ func main() {
 	publishSessionToken := flag.String("publish-session-token", "", "session token for publishing report manifests")
 	publishUsePathStyle := flag.Bool("publish-use-path-style", true, "whether to use path-style S3 addressing for publish endpoint")
 	publishPublicBaseURL := flag.String("publish-public-base-url", "", "public base URL for published manifests")
+	artifactPublicBaseURL := flag.String("artifact-public-base-url", "", "public HTTP(S) base URL used to derive per-case report/archive links from s3 upload locations")
 	workerSyncEndpoint := flag.String("worker-sync-endpoint", "", "cloudflare worker sync endpoint for D1 metadata upsert")
 	workerSyncToken := flag.String("worker-sync-token", "", "bearer token used for worker sync endpoint")
 	flag.Parse()
 
-	opts := loadOptions{MaxBytes: *maxBytes, MaxZipBytes: *maxZipBytes}
+	opts := loadOptions{
+		MaxBytes:              *maxBytes,
+		MaxZipBytes:           *maxZipBytes,
+		ArtifactPublicBaseURL: strings.TrimSpace(*artifactPublicBaseURL),
+	}
 	ctx := context.Background()
 
 	var cases []CaseEntry
@@ -259,7 +265,7 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 	}
 	caseID := caseIDFromSummary(summary, filepath.Base(dir))
 	caseDir := caseDirFromSummary(summary, caseID)
-	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName)
+	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName, opts.ArtifactPublicBaseURL)
 	return CaseEntry{
 		ID:                  caseID,
 		Oracle:              summary.Oracle,
@@ -360,14 +366,14 @@ func loadS3Cases(ctx context.Context, cfg config.S3Config, bucket, prefix string
 	if err != nil {
 		return nil, err
 	}
-	keys, err := listSummaryKeys(ctx, client, bucket, prefix)
+	keys, objectSet, err := listSummaryKeys(ctx, client, bucket, prefix)
 	if err != nil {
 		return nil, err
 	}
 	cases := make([]CaseEntry, 0, len(keys))
 	for _, key := range keys {
 		dir := strings.TrimSuffix(key, "/summary.json")
-		entry, err := readCaseFromS3(ctx, client, bucket, dir, opts)
+		entry, err := readCaseFromS3(ctx, client, bucket, dir, opts, objectSet)
 		if err != nil {
 			continue
 		}
@@ -380,8 +386,9 @@ func loadS3Cases(ctx context.Context, cfg config.S3Config, bucket, prefix string
 	return cases, nil
 }
 
-func listSummaryKeys(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, error) {
+func listSummaryKeys(ctx context.Context, client *s3.Client, bucket, prefix string) ([]string, map[string]struct{}, error) {
 	var keys []string
+	objectSet := make(map[string]struct{})
 	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(prefix),
@@ -389,19 +396,20 @@ func listSummaryKeys(ctx context.Context, client *s3.Client, bucket, prefix stri
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, obj := range page.Contents {
 			key := aws.ToString(obj.Key)
+			objectSet[key] = struct{}{}
 			if strings.HasSuffix(key, "/summary.json") {
 				keys = append(keys, key)
 			}
 		}
 	}
-	return keys, nil
+	return keys, objectSet, nil
 }
 
-func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, opts loadOptions) (CaseEntry, error) {
+func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, opts loadOptions, objectSet map[string]struct{}) (CaseEntry, error) {
 	summaryKey := dir + "/summary.json"
 	summaryData, _, err := readObjectLimited(ctx, client, bucket, summaryKey, opts.MaxBytes)
 	if err != nil {
@@ -417,11 +425,11 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	files["inserts.sql"] = readObjectFile(ctx, client, bucket, dir+"/inserts.sql", opts.MaxBytes)
 	files["data.tsv"] = readObjectFile(ctx, client, bucket, dir+"/data.tsv", opts.MaxBytes)
 	files["report.json"] = readObjectFile(ctx, client, bucket, dir+"/report.json", opts.MaxBytes)
-	if objectExists(ctx, client, bucket, dir+"/plan_replayer.zip") {
+	if _, ok := objectSet[dir+"/plan_replayer.zip"]; ok {
 		files["plan_replayer.zip"] = FileContent{Name: "plan_replayer.zip", Content: "(binary)", Truncated: true}
 	}
 	archiveKey := dir + "/" + report.CaseArchiveName
-	if objectExists(ctx, client, bucket, archiveKey) {
+	if _, ok := objectSet[archiveKey]; ok {
 		files[report.CaseArchiveName] = FileContent{Name: report.CaseArchiveName, Content: "(binary)", Truncated: true}
 	}
 	commit := extractCommit(summary.TiDBVersion)
@@ -430,7 +438,7 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	}
 	caseID := caseIDFromSummary(summary, filepath.Base(dir))
 	caseDir := caseDirFromSummary(summary, caseID)
-	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName)
+	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName, opts.ArtifactPublicBaseURL)
 	return CaseEntry{
 		ID:                  caseID,
 		Oracle:              summary.Oracle,
@@ -467,14 +475,6 @@ func readObjectFile(ctx context.Context, client *s3.Client, bucket, key string, 
 		return FileContent{Name: filepath.Base(key)}
 	}
 	return FileContent{Name: filepath.Base(key), Content: content, Truncated: truncated}
-}
-
-func objectExists(ctx context.Context, client *s3.Client, bucket, key string) bool {
-	_, err := client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
-	return err == nil
 }
 
 func readObjectBytesLimited(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) ([]byte, bool, error) {
@@ -572,16 +572,51 @@ func caseDirFromSummary(summary report.Summary, caseID string) string {
 	return caseID
 }
 
-func deriveObjectURLs(uploadLocation, archiveName string) (reportURL string, archiveURL string) {
+func deriveObjectURLs(uploadLocation, archiveName, artifactPublicBaseURL string) (reportURL string, archiveURL string) {
 	base := strings.TrimSpace(uploadLocation)
 	if base == "" {
 		return "", ""
 	}
-	reportURL = objectURL(base, "report.json")
+	reportURL = deriveUploadObjectURL(base, "report.json", artifactPublicBaseURL)
 	if strings.TrimSpace(archiveName) != "" {
-		archiveURL = objectURL(base, archiveName)
+		archiveURL = deriveUploadObjectURL(base, archiveName, artifactPublicBaseURL)
 	}
 	return reportURL, archiveURL
+}
+
+func deriveUploadObjectURL(uploadLocation, name, artifactPublicBaseURL string) string {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName == "" {
+		return ""
+	}
+	trimmedUpload := strings.TrimSpace(uploadLocation)
+	if trimmedUpload == "" {
+		return ""
+	}
+	if isHTTPURL(trimmedUpload) {
+		return objectURL(trimmedUpload, trimmedName)
+	}
+	if !strings.HasPrefix(strings.ToLower(trimmedUpload), "s3://") {
+		return ""
+	}
+	publicBase := strings.TrimSpace(artifactPublicBaseURL)
+	if publicBase == "" {
+		return ""
+	}
+	_, prefix, err := parseS3URI(trimmedUpload)
+	if err != nil {
+		return ""
+	}
+	key := objectKey(prefix, trimmedName)
+	if strings.TrimSpace(key) == "" {
+		return ""
+	}
+	return objectURL(publicBase, key)
+}
+
+func isHTTPURL(url string) bool {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
 func objectURL(base, name string) string {
@@ -656,6 +691,7 @@ func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL
 	if strings.TrimSpace(opts.Endpoint) == "" {
 		return nil
 	}
+	const workerSyncTimeout = 20 * time.Second
 	payload := workerSyncPayload{
 		ManifestURL: manifestURL,
 		GeneratedAt: site.GeneratedAt,
@@ -682,7 +718,9 @@ func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, opts.Endpoint, bytes.NewReader(body))
+	requestCtx, cancel := context.WithTimeout(ctx, workerSyncTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, opts.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -690,7 +728,8 @@ func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL
 	if token := strings.TrimSpace(opts.Token); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: workerSyncTimeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -698,7 +737,10 @@ func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}
-	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	msg, readErr := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	if readErr != nil {
+		return fmt.Errorf("worker sync failed status=%d and cannot read body: %w", resp.StatusCode, readErr)
+	}
 	return fmt.Errorf("worker sync failed status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(msg)))
 }
 

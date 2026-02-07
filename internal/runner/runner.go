@@ -146,7 +146,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 	state := &schema.State{}
 	gen := generator.New(cfg, state, cfg.Seed)
 	caseReporter := report.New(cfg.PlanReplayer.OutputDir, cfg.MaxDataDumpRows)
-	// Keep legacy local directory layout when cloud upload is disabled.
+	// Use UUID-based report directory layout when S3 storage is enabled.
 	caseReporter.UseUUIDPath = cfg.Storage.S3.Enabled
 	cloudUploader, err := uploader.NewS3(cfg.Storage.S3)
 	if err != nil {

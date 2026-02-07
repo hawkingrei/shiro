@@ -156,6 +156,11 @@ func (r *Reporter) WriteCaseArchive(c Case) (name string, codec string, err erro
 	if removeErr := os.Remove(archivePath); removeErr != nil && !os.IsNotExist(removeErr) {
 		return "", "", removeErr
 	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(archivePath)
+		}
+	}()
 	file, err := os.Create(archivePath)
 	if err != nil {
 		return "", "", err
@@ -214,7 +219,6 @@ func (r *Reporter) WriteCaseArchive(c Case) (name string, codec string, err erro
 		return nil
 	})
 	if walkErr != nil {
-		_ = os.Remove(archivePath)
 		return "", "", walkErr
 	}
 	return CaseArchiveName, CaseArchiveCodec, nil

@@ -22,6 +22,7 @@ Update `web/public/reports.json` and redeploy. No backend required.
 
 If you deploy Cloudflare Worker metadata APIs, set `NEXT_PUBLIC_WORKER_BASE_URL` before build.
 The UI will show per-case `Find similar` links to `/api/v1/cases/:case_id/similar`.
+Case-level archive/report action links are rendered only for HTTP(S) URLs; `s3://` URLs are hidden and should be exposed through Worker download endpoints or a public artifact base URL.
 
 Cloudflare worker sources are colocated under `web/cloudflare-worker/`.
 
