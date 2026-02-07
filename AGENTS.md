@@ -21,6 +21,8 @@ Links:
 
 ## Recent updates
 
+- Simplified `EXCEPT ALL` gating to the default non-ALL path and added a regression test to ensure `EXCEPT ALL` is never generated for TiDB compatibility (2026-02-07).
+- Added broader SQL2023-focused tests: recursive CTE numeric guard, FULL JOIN emulation key-selection edge cases, named-window override rendering, grouping ordinal unwrap, window-def determinism, and oracle SQL helper fast-path/build coverage (2026-02-07).
 - Added SQL2023-oriented generation features: NATURAL JOIN, FULL JOIN semantic emulation (`LEFT/RIGHT + UNION ALL`), recursive CTE (`WITH RECURSIVE`), window frame + named WINDOW clauses, GROUP BY WITH ROLLUP (+ GROUPING item), and INTERVAL arithmetic; added generator/oracle compatibility updates and tests (2026-02-06).
 - Added `docs/argus.md` from paper `2510.06663v1` (Argus): CAQ-based oracle discovery with solver-backed verification and snippet-corpus instantiation flow (2026-02-06).
 - Read OSDI20 Rigger and added `docs/pqs.md` with a staged PQS integration outline; synced TODO/follow-ups with actionable PQS tasks (2026-02-06).

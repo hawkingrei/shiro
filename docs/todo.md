@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-06. Added parser fast-path guard, SQL capability groundwork (set operations, derived tables, quantified subqueries), follow-up fixes for set-op scope isolation/template-derived coverage/subquery determinism, PQS note/TODO refresh, Argus paper notes, and SQL2023 feature rollout (natural/full-join emulation, recursive CTE, window frame, rollup, interval arithmetic).
+Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CTE guards, FULL JOIN emulation edge cases, window determinism/named-window overrides, GROUPING ordinal unwrap), oracle SQL helper fast-path/build tests, and a TiDB-compat regression to keep `EXCEPT ALL` disabled.
 
 ## Generator / Oracles
 

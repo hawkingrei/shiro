@@ -159,3 +159,112 @@ func TestGenerateRecursiveCTEQuery(t *testing.T) {
 		t.Fatalf("expected recursive reference, got %s", sql)
 	}
 }
+
+func TestGenerateRecursiveCTEQueryRequiresNumericColumn(t *testing.T) {
+	gen := &Generator{Rand: rand.New(rand.NewSource(2))}
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeVarchar},
+		},
+	}
+	if query := gen.GenerateRecursiveCTEQuery(tbl, "cte_0"); query != nil {
+		t.Fatalf("expected nil recursive cte query when no numeric column exists")
+	}
+}
+
+func TestApplyFullJoinEmulationRequiresBaseJoinKey(t *testing.T) {
+	gen := &Generator{Rand: rand.New(rand.NewSource(3))}
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id"}}, Alias: "id"}},
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{{
+				Type:  JoinInner,
+				Table: "t1",
+				On:    BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+			}},
+		},
+	}
+	if ok := gen.applyFullJoinEmulation(query); ok {
+		t.Fatalf("expected full join emulation to skip when base join key is missing")
+	}
+	if len(query.SetOps) != 0 {
+		t.Fatalf("expected query to remain unchanged on failed emulation")
+	}
+}
+
+func TestPickBaseJoinKeyFromAndTree(t *testing.T) {
+	on := BinaryExpr{
+		Left: BinaryExpr{
+			Left:  LiteralExpr{Value: 1},
+			Op:    "=",
+			Right: LiteralExpr{Value: 1},
+		},
+		Op: "AND",
+		Right: BinaryExpr{
+			Left:  UnaryExpr{Op: "+", Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0"}}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0"}},
+		},
+	}
+	key, ok := pickBaseJoinKey(on, "t0")
+	if !ok {
+		t.Fatalf("expected to find base join key from AND tree")
+	}
+	if key != "k0" {
+		t.Fatalf("expected base key k0, got %s", key)
+	}
+}
+
+func TestWindowExprBuildWithNamedBaseAndOverrides(t *testing.T) {
+	expr := WindowExpr{
+		Name:       "SUM",
+		Args:       []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}},
+		WindowName: "w0",
+		OrderBy:    []OrderBy{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1"}}}},
+		Frame:      &WindowFrame{Unit: "ROWS", Start: "1 PRECEDING", End: "CURRENT ROW"},
+	}
+	var b SQLBuilder
+	expr.Build(&b)
+	sql := b.String()
+	if !strings.Contains(sql, "OVER (w0 ORDER BY t0.c1 ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)") {
+		t.Fatalf("unexpected named window override SQL: %s", sql)
+	}
+}
+
+func TestMaybeAppendGroupingSelectItemUnwrapsOrdinal(t *testing.T) {
+	gen := &Generator{}
+	query := &SelectQuery{
+		GroupBy: []Expr{
+			GroupByOrdinalExpr{
+				Ordinal: 1,
+				Expr:    ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}},
+			},
+		},
+	}
+	gen.maybeAppendGroupingSelectItem(query)
+	if len(query.Items) != 1 {
+		t.Fatalf("expected one grouping select item, got %d", len(query.Items))
+	}
+	grouping, ok := query.Items[0].Expr.(FuncExpr)
+	if !ok || grouping.Name != "GROUPING" || len(grouping.Args) != 1 {
+		t.Fatalf("expected GROUPING(expr) item, got %#v", query.Items[0].Expr)
+	}
+	arg, ok := grouping.Args[0].(ColumnExpr)
+	if !ok {
+		t.Fatalf("expected GROUPING argument to unwrap ordinal into column expr")
+	}
+	if arg.Ref.Table != "t0" || arg.Ref.Name != "c0" {
+		t.Fatalf("unexpected GROUPING arg %s.%s", arg.Ref.Table, arg.Ref.Name)
+	}
+}
+
+func TestPickSetOperationAllExceptAlwaysFalse(t *testing.T) {
+	gen := &Generator{Rand: rand.New(rand.NewSource(7))}
+	for i := 0; i < 50; i++ {
+		if gen.pickSetOperationAll(SetOperationExcept) {
+			t.Fatalf("EXCEPT ALL should never be generated")
+		}
+	}
+}

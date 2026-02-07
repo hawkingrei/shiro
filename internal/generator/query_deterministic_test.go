@@ -64,3 +64,19 @@ func TestQueryDeterministicRecursesIntoSetOpsAndJoinDerived(t *testing.T) {
 		t.Fatalf("expected nondeterministic query when set-op/join-derived contains nondeterministic expression")
 	}
 }
+
+func TestQueryDeterministicRecursesIntoWindowDefs(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  FromClause{BaseTable: "t0"},
+		WindowDefs: []WindowDef{
+			{
+				Name:        "w0",
+				PartitionBy: []Expr{nonDetExpr{}},
+			},
+		},
+	}
+	if QueryDeterministic(query) {
+		t.Fatalf("expected nondeterministic query when window definition contains nondeterministic expression")
+	}
+}

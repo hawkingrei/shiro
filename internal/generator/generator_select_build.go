@@ -357,7 +357,7 @@ func (g *Generator) pickSetOperationAll(opType SetOperationType) bool {
 	switch opType {
 	case SetOperationUnion:
 		return util.Chance(g.Rand, 40)
-	case SetOperationIntersect, SetOperationExcept:
+	case SetOperationIntersect:
 		return util.Chance(g.Rand, 20)
 	default:
 		return false
