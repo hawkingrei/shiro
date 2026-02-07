@@ -1,7 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
-Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CTE guards, FULL JOIN emulation edge cases, window determinism/named-window overrides, GROUPING ordinal unwrap), oracle SQL helper fast-path/build tests, TiDB-compat regressions to keep `INTERSECT ALL`/`EXCEPT ALL` disabled, nil-operand hardening for expression determinism/build paths, runner-side `error_reason/bug_hint` classification for PlanCache and GroundTruth mismatch reporting, P1 batch-1 skip-reduction overrides for GroundTruth/CODDTest, systemic NoREC constraint tightening via builder-level set-op disallow + query guard reasons, scope-manager enforcement for `USING` qualified-column visibility with regression tests, set-op ORDER/LIMIT normalization, inline-subquery `WITH` guard unification, and canonical `plan_reference_missing` bug-hint alignment.
+Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CTE guards, FULL JOIN emulation edge cases, window determinism/named-window overrides, GROUPING ordinal unwrap), oracle SQL helper fast-path/build tests, TiDB-compat regressions to keep `INTERSECT ALL`/`EXCEPT ALL` disabled, nil-operand hardening for expression determinism/build paths, runner-side `error_reason/bug_hint` classification for PlanCache and GroundTruth mismatch reporting, P1 batch-1 skip-reduction overrides for GroundTruth/CODDTest, systemic NoREC constraint tightening via builder-level set-op disallow + query guard reasons, scope-manager enforcement for `USING` qualified-column visibility with regression tests, set-op ORDER/LIMIT normalization, inline-subquery `WITH` guard unification, canonical `plan_reference_missing` bug-hint alignment, GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch picking, CODDTest build-time null/type prechecks, EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility, top-level interval aggregation for `groundtruth_dsg_mismatch_reason`, and summary/index top-level propagation of `groundtruth_dsg_mismatch_reason`.
 
 ## Generator / Oracles
 
@@ -16,6 +16,11 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
 10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
 11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
+12. GroundTruth now emits detailed `dsg_key_mismatch_*` skip reasons and retries candidate generation before skipping. (done)
+13. CODDTest now enforces null/type guardrails during query build to reduce runtime `coddtest:null_guard` skips. (done)
+14. EET/TLP now run signature prechecks for invalid ORDER BY ordinals and known-table column visibility before executing signature SQL. (done)
+15. Runner interval summary now reports aggregated `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas. (done)
+16. Summary/report index metadata now propagates `groundtruth_dsg_mismatch_reason` as a top-level field. (done)
 
 ## PQS (Rigger OSDI20)
 

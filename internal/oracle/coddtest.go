@@ -56,14 +56,20 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		RequireDeterministic().
 		DisallowAggregate().
 		MaxJoinCount(2).
-		QueryGuard(func(query *generator.SelectQuery) bool {
+		QueryGuardWithReason(func(query *generator.SelectQuery) (bool, string) {
 			if query == nil {
-				return false
+				return false, "constraint:query_guard"
 			}
 			if len(query.With) > 0 {
-				return false
+				return false, "constraint:query_guard"
 			}
-			return queryUsesOnlyBaseTables(query, baseNames)
+			if !queryUsesOnlyBaseTables(query, baseNames) {
+				return false, "constraint:query_guard"
+			}
+			if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
+				return false, reason
+			}
+			return true, ""
 		}).
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
@@ -85,6 +91,9 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	}
 	if !onlySupportedCODDColumns(columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:type_guard"}}
+	}
+	if coddtestColumnsGuaranteedNonNull(state, columns) {
+		return o.runDependent(ctx, exec, gen, query, phi, columns)
 	}
 	if !o.noNullsInQuery(ctx, exec, state, columns) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "coddtest:null_guard"}}
@@ -323,6 +332,46 @@ func queryUsesOnlyBaseTables(query *generator.SelectQuery, baseNames map[string]
 			return false
 		}
 		if _, ok := baseNames[join.Table]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func coddtestPredicatePrecheckReason(state *schema.State, query *generator.SelectQuery) string {
+	if query == nil || query.Where == nil {
+		return "constraint:no_where"
+	}
+	columns := query.Where.Columns()
+	if len(columns) == 0 {
+		return ""
+	}
+	if !onlySupportedCODDColumns(columns) {
+		return "constraint:type_guard"
+	}
+	if !coddtestColumnsGuaranteedNonNull(state, columns) {
+		return "constraint:null_guard"
+	}
+	return ""
+}
+
+func coddtestColumnsGuaranteedNonNull(state *schema.State, columns []generator.ColumnRef) bool {
+	if state == nil || len(columns) == 0 {
+		return false
+	}
+	for _, col := range columns {
+		if col.Table == "" || col.Name == "" {
+			return false
+		}
+		tbl, ok := state.TableByName(col.Table)
+		if !ok {
+			return false
+		}
+		info, ok := tbl.ColumnByName(col.Name)
+		if !ok {
+			return false
+		}
+		if info.Nullable {
 			return false
 		}
 	}

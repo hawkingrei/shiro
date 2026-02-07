@@ -21,6 +21,9 @@ Links:
 
 ## Recent updates
 
+- Report metadata now surfaces `groundtruth_dsg_mismatch_reason` at summary/index top level (runner summary write + shiro-report case entry), with runner tests covering detail/skip-reason extraction (2026-02-07).
+- Added top-level interval aggregation for `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas and covered the parser/aggregation with runner unit tests (2026-02-07).
+- Added GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch query picking, moved CODDTest null/type guards into build-time prechecks to reduce runtime skips, and added shared EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility; added regression tests (2026-02-07).
 - Systematically fixed PR-77 follow-ups: normalized set-operation ORDER/LIMIT handling to avoid branch-only binding, unified inline-subquery `WITH` guardrails across scalar/EXISTS/quantified expressions, and aligned runner `bug_hint` to `tidb:plan_reference_missing`; added regression tests (2026-02-07).
 - Scope manager now enforces `USING` column visibility for qualified references in query-body clauses (SELECT/WHERE/GROUP/HAVING/WINDOW/ORDER), with regression tests for hidden/common columns and preserved non-USING columns (2026-02-07).
 - Systematically tightened NoREC query constraints by adding builder-level `DisallowSetOps`, refactoring shared constraint evaluation in `SelectQueryBuilder`, moving NoREC guardrails into `QueryGuardReason` (set-op / limit-without-order / predicate-subquery), and adding regression tests for constraint reasons and NoREC guard behavior (2026-02-07).

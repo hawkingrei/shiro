@@ -88,6 +88,12 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			query.OrderBy = nil
 		}
 	}
+	if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			"skip_reason":     skipReason,
+			"precheck_reason": reason,
+		}}
+	}
 
 	baseSQL := query.SQLString()
 	transformedSQL, details, err := applyEETTransform(baseSQL, gen)

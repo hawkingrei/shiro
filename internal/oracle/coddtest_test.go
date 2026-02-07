@@ -46,3 +46,54 @@ func TestOnlySupportedCODDColumnsRejectsUnknownType(t *testing.T) {
 		t.Fatalf("expected unknown column type to be rejected")
 	}
 }
+
+func TestCODDTestPredicatePrecheckReason(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt, Nullable: false},
+					{Name: "c0", Type: schema.TypeInt, Nullable: true},
+				},
+			},
+		},
+	}
+
+	if reason := coddtestPredicatePrecheckReason(state, &generator.SelectQuery{}); reason != "constraint:no_where" {
+		t.Fatalf("expected constraint:no_where, got %q", reason)
+	}
+
+	safe := &generator.SelectQuery{
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: 1},
+		},
+	}
+	if reason := coddtestPredicatePrecheckReason(state, safe); reason != "" {
+		t.Fatalf("expected empty reason, got %q", reason)
+	}
+
+	nullable := &generator.SelectQuery{
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: 1},
+		},
+	}
+	if reason := coddtestPredicatePrecheckReason(state, nullable); reason != "constraint:null_guard" {
+		t.Fatalf("expected constraint:null_guard, got %q", reason)
+	}
+
+	unsupported := &generator.SelectQuery{
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id", Type: schema.ColumnType(999)}},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: 1},
+		},
+	}
+	if reason := coddtestPredicatePrecheckReason(state, unsupported); reason != "constraint:type_guard" {
+		t.Fatalf("expected constraint:type_guard, got %q", reason)
+	}
+}

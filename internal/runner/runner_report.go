@@ -113,23 +113,25 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if hint, ok := details["bug_hint"].(string); ok {
 		bugHint = hint
 	}
+	groundTruthDSGMismatchReason := groundTruthDSGMismatchReasonFromDetails(details)
 
 	summary := report.Summary{
-		Oracle:        result.Oracle,
-		SQL:           result.SQL,
-		Expected:      result.Expected,
-		Actual:        result.Actual,
-		ErrorReason:   errorReason,
-		BugHint:       bugHint,
-		ReplaySQL:     replaySQL,
-		Flaky:         flaky,
-		Details:       details,
-		Seed:          r.gen.Seed,
-		Timestamp:     time.Now().Format(time.RFC3339),
-		PlanReplay:    planPath,
-		TiDBVersion:   r.tidbVersion(ctx),
-		PlanSignature: planSignature,
-		PlanSigFormat: planSigFormat,
+		Oracle:                       result.Oracle,
+		SQL:                          result.SQL,
+		Expected:                     result.Expected,
+		Actual:                       result.Actual,
+		ErrorReason:                  errorReason,
+		BugHint:                      bugHint,
+		GroundTruthDSGMismatchReason: groundTruthDSGMismatchReason,
+		ReplaySQL:                    replaySQL,
+		Flaky:                        flaky,
+		Details:                      details,
+		Seed:                         r.gen.Seed,
+		Timestamp:                    time.Now().Format(time.RFC3339),
+		PlanReplay:                   planPath,
+		TiDBVersion:                  r.tidbVersion(ctx),
+		PlanSignature:                planSignature,
+		PlanSigFormat:                planSigFormat,
 	}
 	if result.Truth != nil && result.Truth.Enabled {
 		summary.GroundTruth = &report.TruthSummary{
@@ -329,6 +331,27 @@ func isFlakyExplain(details map[string]any) bool {
 		return false
 	}
 	return normalizeExplain(expected) == normalizeExplain(actual)
+}
+
+func groundTruthDSGMismatchReasonFromDetails(details map[string]any) string {
+	if details == nil {
+		return ""
+	}
+	if v, ok := details["groundtruth_dsg_mismatch_reason"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	skipReason, _ := details["skip_reason"].(string)
+	const prefix = "groundtruth:dsg_key_mismatch"
+	switch {
+	case strings.HasPrefix(skipReason, prefix+"_"):
+		return strings.TrimPrefix(skipReason, prefix+"_")
+	case strings.HasPrefix(skipReason, prefix+":"):
+		return strings.TrimPrefix(skipReason, prefix+":")
+	case skipReason == prefix:
+		return "unknown"
+	default:
+		return ""
+	}
 }
 
 func normalizeExplain(text string) string {

@@ -22,6 +22,7 @@ type CaseEntry = {
   expected: string;
   actual: string;
   error: string;
+  groundtruth_dsg_mismatch_reason?: string;
   flaky?: boolean;
   norec_optimized_sql: string;
   norec_unoptimized_sql: string;
@@ -229,6 +230,7 @@ export default function Page() {
         c.error,
         c.expected,
         c.actual,
+        c.groundtruth_dsg_mismatch_reason,
         c.norec_optimized_sql,
         c.norec_unoptimized_sql,
         c.norec_predicate,
