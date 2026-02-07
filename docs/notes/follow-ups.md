@@ -16,3 +16,5 @@
 - Unify expression rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
 - Refine type compatibility and implicit cast rules using SQL standard guidance to reduce benign type errors.
 - Fuzz efficiency refactor: add `QueryAnalysis` in generator, move oracle guardrails into `OracleSpec`/`QuerySpec`, replace hard-coded oracle overrides with capability profiles, reduce SQL parse overhead with fast paths or caching, and add efficiency metrics (builder attempts, skip ratios, parser calls, effective runs).
+- Add a staged PQS oracle (Rigger OSDI20): pivot sampling, 3VL predicate rectification, containment checks, and dedicated observability/reducer artifacts.
+- Extend SQL2023 support from current NATURAL/FULL-emulated joins, recursive CTE, window frame, rollup, and interval arithmetic to `GROUPING SETS` / `CUBE`, and add per-feature observability counters.

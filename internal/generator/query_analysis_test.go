@@ -1,6 +1,14 @@
 package generator
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"shiro/internal/schema"
+
+	"github.com/pingcap/tidb/pkg/parser"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+)
 
 func TestAnalyzeQuery(t *testing.T) {
 	limit := 5
@@ -39,6 +47,9 @@ func TestAnalyzeQuery(t *testing.T) {
 	if !analysis.HasLimit || !analysis.HasOrderBy || !analysis.HasGroupBy || !analysis.HasHaving || !analysis.HasDistinct || !analysis.HasCTE {
 		t.Fatalf("expected limit/order-by/group-by/having/distinct/cte flags to be set")
 	}
+	if analysis.HasSetOps {
+		t.Fatalf("did not expect set-op flag")
+	}
 	if analysis.JoinCount != 1 {
 		t.Fatalf("expected join count 1, got %d", analysis.JoinCount)
 	}
@@ -47,5 +58,119 @@ func TestAnalyzeQuery(t *testing.T) {
 	}
 	if analysis.JoinGraphSig != "t->JOIN:t2" {
 		t.Fatalf("expected join graph sig t->JOIN:t2, got %s", analysis.JoinGraphSig)
+	}
+}
+
+func TestAnalyzeQueryWithDerivedAndSetOpQuantifiedSubquery(t *testing.T) {
+	derived := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t0"},
+	}
+	quantifiedSubquery := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t1"},
+	}
+	setRHS := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t2"},
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "d0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{
+			BaseTable: "t0",
+			BaseQuery: derived,
+			BaseAlias: "d0",
+		},
+		Where: CompareSubqueryExpr{
+			Left:       ColumnExpr{Ref: ColumnRef{Table: "d0", Name: "c0", Type: schema.TypeInt}},
+			Op:         ">=",
+			Quantifier: "ANY",
+			Query:      quantifiedSubquery,
+		},
+		SetOps: []SetOperation{
+			{
+				Type:  SetOperationUnion,
+				All:   true,
+				Query: setRHS,
+			},
+		},
+	}
+
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasSubquery {
+		t.Fatalf("expected subquery feature for derived/quantified query")
+	}
+	if features.HasAggregate {
+		t.Fatalf("unexpected aggregate feature")
+	}
+	analysis := AnalyzeQuery(query)
+	if !analysis.HasSubquery {
+		t.Fatalf("expected analysis to mark subquery")
+	}
+	if !analysis.HasSetOps {
+		t.Fatalf("expected analysis to mark set operations")
+	}
+	if analysis.HasOrderBy || analysis.HasLimit || analysis.HasGroupBy || analysis.HasHaving {
+		t.Fatalf("unexpected order/limit/group/having flags")
+	}
+}
+
+func TestSelectQuerySQLWithDerivedAndSetOpQuantifiedSubqueryParses(t *testing.T) {
+	derived := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t0"},
+	}
+	quantifiedSubquery := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t1"},
+	}
+	setRHS := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{BaseTable: "t2"},
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "d0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{
+			BaseTable: "t0",
+			BaseQuery: derived,
+			BaseAlias: "d0",
+		},
+		Where: CompareSubqueryExpr{
+			Left:       ColumnExpr{Ref: ColumnRef{Table: "d0", Name: "c0", Type: schema.TypeInt}},
+			Op:         ">=",
+			Quantifier: "ANY",
+			Query:      quantifiedSubquery,
+		},
+		SetOps: []SetOperation{
+			{
+				Type:  SetOperationIntersect,
+				Query: setRHS,
+			},
+		},
+	}
+
+	sql := query.SQLString()
+	if !strings.Contains(sql, "ANY") || !strings.Contains(sql, "INTERSECT") {
+		t.Fatalf("expected quantified/set-op SQL, got %s", sql)
+	}
+	p := parser.New()
+	if _, _, err := p.Parse(sql, "", ""); err != nil {
+		t.Fatalf("parse failed: %v\nsql=%s", err, sql)
 	}
 }

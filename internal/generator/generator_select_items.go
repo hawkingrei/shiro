@@ -67,12 +67,28 @@ func (g *Generator) GenerateWindowExpr(tables []schema.Table) Expr {
 	if len(orderBy) == 0 {
 		orderBy = []OrderBy{{Expr: LiteralExpr{Value: 1}, Desc: false}}
 	}
+	var frame *WindowFrame
+	if g.Config.Features.WindowFrames && util.Chance(g.Rand, WindowFrameProb) {
+		frame = g.randomWindowFrame()
+	}
 	return WindowExpr{
 		Name:        name,
 		Args:        args,
 		PartitionBy: partitionBy,
 		OrderBy:     orderBy,
+		Frame:       frame,
 	}
+}
+
+func (g *Generator) randomWindowFrame() *WindowFrame {
+	cases := []WindowFrame{
+		{Unit: "ROWS", Start: "UNBOUNDED PRECEDING", End: "CURRENT ROW"},
+		{Unit: "ROWS", Start: "1 PRECEDING", End: "CURRENT ROW"},
+		{Unit: "ROWS", Start: "CURRENT ROW", End: "UNBOUNDED FOLLOWING"},
+		{Unit: "RANGE", Start: "UNBOUNDED PRECEDING", End: "CURRENT ROW"},
+	}
+	pick := cases[g.Rand.Intn(len(cases))]
+	return &pick
 }
 
 func (g *Generator) pickUniqueColumns(tables []schema.Table, count int) []ColumnRef {

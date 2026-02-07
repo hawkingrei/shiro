@@ -8,6 +8,8 @@ Links:
 - [Feature Notes](docs/notes/feature.md)
 - [Follow-ups](docs/notes/follow-ups.md)
 - [Roadmap](docs/roadmap.md)
+- [PQS Notes](docs/pqs.md)
+- [Argus Notes](docs/argus.md)
 - [Oracles](docs/oracles/README.md)
 - [Glossary](docs/glossary.md)
 - [Architecture Decisions](docs/decisions/README.md)
@@ -19,6 +21,25 @@ Links:
 
 ## Recent updates
 
+- Fixed remaining PR-77 review items: render base/join aliases for non-derived table factors (generator/oracle SQL builders), enforce nested-query scope validation with resolver-backed table columns (including strict empty-column-set checks), and make FULL JOIN emulation use unqualified USING anti-filters to satisfy scope rules; added regression tests (2026-02-07).
+- Removed two `ineffassign` findings by deleting an unused `lastKeyReason` assignment in GroundTruth query picking and simplifying DSG mismatch label initialization in runner stats (2026-02-07).
+- Report metadata now surfaces `groundtruth_dsg_mismatch_reason` at summary/index top level (runner summary write + shiro-report case entry), with runner tests covering detail/skip-reason extraction (2026-02-07).
+- Added top-level interval aggregation for `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas and covered the parser/aggregation with runner unit tests (2026-02-07).
+- Added GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch query picking, moved CODDTest null/type guards into build-time prechecks to reduce runtime skips, and added shared EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility; added regression tests (2026-02-07).
+- Systematically fixed PR-77 follow-ups: normalized set-operation ORDER/LIMIT handling to avoid branch-only binding, unified inline-subquery `WITH` guardrails across scalar/EXISTS/quantified expressions, and aligned runner `bug_hint` to `tidb:plan_reference_missing`; added regression tests (2026-02-07).
+- Scope manager now enforces `USING` column visibility for qualified references in query-body clauses (SELECT/WHERE/GROUP/HAVING/WINDOW/ORDER), with regression tests for hidden/common columns and preserved non-USING columns (2026-02-07).
+- Systematically tightened NoREC query constraints by adding builder-level `DisallowSetOps`, refactoring shared constraint evaluation in `SelectQueryBuilder`, moving NoREC guardrails into `QueryGuardReason` (set-op / limit-without-order / predicate-subquery), and adding regression tests for constraint reasons and NoREC guard behavior (2026-02-07).
+- P1 skip-reduction batch 1: tightened GroundTruth/CODDTest oracle overrides (disable views/derived/set-op/subquery-heavy features per oracle), switched CODDTest predicate mode to simple-columns, and widened CODDTest type guard to all supported scalar column types; added runner/oracle tests (2026-02-07).
+- Added shared runner-side result annotation to classify `error_reason`/`bug_hint` (including PlanCache error paths) and tagged GroundTruth mismatches as `groundtruth:count_mismatch`; added runner unit tests for reason/hint mapping (2026-02-07).
+- Disabled `INTERSECT ALL` generation for TiDB compatibility (matching existing `EXCEPT ALL` disablement) and added a regression test to ensure both stay non-ALL (2026-02-07).
+- Hardened expression determinism/build paths against nil operands in `UnaryExpr`/`BinaryExpr`, and added regression coverage for nil binary operands to prevent `QueryDeterministic` panic (2026-02-07).
+- Simplified `EXCEPT ALL` gating to the default non-ALL path and added a regression test to ensure `EXCEPT ALL` is never generated for TiDB compatibility (2026-02-07).
+- Added broader SQL2023-focused tests: recursive CTE numeric guard, FULL JOIN emulation key-selection edge cases, named-window override rendering, grouping ordinal unwrap, window-def determinism, and oracle SQL helper fast-path/build coverage (2026-02-07).
+- Added SQL2023-oriented generation features: NATURAL JOIN, FULL JOIN semantic emulation (`LEFT/RIGHT + UNION ALL`), recursive CTE (`WITH RECURSIVE`), window frame + named WINDOW clauses, GROUP BY WITH ROLLUP (+ GROUPING item), and INTERVAL arithmetic; added generator/oracle compatibility updates and tests (2026-02-06).
+- Added `docs/argus.md` from paper `2510.06663v1` (Argus): CAQ-based oracle discovery with solver-backed verification and snippet-corpus instantiation flow (2026-02-06).
+- Read OSDI20 Rigger and added `docs/pqs.md` with a staged PQS integration outline; synced TODO/follow-ups with actionable PQS tasks (2026-02-06).
+- Fixed set-op scope visibility (operand tables no longer leak into main-query scope), enabled derived-table generation in template FROM paths, and made SubqueryExpr/ExistsExpr determinism checks recurse into subqueries; added regression tests (2026-02-06).
+- Added feature-flagged SQL capability groundwork for set operations (`UNION/INTERSECT/EXCEPT`), derived tables (`FROM/JOIN (subquery) AS alias`), and quantified subqueries (`ANY/SOME/ALL`), plus recursive query-analysis/oracle helper coverage and tests (2026-02-06).
 - Fixed `sqlErrorReason(nil)` to return an empty reason and added a regression test; clarified EET ORDER BY drop semantics with inline comments (2026-02-06).
 - Added error_reason classification for DQP/NoREC, surfaced error_reason/bug_hint/error_sql/replay_sql in summaries, reduced CODDTest skips by disabling disallowed features during builds, added GroundTruth join fallback on missing join pairs, and relaxed EET ORDER BY skips without LIMIT (2026-02-06).
 - Reviewed logs/reports; EET cases show schema column missing errors, CODDTest mostly skips on aggregate/join/predicate/type, GroundTruth key_missing dominates, EET skips on ORDER BY constraints, and non-EET error reasons lack detail (2026-02-06).

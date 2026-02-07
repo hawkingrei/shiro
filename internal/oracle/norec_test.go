@@ -24,3 +24,30 @@ func TestNoRECNoTablesSkip(t *testing.T) {
 		t.Fatalf("expected skip reason")
 	}
 }
+
+func TestNoRECQueryGuardReasonRejectsSetOps(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  generator.FromClause{BaseTable: "t0"},
+		Where: generator.BinaryExpr{
+			Left:  generator.LiteralExpr{Value: 1},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: 1},
+		},
+		SetOps: []generator.SetOperation{{
+			Type: generator.SetOperationUnion,
+			Query: &generator.SelectQuery{
+				Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 2}, Alias: "c0"}},
+				From:  generator.FromClause{BaseTable: "t1"},
+			},
+		}},
+	}
+
+	ok, reason := noRECQueryGuardReason(query)
+	if ok {
+		t.Fatalf("expected guard to reject set operations")
+	}
+	if reason != "constraint:set_ops" {
+		t.Fatalf("expected constraint:set_ops, got %s", reason)
+	}
+}

@@ -9,54 +9,90 @@ type tableScope struct {
 	columns map[string]map[string]struct{}
 }
 
-type scopeManager struct{}
+type scopeManager struct {
+	tableResolver func(query *SelectQuery) []schema.Table
+}
 
 func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer tableScope) bool {
 	if query == nil {
 		return true
 	}
+	for _, op := range query.SetOps {
+		if op.Query == nil {
+			continue
+		}
+		if !m.validateQuery(op.Query, m.scopeForQuery(op.Query), tableScope{}) {
+			return false
+		}
+	}
 	for _, cte := range query.With {
-		if !m.validateQuery(cte.Query, scopeTablesForQuery(cte.Query, nil), tableScope{}) {
+		if !m.validateQuery(cte.Query, m.scopeForQuery(cte.Query), tableScope{}) {
 			return false
 		}
 	}
-	for _, item := range query.Items {
-		if !m.validateExpr(item.Expr, scope, outer) {
-			return false
-		}
-	}
-	if query.Where != nil && !m.validateExpr(query.Where, scope, outer) {
+	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, m.scopeForQuery(query.From.BaseQuery), tableScope{}) {
 		return false
 	}
-	for _, expr := range query.GroupBy {
-		if !m.validateExpr(expr, scope, outer) {
-			return false
-		}
-	}
-	if query.Having != nil && !m.validateExpr(query.Having, scope, outer) {
-		return false
-	}
-	for _, ob := range query.OrderBy {
-		if !m.validateExpr(ob.Expr, scope, outer) {
-			return false
-		}
-	}
+	currentScope := scope
 	if len(query.From.Joins) > 0 {
 		visible := []string{}
-		if query.From.BaseTable != "" {
-			visible = append(visible, query.From.BaseTable)
+		if baseName := query.From.baseName(); baseName != "" {
+			visible = append(visible, baseName)
 		}
 		for _, join := range query.From.Joins {
-			joinScope := scopeForTables(scope, visible)
-			if join.Table != "" {
-				joinScope = scopeForTables(scope, append(visible, join.Table))
+			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, m.scopeForQuery(join.TableQuery), tableScope{}) {
+				return false
+			}
+			joinScope := scopeForTables(currentScope, visible)
+			if joinName := join.tableName(); joinName != "" {
+				joinScope = scopeForTables(currentScope, append(visible, joinName))
 			}
 			if join.On != nil && !m.validateExpr(join.On, joinScope, outer) {
 				return false
 			}
-			if join.Table != "" {
-				visible = append(visible, join.Table)
+			if usingCols := joinUsingColumns(join); len(usingCols) > 0 {
+				affected := append([]string{}, visible...)
+				if joinName := join.tableName(); joinName != "" {
+					affected = append(affected, joinName)
+				}
+				currentScope = hideQualifiedColumns(currentScope, affected, usingCols)
 			}
+			if joinName := join.tableName(); joinName != "" {
+				visible = append(visible, joinName)
+			}
+		}
+	}
+	for _, item := range query.Items {
+		if !m.validateExpr(item.Expr, currentScope, outer) {
+			return false
+		}
+	}
+	if query.Where != nil && !m.validateExpr(query.Where, currentScope, outer) {
+		return false
+	}
+	for _, expr := range query.GroupBy {
+		if !m.validateExpr(expr, currentScope, outer) {
+			return false
+		}
+	}
+	if query.Having != nil && !m.validateExpr(query.Having, currentScope, outer) {
+		return false
+	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !m.validateExpr(expr, currentScope, outer) {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !m.validateExpr(ob.Expr, currentScope, outer) {
+				return false
+			}
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if !m.validateExpr(ob.Expr, currentScope, outer) {
+			return false
 		}
 	}
 	return true
@@ -100,9 +136,14 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 		}
 		return m.validateExpr(e.Expr, scope, outer)
 	case SubqueryExpr:
-		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
 	case ExistsExpr:
-		return m.validateQuery(e.Query, scopeTablesForQuery(e.Query, nil), mergeTableScopes(scope, outer))
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
+	case CompareSubqueryExpr:
+		if !m.validateExpr(e.Left, scope, outer) {
+			return false
+		}
+		return m.validateQuery(e.Query, m.scopeForQuery(e.Query), mergeTableScopes(scope, outer))
 	case InExpr:
 		if !m.validateExpr(e.Left, scope, outer) {
 			return false
@@ -135,6 +176,16 @@ func (m scopeManager) validateExpr(expr Expr, scope tableScope, outer tableScope
 	}
 }
 
+func (m scopeManager) scopeForQuery(query *SelectQuery) tableScope {
+	if query == nil {
+		return scopeTablesForQuery(nil, nil)
+	}
+	if m.tableResolver == nil {
+		return scopeTablesForQuery(query, nil)
+	}
+	return scopeTablesForQuery(query, m.tableResolver(query))
+}
+
 func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 	scope := tableScope{
 		tables:  tableSet{},
@@ -143,6 +194,8 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 	if query == nil {
 		return scope
 	}
+	// Set-operation operands are validated independently and are not visible to the
+	// current query body; do not merge their scope here.
 	for _, tbl := range tables {
 		if tbl.Name == "" {
 			continue
@@ -156,12 +209,12 @@ func scopeTablesForQuery(query *SelectQuery, tables []schema.Table) tableScope {
 			scope.columns[tbl.Name] = colSet
 		}
 	}
-	if query.From.BaseTable != "" {
-		scope.tables[query.From.BaseTable] = struct{}{}
+	if baseName := query.From.baseName(); baseName != "" {
+		scope.tables[baseName] = struct{}{}
 	}
 	for _, join := range query.From.Joins {
-		if join.Table != "" {
-			scope.tables[join.Table] = struct{}{}
+		if joinName := join.tableName(); joinName != "" {
+			scope.tables[joinName] = struct{}{}
 		}
 	}
 	return scope
@@ -215,9 +268,64 @@ func mergeTableScopes(left tableScope, right tableScope) tableScope {
 	return out
 }
 
+func cloneScope(scope tableScope) tableScope {
+	out := tableScope{
+		tables:  tableSet{},
+		columns: map[string]map[string]struct{}{},
+	}
+	for name := range scope.tables {
+		out.tables[name] = struct{}{}
+	}
+	for table, cols := range scope.columns {
+		copied := make(map[string]struct{}, len(cols))
+		for col := range cols {
+			copied[col] = struct{}{}
+		}
+		out.columns[table] = copied
+	}
+	return out
+}
+
+func hideQualifiedColumns(scope tableScope, tables []string, columns []string) tableScope {
+	if len(tables) == 0 || len(columns) == 0 {
+		return scope
+	}
+	out := cloneScope(scope)
+	for _, table := range tables {
+		colSet, ok := out.columns[table]
+		if !ok || len(colSet) == 0 {
+			continue
+		}
+		for _, col := range columns {
+			delete(colSet, col)
+		}
+		out.columns[table] = colSet
+	}
+	return out
+}
+
+func joinUsingColumns(join Join) []string {
+	if len(join.Using) == 0 {
+		return nil
+	}
+	cols := make([]string, 0, len(join.Using))
+	seen := make(map[string]struct{}, len(join.Using))
+	for _, col := range join.Using {
+		if col == "" {
+			continue
+		}
+		if _, ok := seen[col]; ok {
+			continue
+		}
+		seen[col] = struct{}{}
+		cols = append(cols, col)
+	}
+	return cols
+}
+
 func (g *Generator) validateQueryScope(query *SelectQuery) bool {
 	tables := g.scopeTablesForQuery(query)
-	return scopeManager{}.validateQuery(query, scopeTablesForQuery(query, tables), tableScope{})
+	return scopeManager{tableResolver: g.scopeTablesForQuery}.validateQuery(query, scopeTablesForQuery(query, tables), tableScope{})
 }
 
 // ValidateExprInQueryScope reports whether an expression only uses columns visible in query.
@@ -227,7 +335,7 @@ func (g *Generator) ValidateExprInQueryScope(expr Expr, query *SelectQuery) bool
 	}
 	tables := g.scopeTablesForQuery(query)
 	scope := scopeTablesForQuery(query, tables)
-	return scopeManager{}.validateExpr(expr, scope, tableScope{})
+	return scopeManager{tableResolver: g.scopeTablesForQuery}.validateExpr(expr, scope, tableScope{})
 }
 
 // ValidateQueryScope reports whether query only uses columns visible in each scope.
@@ -254,9 +362,17 @@ func (g *Generator) scopeTablesForQuery(query *SelectQuery) []schema.Table {
 		cols := g.columnsFromSelectItems(cte.Query.Items)
 		byName[cte.Name] = schema.Table{Name: cte.Name, Columns: cols}
 	}
-	names := []string{query.From.BaseTable}
+	if query.From.BaseQuery != nil {
+		alias := query.From.baseName()
+		byName[alias] = schema.Table{Name: alias, Columns: g.columnsFromSelectItems(query.From.BaseQuery.Items)}
+	}
+	names := []string{query.From.baseName()}
 	for _, join := range query.From.Joins {
-		names = append(names, join.Table)
+		if join.TableQuery != nil {
+			alias := join.tableName()
+			byName[alias] = schema.Table{Name: alias, Columns: g.columnsFromSelectItems(join.TableQuery.Items)}
+		}
+		names = append(names, join.tableName())
 	}
 	out := make([]schema.Table, 0, len(names))
 	for _, name := range names {
@@ -275,14 +391,14 @@ func columnAllowed(ref ColumnRef, scope tableScope, outer tableScope) bool {
 		return true
 	}
 	if _, ok := scope.tables[ref.Table]; ok {
-		if cols, ok := scope.columns[ref.Table]; ok && len(cols) > 0 {
+		if cols, ok := scope.columns[ref.Table]; ok {
 			_, ok := cols[ref.Name]
 			return ok
 		}
 		return true
 	}
 	if _, ok := outer.tables[ref.Table]; ok {
-		if cols, ok := outer.columns[ref.Table]; ok && len(cols) > 0 {
+		if cols, ok := outer.columns[ref.Table]; ok {
 			_, ok := cols[ref.Name]
 			return ok
 		}

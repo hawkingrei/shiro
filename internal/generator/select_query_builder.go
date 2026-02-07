@@ -107,6 +107,12 @@ func (b *SelectQueryBuilder) DisallowCTE() *SelectQueryBuilder {
 	return b
 }
 
+// DisallowSetOps forbids UNION/INTERSECT/EXCEPT in the generated query.
+func (b *SelectQueryBuilder) DisallowSetOps() *SelectQueryBuilder {
+	b.constraints.DisallowSetOps = true
+	return b
+}
+
 // MaxJoinCount limits the maximum number of joins.
 func (b *SelectQueryBuilder) MaxJoinCount(n int) *SelectQueryBuilder {
 	b.constraints.MaxJoinCount = n
@@ -228,71 +234,8 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 			}
 		}
 		features := AnalyzeQueryFeatures(query)
-		hasLimit := query.Limit != nil
-		hasOrderBy := len(query.OrderBy) > 0
-		hasDistinct := query.Distinct
-		hasGroupBy := len(query.GroupBy) > 0
-		hasHaving := query.Having != nil
-		hasCTE := len(query.With) > 0
-		if c.RequireDeterministic && !QueryDeterministic(query) {
-			lastReason = "constraint:nondeterministic"
-			continue
-		}
-		if c.DisallowLimit && hasLimit {
-			lastReason = "constraint:limit"
-			continue
-		}
-		if c.DisallowWindow && features.HasWindow {
-			lastReason = "constraint:window"
-			continue
-		}
-		if c.DisallowOrderBy && hasOrderBy {
-			lastReason = "constraint:order_by"
-			continue
-		}
-		if c.DisallowDistinct && hasDistinct {
-			lastReason = "constraint:distinct"
-			continue
-		}
-		if c.DisallowGroupBy && hasGroupBy {
-			lastReason = "constraint:group_by"
-			continue
-		}
-		if c.DisallowHaving && hasHaving {
-			lastReason = "constraint:having"
-			continue
-		}
-		if c.DisallowCTE && hasCTE {
-			lastReason = "constraint:cte"
-			continue
-		}
-		if c.DisallowSubquery && features.HasSubquery {
-			lastReason = "constraint:subquery"
-			continue
-		}
-		if c.DisallowAggregate && (features.HasAggregate || hasGroupBy || hasHaving) {
-			lastReason = "constraint:aggregate"
-			continue
-		}
-		if c.MaxJoinCountSet && features.JoinCount > c.MaxJoinCount {
-			lastReason = "constraint:join_count"
-			continue
-		}
-		if c.MinJoinTablesSet && features.JoinCount+1 < c.MinJoinTables {
-			lastReason = "constraint:min_join_tables"
-			continue
-		}
-		if c.QueryGuardReason != nil {
-			if ok, reason := c.QueryGuardReason(query); !ok {
-				if reason == "" {
-					reason = "constraint:query_guard"
-				}
-				lastReason = reason
-				continue
-			}
-		}
-		if c.QueryGuard != nil && !c.QueryGuard(query) {
-			lastReason = "constraint:query_guard"
+		if reason := constraintViolationReason(query, c, features); reason != "" {
+			lastReason = reason
 			continue
 		}
 		attempts := i + 1
@@ -302,6 +245,71 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	}
 	b.gen.recordBuilderStats(maxTries, lastReason)
 	return nil, lastReason, maxTries
+}
+
+func constraintViolationReason(query *SelectQuery, c SelectQueryConstraints, features QueryFeatures) string {
+	if query == nil {
+		return "constraint:empty_query"
+	}
+	hasLimit := query.Limit != nil
+	hasOrderBy := len(query.OrderBy) > 0
+	hasDistinct := query.Distinct
+	hasGroupBy := len(query.GroupBy) > 0
+	hasHaving := query.Having != nil
+	hasCTE := len(query.With) > 0
+	hasSetOps := len(query.SetOps) > 0
+
+	if c.RequireDeterministic && !QueryDeterministic(query) {
+		return "constraint:nondeterministic"
+	}
+	if c.DisallowLimit && hasLimit {
+		return "constraint:limit"
+	}
+	if c.DisallowWindow && features.HasWindow {
+		return "constraint:window"
+	}
+	if c.DisallowOrderBy && hasOrderBy {
+		return "constraint:order_by"
+	}
+	if c.DisallowDistinct && hasDistinct {
+		return "constraint:distinct"
+	}
+	if c.DisallowGroupBy && hasGroupBy {
+		return "constraint:group_by"
+	}
+	if c.DisallowHaving && hasHaving {
+		return "constraint:having"
+	}
+	if c.DisallowCTE && hasCTE {
+		return "constraint:cte"
+	}
+	if c.DisallowSetOps && hasSetOps {
+		return "constraint:set_ops"
+	}
+	if c.DisallowSubquery && features.HasSubquery {
+		return "constraint:subquery"
+	}
+	if c.DisallowAggregate && (features.HasAggregate || hasGroupBy || hasHaving) {
+		return "constraint:aggregate"
+	}
+	if c.MaxJoinCountSet && features.JoinCount > c.MaxJoinCount {
+		return "constraint:join_count"
+	}
+	if c.MinJoinTablesSet && features.JoinCount+1 < c.MinJoinTables {
+		return "constraint:min_join_tables"
+	}
+	if c.QueryGuardReason != nil {
+		if ok, reason := c.QueryGuardReason(query); !ok {
+			if reason == "" {
+				return "constraint:query_guard"
+			}
+			return reason
+		}
+	}
+	if c.QueryGuard != nil && !c.QueryGuard(query) {
+		return "constraint:query_guard"
+	}
+	return ""
 }
 
 func (b *SelectQueryBuilder) attachPredicate(query *SelectQuery, c SelectQueryConstraints) bool {
@@ -339,6 +347,19 @@ func QueryDeterministic(query *SelectQuery) bool {
 	if query == nil {
 		return true
 	}
+	for _, cte := range query.With {
+		if !QueryDeterministic(cte.Query) {
+			return false
+		}
+	}
+	if query.From.BaseQuery != nil && !QueryDeterministic(query.From.BaseQuery) {
+		return false
+	}
+	for _, op := range query.SetOps {
+		if !QueryDeterministic(op.Query) {
+			return false
+		}
+	}
 	for _, item := range query.Items {
 		if !item.Expr.Deterministic() {
 			return false
@@ -349,6 +370,18 @@ func QueryDeterministic(query *SelectQuery) bool {
 	}
 	if query.Having != nil && !query.Having.Deterministic() {
 		return false
+	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if !expr.Deterministic() {
+				return false
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if !ob.Expr.Deterministic() {
+				return false
+			}
+		}
 	}
 	for _, expr := range query.GroupBy {
 		if !expr.Deterministic() {
@@ -361,6 +394,9 @@ func QueryDeterministic(query *SelectQuery) bool {
 		}
 	}
 	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && !QueryDeterministic(join.TableQuery) {
+			return false
+		}
 		if join.On != nil && !join.On.Deterministic() {
 			return false
 		}

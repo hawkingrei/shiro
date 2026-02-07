@@ -76,6 +76,7 @@ type SelectQueryConstraints struct {
 	DisallowGroupBy      bool
 	DisallowHaving       bool
 	DisallowCTE          bool
+	DisallowSetOps       bool
 	MaxJoinCount         int
 	MaxJoinCountSet      bool
 	MinJoinTables        int

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"shiro/internal/generator"
+	"shiro/internal/oracle/groundtruth"
 )
 
 func TestShouldSkipGroundTruth(t *testing.T) {
@@ -89,5 +90,41 @@ func TestJoinRowsNullAndLimit(t *testing.T) {
 	_, ok = joinRows(left, right, "t0", []string{"id"}, "t1", []string{"id"}, 1)
 	if ok {
 		t.Fatalf("expected join to exceed maxRows limit")
+	}
+}
+
+func TestGroundTruthDSGSkipReason(t *testing.T) {
+	edges := []groundtruth.JoinEdge{
+		{
+			LeftTable:  "t0",
+			RightTable: "t1",
+			LeftKeys:   []string{"k0"},
+			RightKeys:  []string{"k1"},
+		},
+	}
+	if skip, reason := groundTruthDSGSkipReason("t0", edges); skip != "" || reason != "" {
+		t.Fatalf("expected valid DSG join, got skip=%q reason=%q", skip, reason)
+	}
+
+	invalidKey := []groundtruth.JoinEdge{
+		{
+			LeftTable:  "t0",
+			RightTable: "t1",
+			LeftKeys:   []string{"k0"},
+			RightKeys:  []string{"k9"},
+		},
+	}
+	if skip, reason := groundTruthDSGSkipReason("t0", invalidKey); skip != "groundtruth:dsg_key_mismatch_right_key" || reason != "right_key" {
+		t.Fatalf("unexpected dsg mismatch result: skip=%q reason=%q", skip, reason)
+	}
+
+	if reason := groundTruthDSGMismatchReason("x0", invalidKey); reason != "base_table" {
+		t.Fatalf("expected base_table, got %q", reason)
+	}
+	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "x1", RightTable: "t1", LeftKeys: []string{"k0"}, RightKeys: []string{"k1"}}}); reason != "left_table" {
+		t.Fatalf("expected left_table, got %q", reason)
+	}
+	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "t0", RightTable: "t1", LeftKeys: nil, RightKeys: []string{"k1"}}}); reason != "left_keys_missing" {
+		t.Fatalf("expected left_keys_missing, got %q", reason)
 	}
 }
