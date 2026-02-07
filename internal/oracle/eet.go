@@ -28,6 +28,8 @@ type EET struct{}
 // Name returns the oracle identifier.
 func (o EET) Name() string { return "EET" }
 
+const eetBuildMaxTries = 10
+
 func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
@@ -44,6 +46,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		Oracle:          "eet",
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
+		MaxTries:        eetBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireDeterministic: true,
 			QueryGuardReason: func(query *generator.SelectQuery) (bool, string) {

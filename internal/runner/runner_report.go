@@ -82,6 +82,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if err != nil {
 		return
 	}
+	util.Warnf("case allocated oracle=%s dir=%s", result.Oracle, caseData.Dir)
 	planPath := ""
 	planSignature := ""
 	planSigFormat := ""
@@ -193,6 +194,15 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			_ = r.reporter.WriteText(caseData, "actual.tsv", actualRows)
 		}
 	}
+	minimizeStatus := "disabled"
+	if r.cfg.Minimize.Enabled {
+		if buildReplaySpec(result).kind == "" {
+			minimizeStatus = "not_applicable"
+		} else {
+			minimizeStatus = "pending"
+		}
+	}
+	summary.MinimizeStatus = minimizeStatus
 	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
@@ -201,6 +211,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if r.cfg.Minimize.Enabled {
 		minimized := r.minimizeCase(ctx, result)
 		if minimized.minimized {
+			summary.MinimizeStatus = "success"
 			if len(minimized.caseSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
 			}
@@ -210,7 +221,10 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			if len(minimized.reproSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/repro.sql", minimized.reproSQL)
 			}
+		} else if summary.MinimizeStatus == "pending" {
+			summary.MinimizeStatus = "skipped"
 		}
+		_ = r.reporter.WriteSummary(caseData, summary)
 	}
 
 	if r.uploader.Enabled() {

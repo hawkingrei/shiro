@@ -8,11 +8,15 @@ type QuerySpec struct {
 	Constraints         generator.SelectQueryConstraints
 	PredicatePolicy     predicatePolicy
 	PredicateGuard      bool
+	MaxTries            int
 	SkipReasonOverrides map[string]string
 }
 
 func buildQueryWithSpec(gen *generator.Generator, spec QuerySpec) (*generator.SelectQuery, map[string]any) {
 	builder := generator.NewSelectQueryBuilder(gen).WithConstraints(spec.Constraints)
+	if spec.MaxTries > 0 {
+		builder.MaxTries(spec.MaxTries)
+	}
 	if spec.PredicateGuard {
 		policy := spec.PredicatePolicy
 		builder.PredicateGuard(func(expr generator.Expr) bool {
