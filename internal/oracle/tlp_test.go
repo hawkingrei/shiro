@@ -16,6 +16,17 @@ func TestTLPSkipReasonLimit(t *testing.T) {
 	}
 }
 
+func TestTLPSkipReasonSetOps(t *testing.T) {
+	query := &generator.SelectQuery{
+		SetOps: []generator.SetOperation{
+			{Type: generator.SetOperationUnion, Query: &generator.SelectQuery{}},
+		},
+	}
+	if got := tlpSkipReason(query); got != "tlp:set_ops" {
+		t.Fatalf("expected tlp:set_ops, got %q", got)
+	}
+}
+
 func TestTLPSkipReasonUsingQualified(t *testing.T) {
 	state := &schema.State{Tables: []schema.Table{
 		{Name: "t0", Columns: []schema.Column{{Name: "k0", Type: schema.TypeInt}}},

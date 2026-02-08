@@ -21,6 +21,8 @@ type DQP struct {
 // Name returns the oracle identifier.
 func (o DQP) Name() string { return "DQP" }
 
+const dqpBuildMaxTries = 10
+
 // Run generates a join query, executes the base signature, then tries variants:
 // - join hints (HASH_JOIN/MERGE_JOIN/INL_*)
 // - join order hint
@@ -41,6 +43,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		Oracle:          "dqp",
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
+		MaxTries:        dqpBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			PredicateMode:        generator.PredicateModeSimple,
 			RequireDeterministic: true,

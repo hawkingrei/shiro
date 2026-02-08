@@ -22,6 +22,8 @@ type NoREC struct{}
 // Name returns the oracle identifier.
 func (o NoREC) Name() string { return "NoREC" }
 
+const noRECBuildMaxTries = 10
+
 // Run generates a simple SELECT with a WHERE predicate and compares the two counts.
 // It skips complex queries (aggregates, GROUP BY, DISTINCT, HAVING, subqueries),
 // because NoREC assumes a flat SELECT with a single predicate. LIMIT is allowed
@@ -35,7 +37,8 @@ func (o NoREC) Name() string { return "NoREC" }
 // If the counts differ, the optimizer likely changed semantics.
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	spec := QuerySpec{
-		Oracle: "norec",
+		Oracle:   "norec",
+		MaxTries: noRECBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireWhere:         true,
 			PredicateMode:        generator.PredicateModeSimple,

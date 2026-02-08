@@ -23,6 +23,8 @@ type TLP struct{}
 // Name returns the oracle identifier.
 func (o TLP) Name() string { return "TLP" }
 
+const tlpBuildMaxTries = 10
+
 // Run builds a query, computes its signature, then compares against the TLP union.
 // It only uses deterministic, simple predicates to reduce false positives.
 //
@@ -44,16 +46,19 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		Oracle:          "tlp",
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
+		MaxTries:        tlpBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireWhere:         true,
 			PredicateMode:        generator.PredicateModeSimple,
 			RequireDeterministic: true,
 			DisallowLimit:        true,
+			DisallowSetOps:       true,
 		},
 		SkipReasonOverrides: map[string]string{
 			"constraint:nondeterministic": "tlp:nondeterministic",
 			"constraint:predicate_guard":  "tlp:predicate_guard",
 			"constraint:limit":            "tlp:limit",
+			"constraint:set_ops":          "tlp:set_ops",
 		},
 	}
 	query, details := buildQueryWithSpec(gen, spec)
@@ -169,6 +174,9 @@ func tlpSkipReason(query *generator.SelectQuery) string {
 	}
 	if query.Limit != nil {
 		return "tlp:limit"
+	}
+	if len(query.SetOps) > 0 {
+		return "tlp:set_ops"
 	}
 	return ""
 }

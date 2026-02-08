@@ -49,6 +49,7 @@ type Summary struct {
 	GroundTruthDSGMismatchReason string         `json:"groundtruth_dsg_mismatch_reason"`
 	ErrorSQL                     string         `json:"error_sql"`
 	ReplaySQL                    string         `json:"replay_sql"`
+	MinimizeStatus               string         `json:"minimize_status"`
 	Flaky                        bool           `json:"flaky"`
 	Seed                         int64          `json:"seed"`
 	PlanReplay                   string         `json:"plan_replayer"`
