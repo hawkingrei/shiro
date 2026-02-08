@@ -6,6 +6,7 @@ Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picki
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: addressed PR #78 security/reliability findings for Worker auth defaults/body limits/download URL handling and `shiro-report` artifact URL generation (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
+Latest sync: fixed lints for worker sync HTTP response close path (`bodyclose`) and case-archive exported constant comments (`revive`) (2026-02-08).
 
 ## Generator / Oracles
 

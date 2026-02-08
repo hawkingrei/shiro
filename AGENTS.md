@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Fixed lint follow-ups: `cmd/shiro-report` now closes worker sync HTTP response bodies via `resp.Body.Close()` (for `bodyclose`) and `internal/report` now documents exported case-archive constants (`CaseArchiveName`/`CaseArchiveCodec`) to satisfy `revive` (2026-02-08).
 - Addressed PR #78 review findings: Worker now defaults writes to deny without token (optional `ALLOW_INSECURE_WRITES` for local dev), enforces request body/sync-case limits, adds `Vary: Origin`, fixes PATCH empty-payload semantics, normalizes download/report/archive URLs to HTTP(S), hardens AI prompt user-input delimiters, and updates shiro-report with `-artifact-public-base-url`, worker sync timeout/error handling, and S3 listing-based sidecar detection; frontend now hides non-HTTP(S) artifact links (2026-02-07).
 - CI: added a dedicated frontend pipeline job in `.github/workflows/ci.yaml` that runs web compile (`tsc --noEmit`), lint, and tests; backend/integration job now depends on the web job (2026-02-06).
 - Added `web/lib/report-utils.ts` and unit tests (`web/test/report-utils.test.ts`) to cover report URL/case-id/worker-link derivation used by the frontend (2026-02-06).

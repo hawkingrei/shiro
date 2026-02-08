@@ -739,7 +739,9 @@ func syncWorkerMetadata(ctx context.Context, opts workerSyncOptions, manifestURL
 	if err != nil {
 		return err
 	}
-	defer util.CloseWithErr(resp.Body, "worker sync response")
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}

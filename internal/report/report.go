@@ -100,6 +100,7 @@ func (r *Reporter) NewCase() (Case, error) {
 	return Case{ID: caseID, Dir: dir}, nil
 }
 
+// Case archive artifact metadata used for per-case compressed bundles.
 const (
 	CaseArchiveName  = "case.tar.zst"
 	CaseArchiveCodec = "zstd"
