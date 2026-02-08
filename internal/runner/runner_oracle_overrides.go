@@ -1,7 +1,5 @@
 package runner
 
-import "shiro/internal/generator"
-
 func (r *Runner) applyOracleOverrides(name string) func() {
 	origCfg := r.gen.Config
 	origPred := r.gen.PredicateMode()
@@ -25,103 +23,43 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetDisallowScalarSubquery(origDisallowScalar)
 	}
 
-	cfg := origCfg
-	maxInt := func(a, b int) int {
-		if a > b {
-			return a
-		}
-		return b
-	}
-	allowSubquery := true
-	switch name {
-	case "GroundTruth":
-		cfg.Features.CTE = false
-		cfg.Features.Views = false
-		cfg.Features.DerivedTables = false
-		cfg.Features.SetOperations = false
-		cfg.Features.NaturalJoins = false
-		cfg.Features.FullJoinEmulation = false
-		cfg.Features.Aggregates = false
-		cfg.Features.GroupBy = false
-		cfg.Features.Having = false
-		cfg.Features.Distinct = false
-		cfg.Features.OrderBy = false
-		cfg.Features.Limit = false
-		cfg.Features.WindowFuncs = false
-		cfg.Features.Subqueries = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
-		cfg.Oracles.JoinOnPolicy = "simple"
-		cfg.Oracles.JoinUsingProb = maxInt(cfg.Oracles.JoinUsingProb, 100)
-		allowSubquery = false
-		r.gen.SetDisallowScalarSubquery(true)
-		r.gen.SetPredicateMode(generator.PredicateModeNone)
-		r.gen.SetJoinTypeOverride(generator.JoinInner)
-		r.gen.SetMinJoinTables(2)
-	case "CODDTest":
-		cfg.Features.CTE = false
-		cfg.Features.Views = false
-		cfg.Features.DerivedTables = false
-		cfg.Features.SetOperations = false
-		cfg.Features.NaturalJoins = false
-		cfg.Features.FullJoinEmulation = false
-		cfg.Features.Aggregates = false
-		cfg.Features.GroupBy = false
-		cfg.Features.Having = false
-		cfg.Features.Distinct = false
-		cfg.Features.OrderBy = false
-		cfg.Features.Limit = false
-		cfg.Features.WindowFuncs = false
-		cfg.Features.Subqueries = false
-		cfg.Features.NotExists = false
-		cfg.Features.NotIn = false
-		allowSubquery = false
-		r.gen.SetDisallowScalarSubquery(true)
-		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
-		r.gen.SetMinJoinTables(1)
-	case "Impo":
-		cfg.Features.CTE = false
-		r.gen.SetDisallowScalarSubquery(true)
-	case "NoREC":
-		cfg.Features.CTE = false
-		cfg.Features.Aggregates = false
-		cfg.Features.GroupBy = false
-		cfg.Features.Having = false
-		cfg.Features.Distinct = false
-		cfg.Features.OrderBy = false
-		cfg.Features.Limit = false
-		cfg.Features.WindowFuncs = false
-		r.gen.SetPredicateMode(generator.PredicateModeSimple)
-	case "TLP":
-		cfg.Features.CTE = false
-		cfg.Features.Aggregates = false
-		cfg.Features.GroupBy = false
-		cfg.Features.Having = false
-		cfg.Features.Distinct = false
-		cfg.Features.OrderBy = false
-		cfg.Features.Limit = false
-		cfg.Features.WindowFuncs = false
-		cfg.Oracles.JoinOnPolicy = "complex"
-		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
-	case "DQP":
-		cfg.Features.CTE = false
-		cfg.Features.Aggregates = false
-		cfg.Features.GroupBy = false
-		cfg.Features.Having = false
-		cfg.Features.Distinct = false
-		cfg.Features.Limit = false
-		cfg.Features.WindowFuncs = false
-		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
-		r.gen.SetMinJoinTables(2)
-	default:
+	profile, ok := oracleProfiles[name]
+	if !ok {
 		return restore
 	}
 
-	if allowSubquery {
-		cfg.Features.Subqueries = true
-		cfg.Features.NotExists = true
-		cfg.Features.NotIn = true
+	cfg := origCfg
+	profile.Features.apply(&cfg.Features)
+	if profile.JoinOnPolicy != nil {
+		cfg.Oracles.JoinOnPolicy = *profile.JoinOnPolicy
+	}
+	if profile.JoinUsingProbMin != nil && cfg.Oracles.JoinUsingProb < *profile.JoinUsingProbMin {
+		cfg.Oracles.JoinUsingProb = *profile.JoinUsingProbMin
+	}
+	if profile.AllowSubquery != nil {
+		if *profile.AllowSubquery {
+			cfg.Features.Subqueries = true
+			cfg.Features.NotExists = true
+			cfg.Features.NotIn = true
+		} else {
+			cfg.Features.Subqueries = false
+			cfg.Features.NotExists = false
+			cfg.Features.NotIn = false
+		}
 	}
 	r.gen.Config = cfg
+
+	if profile.PredicateMode != nil {
+		r.gen.SetPredicateMode(*profile.PredicateMode)
+	}
+	if profile.JoinTypeOverride != nil {
+		r.gen.SetJoinTypeOverride(*profile.JoinTypeOverride)
+	}
+	if profile.MinJoinTables != nil {
+		r.gen.SetMinJoinTables(*profile.MinJoinTables)
+	}
+	if profile.DisallowScalarSubquery != nil {
+		r.gen.SetDisallowScalarSubquery(*profile.DisallowScalarSubquery)
+	}
 	return restore
 }
