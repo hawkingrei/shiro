@@ -41,11 +41,11 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy.allowIsNull = true
 	spec := QuerySpec{
 		Oracle:          "dqp",
+		Profile:         ProfileByName("DQP"),
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
 		MaxTries:        dqpBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
-			PredicateMode:        generator.PredicateModeSimple,
 			RequireDeterministic: true,
 			DisallowLimit:        true,
 			DisallowWindow:       true,

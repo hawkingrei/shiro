@@ -5,6 +5,12 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
+Latest sync: SelectQueryBuilder now reuses query analysis for constraint checks to avoid redundant AST walks (2026-02-08).
+Latest sync: runner oracle overrides now use data-driven profiles for consistent capability gating (2026-02-08).
+Latest sync: QuerySpec now accepts oracle profiles to derive generator constraints from the same capability gating (2026-02-08).
+Latest sync: renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
+Latest sync: NoREC profile disables set operations and added regression coverage for profile constraint mapping and analysis refresh (2026-02-08).
+Latest sync: profile constraints no longer relax subquery bans, CERT/CODDTest builder setup is deduped, and runner override tests cover AllowSubquery/JoinUsingProbMin (2026-02-08).
 Latest sync: minimizer now uses strategy-based multi-pass reduction (error-case vs replay-spec) with validated insert merge and weighted candidate selection to improve minimization depth and stability; added runner tests (2026-02-08).
 Latest sync: SelectQueryBuilder now skips full feature analysis for join-only constraints and reuses cached determinism metadata when present (2026-02-08).
 Latest sync: SelectQueryBuilder now invalidates cached analysis after predicate attachment to keep determinism checks accurate (2026-02-08).
@@ -20,7 +26,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 5. Consider lowering DSG per-table row counts to stay under the GroundTruth cap.
 6. Split join-only vs join+filter predicates into explicit strategies with separate weights and observability.
 7. Wire GroundTruth join key extraction into oracle execution for JoinEdge building.
-8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles.
+8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles. (done)
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
 10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
 11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
@@ -74,6 +80,6 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 1. Introduce a `QueryAnalysis` struct in `internal/generator` that captures deterministic/aggregate/window/subquery/limit/group-by/order-by flags, join counts/signatures, predicate stats, and subquery allowance plus disallow reasons. Compute it once in `GenerateSelectQuery` and attach it to `Generator.LastFeatures`. (done for core flags; predicate stats/disallow reasons remain on QueryFeatures)
 2. Replace duplicated query walkers in `internal/oracle/sql.go` (e.g., `queryDeterministic`, `queryHasSubquery`, `queryHasAggregate`, `queryHasWindow`) with the `QueryAnalysis` fields when the query is generator-produced. Keep lightweight helpers only for SQL-only paths. (done for core helpers)
 3. Define `OracleSpec` or `QuerySpec` (generator constraints + predicate policy) and extend `SelectQueryBuilder` to build queries that satisfy these constraints up front. Move oracle guardrails (limit/window/nondeterministic/predicate guard/min join/require predicate match) from oracle `Run` methods into specs. (done for core oracles, including NoREC guardrails via `QueryGuardReason` and builder-level `DisallowSetOps`)
-4. Replace `internal/runner/runner_oracle_overrides.go` hard-coded toggles with data-driven capability profiles (e.g., `OracleProfile` map). Profiles should include feature toggles, predicate mode, join policy, min join tables, and subquery allowances, then apply a single profile per oracle.
+4. Replace `internal/runner/runner_oracle_overrides.go` hard-coded toggles with data-driven capability profiles (e.g., `Profile` map). Profiles should include feature toggles, predicate mode, join policy, min join tables, and subquery allowances, then apply a single profile per oracle. (done)
 5. Reduce TiDB parser overhead in `observeSQL` by adding a keyword fast-path and allowing precomputed analysis from generator/oracle paths (fast-path done). Added a tiny LRU cache for repeated SQL parse results.
 6. Validation: update tests for builder/spec equivalence and ensure oracle semantics remain unchanged; run targeted oracle/generator tests to confirm skip reduction and coverage stability.
