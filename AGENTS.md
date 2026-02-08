@@ -21,6 +21,9 @@ Links:
 
 ## Recent updates
 
+- Added a PQS join containment SQL integration test for basic two-table pivots (2026-02-08).
+- Cleaned `docs/roadmap.md` completed items, reorganized the roadmap by stages, and synced `docs/todo.md` with `docs/notes/follow-ups.md` (2026-02-08).
+- Moved completed Impo roadmap items out of TODO tracking and recorded them in feature notes (2026-02-08).
 - Enhanced PQS pivot sampling with `id`-range selection (avoids `ORDER BY RAND()`), added basic two-table `JOIN ... USING (id)` pivots with alias-aware matching, switched containment checks to `LIMIT 1` existence probes, and enabled a default PQS oracle weight (2026-02-08).
 - Added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and expanded unit tests (2026-02-08).
 - Centralized minimizer default rounds into a shared constant to avoid divergent defaults across reducers (2026-02-08).

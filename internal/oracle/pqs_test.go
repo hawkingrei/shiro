@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -142,6 +143,55 @@ func TestPQSMatchExprMultiTable(t *testing.T) {
 	match := pqsMatchExpr(pivot, aliases)
 	if got := buildExpr(match); got != "t0_id = 1 AND t0_c0 = 9 AND t1_id = 1 AND t1_c1 IS NULL" {
 		t.Fatalf("expected match expr, got %s", got)
+	}
+}
+
+func TestPQSJoinContainmentSQL(t *testing.T) {
+	left := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	right := schema.Table{
+		Name: "t1",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c1", Type: schema.TypeVarchar},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{left, right},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"id": {Column: left.Columns[0], Raw: "1"},
+				"c0": {Column: left.Columns[1], Raw: "7"},
+			},
+			"t1": {
+				"id": {Column: right.Columns[0], Raw: "1"},
+				"c1": {Column: right.Columns[1], Raw: "hi"},
+			},
+		},
+	}
+	query, aliases := buildPQSQuery(pivot)
+	if query == nil || len(aliases) != 4 {
+		t.Fatalf("expected aliases for join containment")
+	}
+	query.Where = pqsPredicateExprForValue(
+		generator.ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt},
+		pivot.Values["t0"]["c0"],
+	)
+	querySQL := query.SQLString()
+	matchSQL := buildExpr(pqsMatchExpr(pivot, aliases))
+	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
+	expectedQuery := "SELECT t0.id AS t0_id, t0.c0 AS t0_c0, t1.id AS t1_id, t1.c1 AS t1_c1 FROM t0 JOIN t1 USING (id) WHERE t0.c0 = 7"
+	if querySQL != expectedQuery {
+		t.Fatalf("unexpected join query: %s", querySQL)
+	}
+	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE t0_id = 1 AND t0_c0 = 7 AND t1_id = 1 AND t1_c1 = 'hi' LIMIT 1"
+	if containSQL != expectedContain {
+		t.Fatalf("unexpected containment SQL: %s", containSQL)
 	}
 }
 
