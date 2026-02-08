@@ -31,6 +31,17 @@ func TestApplyProfileToSpec(t *testing.T) {
 	}
 }
 
+func TestApplyProfileToSpecDoesNotRelaxSubquery(t *testing.T) {
+	constraints := generator.SelectQueryConstraints{DisallowSubquery: true}
+	profile := Profile{AllowSubquery: BoolPtr(true)}
+
+	applyProfileToSpec(&constraints, &profile)
+
+	if !constraints.DisallowSubquery {
+		t.Fatalf("expected DisallowSubquery to remain true")
+	}
+}
+
 func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 	gen := newProfileTestGenerator(t)
 	spec := QuerySpec{

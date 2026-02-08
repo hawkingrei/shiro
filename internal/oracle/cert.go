@@ -38,21 +38,21 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if o.Tolerance == 0 {
 		o.Tolerance = 0.1
 	}
-	builder := generator.NewSelectQueryBuilder(gen).
-		RequireWhere().
-		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic().
-		MaxTries(10)
+	constraints := generator.SelectQueryConstraints{
+		RequireWhere:         true,
+		PredicateMode:        generator.PredicateModeSimple,
+		RequireDeterministic: true,
+		MaxTries:             10,
+	}
 	if profile := ProfileByName("CERT"); profile != nil {
-		constraints := generator.SelectQueryConstraints{
-			RequireWhere:         true,
-			RequireDeterministic: true,
-		}
 		applyProfileToSpec(&constraints, profile)
 		if profile.PredicateMode != nil {
 			constraints.PredicateMode = *profile.PredicateMode
 		}
-		builder = generator.NewSelectQueryBuilder(gen).WithConstraints(constraints).MaxTries(10)
+	}
+	builder := generator.NewSelectQueryBuilder(gen).WithConstraints(constraints)
+	if constraints.MaxTries > 0 {
+		builder.MaxTries(constraints.MaxTries)
 	}
 	var query *generator.SelectQuery
 	var restrictPred generator.Expr

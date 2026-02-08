@@ -50,8 +50,8 @@ func applyProfileToSpec(dst *generator.SelectQueryConstraints, profile *Profile)
 		return
 	}
 	applyProfileFeatures(dst, profile.Features)
-	if profile.AllowSubquery != nil {
-		dst.DisallowSubquery = !*profile.AllowSubquery
+	if profile.AllowSubquery != nil && !*profile.AllowSubquery {
+		dst.DisallowSubquery = true
 	}
 	if profile.MinJoinTables != nil {
 		dst.MinJoinTables = *profile.MinJoinTables

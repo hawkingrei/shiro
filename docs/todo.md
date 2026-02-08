@@ -10,6 +10,7 @@ Latest sync: runner oracle overrides now use data-driven profiles for consistent
 Latest sync: QuerySpec now accepts oracle profiles to derive generator constraints from the same capability gating (2026-02-08).
 Latest sync: renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
 Latest sync: NoREC profile disables set operations and added regression coverage for profile constraint mapping and analysis refresh (2026-02-08).
+Latest sync: profile constraints no longer relax subquery bans, CERT/CODDTest builder setup is deduped, and runner override tests cover AllowSubquery/JoinUsingProbMin (2026-02-08).
 Latest sync: minimizer now uses strategy-based multi-pass reduction (error-case vs replay-spec) with validated insert merge and weighted candidate selection to improve minimization depth and stability; added runner tests (2026-02-08).
 Latest sync: SelectQueryBuilder now skips full feature analysis for join-only constraints and reuses cached determinism metadata when present (2026-02-08).
 Latest sync: SelectQueryBuilder now invalidates cached analysis after predicate attachment to keep determinism checks accurate (2026-02-08).
