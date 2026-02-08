@@ -5,6 +5,7 @@ import (
 	"shiro/internal/generator"
 )
 
+// FeatureOverrides describes per-oracle feature flags to toggle capabilities.
 type FeatureOverrides struct {
 	CTE               *bool
 	Views             *bool
@@ -24,6 +25,7 @@ type FeatureOverrides struct {
 	NotIn             *bool
 }
 
+// Apply copies overrides onto the target feature set.
 func (o FeatureOverrides) Apply(dst *config.Features) {
 	if dst == nil {
 		return
@@ -78,6 +80,7 @@ func (o FeatureOverrides) Apply(dst *config.Features) {
 	}
 }
 
+// OracleProfile captures per-oracle capability and generator overrides.
 type OracleProfile struct {
 	Features               FeatureOverrides
 	AllowSubquery          *bool
@@ -89,26 +92,32 @@ type OracleProfile struct {
 	JoinUsingProbMin       *int
 }
 
+// BoolPtr returns a pointer to a bool literal.
 func BoolPtr(v bool) *bool {
 	return &v
 }
 
+// IntPtr returns a pointer to an int literal.
 func IntPtr(v int) *int {
 	return &v
 }
 
+// StringPtr returns a pointer to a string literal.
 func StringPtr(v string) *string {
 	return &v
 }
 
+// PredicateModePtr returns a pointer to a predicate mode literal.
 func PredicateModePtr(v generator.PredicateMode) *generator.PredicateMode {
 	return &v
 }
 
+// JoinTypePtr returns a pointer to a join type literal.
 func JoinTypePtr(v generator.JoinType) *generator.JoinType {
 	return &v
 }
 
+// OracleProfiles defines the default per-oracle capability profiles.
 var OracleProfiles = map[string]OracleProfile{
 	"GroundTruth": {
 		Features: FeatureOverrides{
@@ -219,6 +228,7 @@ var OracleProfiles = map[string]OracleProfile{
 	},
 }
 
+// OracleProfileByName returns a profile by oracle name when available.
 func OracleProfileByName(name string) *OracleProfile {
 	profile, ok := OracleProfiles[name]
 	if !ok {
