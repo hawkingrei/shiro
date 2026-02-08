@@ -216,11 +216,24 @@ func buildPQSQuery(pivot *pqsPivotRow) (*generator.SelectQuery, []pqsAliasColumn
 			Using: []string{pqsPivotIDColumn},
 		})
 	}
-	aliases := make([]pqsAliasColumn, 0, len(pivot.Tables)*len(pivot.Tables[0].Columns))
-	items := make([]generator.SelectItem, 0, len(pivot.Tables)*len(pivot.Tables[0].Columns))
+	useIDOnly := true
+	for _, tbl := range pivot.Tables {
+		if _, ok := pqsTableColumn(tbl, pqsPivotIDColumn); !ok {
+			useIDOnly = false
+			break
+		}
+	}
+	aliases := make([]pqsAliasColumn, 0, len(pivot.Tables))
+	items := make([]generator.SelectItem, 0, len(pivot.Tables))
 	multiTable := len(pivot.Tables) > 1
 	for tIdx, tbl := range pivot.Tables {
-		for _, col := range tbl.Columns {
+		cols := tbl.Columns
+		if useIDOnly {
+			if idCol, ok := pqsTableColumn(tbl, pqsPivotIDColumn); ok {
+				cols = []schema.Column{idCol}
+			}
+		}
+		for _, col := range cols {
 			alias := col.Name
 			if multiTable {
 				alias = fmt.Sprintf("t%d_%s", tIdx, col.Name)
@@ -405,6 +418,15 @@ func pqsTableHasColumn(tbl schema.Table, name string) bool {
 		}
 	}
 	return false
+}
+
+func pqsTableColumn(tbl schema.Table, name string) (schema.Column, bool) {
+	for _, col := range tbl.Columns {
+		if col.Name == name {
+			return col, true
+		}
+	}
+	return schema.Column{}, false
 }
 
 func pqsSelectColumns(tables []schema.Table) []pqsSelectColumn {

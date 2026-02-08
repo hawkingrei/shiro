@@ -137,11 +137,11 @@ func TestPQSMatchExprMultiTable(t *testing.T) {
 		},
 	}
 	query, aliases := buildPQSQuery(pivot)
-	if query == nil || len(aliases) != 4 {
+	if query == nil || len(aliases) != 2 {
 		t.Fatalf("expected aliases for multi-table pivot query")
 	}
 	match := pqsMatchExpr(pivot, aliases)
-	if got := buildExpr(match); got != "t0_id = 1 AND t0_c0 = 9 AND t1_id = 1 AND t1_c1 IS NULL" {
+	if got := buildExpr(match); got != "t0_id = 1 AND t1_id = 1" {
 		t.Fatalf("expected match expr, got %s", got)
 	}
 }
@@ -175,7 +175,7 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 		},
 	}
 	query, aliases := buildPQSQuery(pivot)
-	if query == nil || len(aliases) != 4 {
+	if query == nil || len(aliases) != 2 {
 		t.Fatalf("expected aliases for join containment")
 	}
 	query.Where = pqsPredicateExprForValue(
@@ -185,11 +185,11 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 	querySQL := query.SQLString()
 	matchSQL := buildExpr(pqsMatchExpr(pivot, aliases))
 	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
-	expectedQuery := "SELECT t0.id AS t0_id, t0.c0 AS t0_c0, t1.id AS t1_id, t1.c1 AS t1_c1 FROM t0 JOIN t1 USING (id) WHERE t0.c0 = 7"
+	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 USING (id) WHERE t0.c0 = 7"
 	if querySQL != expectedQuery {
 		t.Fatalf("unexpected join query: %s", querySQL)
 	}
-	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE t0_id = 1 AND t0_c0 = 7 AND t1_id = 1 AND t1_c1 = 'hi' LIMIT 1"
+	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE t0_id = 1 AND t1_id = 1 LIMIT 1"
 	if containSQL != expectedContain {
 		t.Fatalf("unexpected containment SQL: %s", containSQL)
 	}

@@ -47,6 +47,9 @@
 ## QPG stats
 - Added a monotonic seen SQL counter to avoid negative deltas from TTL-based sweeps.
 
+## PQS optimization
+- Reduced PQS containment SQL size by selecting and matching only `id` columns when all pivot tables expose them.
+
 ## Impo roadmap completions
 - Logged per-interval `sql_valid_ratio`, `impo_invalid_columns_ratio`, and `impo_base_exec_failed_ratio`, with threshold alerts.
 - Persisted Impo artifacts (`impo_seed.sql`, `impo_init.sql`, `impo_mutated.sql`) in case outputs.

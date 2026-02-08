@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Optimized PQS containment queries to match only `id` columns when available, reducing SQL size (2026-02-08).
 - Reviewed a PQS-focused run: 20 PQS cases (18 join, 1 single-table, 1 error), with one TiDB runtime error (`Error 1105: index out of range`) that was non-reproducible in minimize (2026-02-09).
 - Added a PQS join containment SQL integration test for basic two-table pivots (2026-02-08).
 - Cleaned `docs/roadmap.md` completed items, reorganized the roadmap by stages, and synced `docs/todo.md` with `docs/notes/follow-ups.md` (2026-02-08).
