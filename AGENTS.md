@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- QuerySpec now accepts oracle profiles so generator constraints can be derived from the same capability gating used by runtime overrides (2026-02-08).
 - Centralized query analysis reuse in SelectQueryBuilder to avoid redundant AST walks while keeping determinism checks accurate (2026-02-08).
 - Replaced hard-coded oracle overrides with data-driven profiles for easier tuning and more consistent capability gating (2026-02-08).
 - Impo seed-query guardrail skips now retain the last concrete failure reason (`seed_guardrail:<reason>`), and minimize now runs a mandatory base-replay precheck: non-reproducible cases are marked `minimize_status=skipped` plus top-level `flaky=true` with `minimize_reason`/`flaky_reason=base_replay_not_reproducible`; added regression tests (2026-02-07).

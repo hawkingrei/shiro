@@ -1,5 +1,7 @@
 package runner
 
+import "shiro/internal/oracle"
+
 func (r *Runner) applyOracleOverrides(name string) func() {
 	origCfg := r.gen.Config
 	origPred := r.gen.PredicateMode()
@@ -23,13 +25,13 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetDisallowScalarSubquery(origDisallowScalar)
 	}
 
-	profile, ok := oracleProfiles[name]
-	if !ok {
+	profile := oracle.OracleProfileByName(name)
+	if profile == nil {
 		return restore
 	}
 
 	cfg := origCfg
-	profile.Features.apply(&cfg.Features)
+	profile.Features.Apply(&cfg.Features)
 	if profile.JoinOnPolicy != nil {
 		cfg.Oracles.JoinOnPolicy = *profile.JoinOnPolicy
 	}

@@ -1,0 +1,228 @@
+package oracle
+
+import (
+	"shiro/internal/config"
+	"shiro/internal/generator"
+)
+
+type FeatureOverrides struct {
+	CTE               *bool
+	Views             *bool
+	DerivedTables     *bool
+	SetOperations     *bool
+	NaturalJoins      *bool
+	FullJoinEmulation *bool
+	Aggregates        *bool
+	GroupBy           *bool
+	Having            *bool
+	Distinct          *bool
+	OrderBy           *bool
+	Limit             *bool
+	WindowFuncs       *bool
+	Subqueries        *bool
+	NotExists         *bool
+	NotIn             *bool
+}
+
+func (o FeatureOverrides) Apply(dst *config.Features) {
+	if dst == nil {
+		return
+	}
+	if o.CTE != nil {
+		dst.CTE = *o.CTE
+	}
+	if o.Views != nil {
+		dst.Views = *o.Views
+	}
+	if o.DerivedTables != nil {
+		dst.DerivedTables = *o.DerivedTables
+	}
+	if o.SetOperations != nil {
+		dst.SetOperations = *o.SetOperations
+	}
+	if o.NaturalJoins != nil {
+		dst.NaturalJoins = *o.NaturalJoins
+	}
+	if o.FullJoinEmulation != nil {
+		dst.FullJoinEmulation = *o.FullJoinEmulation
+	}
+	if o.Aggregates != nil {
+		dst.Aggregates = *o.Aggregates
+	}
+	if o.GroupBy != nil {
+		dst.GroupBy = *o.GroupBy
+	}
+	if o.Having != nil {
+		dst.Having = *o.Having
+	}
+	if o.Distinct != nil {
+		dst.Distinct = *o.Distinct
+	}
+	if o.OrderBy != nil {
+		dst.OrderBy = *o.OrderBy
+	}
+	if o.Limit != nil {
+		dst.Limit = *o.Limit
+	}
+	if o.WindowFuncs != nil {
+		dst.WindowFuncs = *o.WindowFuncs
+	}
+	if o.Subqueries != nil {
+		dst.Subqueries = *o.Subqueries
+	}
+	if o.NotExists != nil {
+		dst.NotExists = *o.NotExists
+	}
+	if o.NotIn != nil {
+		dst.NotIn = *o.NotIn
+	}
+}
+
+type OracleProfile struct {
+	Features               FeatureOverrides
+	AllowSubquery          *bool
+	PredicateMode          *generator.PredicateMode
+	JoinTypeOverride       *generator.JoinType
+	MinJoinTables          *int
+	DisallowScalarSubquery *bool
+	JoinOnPolicy           *string
+	JoinUsingProbMin       *int
+}
+
+func BoolPtr(v bool) *bool {
+	return &v
+}
+
+func IntPtr(v int) *int {
+	return &v
+}
+
+func StringPtr(v string) *string {
+	return &v
+}
+
+func PredicateModePtr(v generator.PredicateMode) *generator.PredicateMode {
+	return &v
+}
+
+func JoinTypePtr(v generator.JoinType) *generator.JoinType {
+	return &v
+}
+
+var OracleProfiles = map[string]OracleProfile{
+	"GroundTruth": {
+		Features: FeatureOverrides{
+			CTE:               BoolPtr(false),
+			Views:             BoolPtr(false),
+			DerivedTables:     BoolPtr(false),
+			SetOperations:     BoolPtr(false),
+			NaturalJoins:      BoolPtr(false),
+			FullJoinEmulation: BoolPtr(false),
+			Aggregates:        BoolPtr(false),
+			GroupBy:           BoolPtr(false),
+			Having:            BoolPtr(false),
+			Distinct:          BoolPtr(false),
+			OrderBy:           BoolPtr(false),
+			Limit:             BoolPtr(false),
+			WindowFuncs:       BoolPtr(false),
+			Subqueries:        BoolPtr(false),
+			NotExists:         BoolPtr(false),
+			NotIn:             BoolPtr(false),
+		},
+		AllowSubquery:          BoolPtr(false),
+		PredicateMode:          PredicateModePtr(generator.PredicateModeNone),
+		JoinTypeOverride:       JoinTypePtr(generator.JoinInner),
+		MinJoinTables:          IntPtr(2),
+		DisallowScalarSubquery: BoolPtr(true),
+		JoinOnPolicy:           StringPtr("simple"),
+		JoinUsingProbMin:       IntPtr(100),
+	},
+	"CODDTest": {
+		Features: FeatureOverrides{
+			CTE:               BoolPtr(false),
+			Views:             BoolPtr(false),
+			DerivedTables:     BoolPtr(false),
+			SetOperations:     BoolPtr(false),
+			NaturalJoins:      BoolPtr(false),
+			FullJoinEmulation: BoolPtr(false),
+			Aggregates:        BoolPtr(false),
+			GroupBy:           BoolPtr(false),
+			Having:            BoolPtr(false),
+			Distinct:          BoolPtr(false),
+			OrderBy:           BoolPtr(false),
+			Limit:             BoolPtr(false),
+			WindowFuncs:       BoolPtr(false),
+			Subqueries:        BoolPtr(false),
+			NotExists:         BoolPtr(false),
+			NotIn:             BoolPtr(false),
+		},
+		AllowSubquery:          BoolPtr(false),
+		PredicateMode:          PredicateModePtr(generator.PredicateModeSimple),
+		MinJoinTables:          IntPtr(1),
+		DisallowScalarSubquery: BoolPtr(true),
+	},
+	"Impo": {
+		Features: FeatureOverrides{
+			CTE: BoolPtr(false),
+		},
+		AllowSubquery:          BoolPtr(true),
+		DisallowScalarSubquery: BoolPtr(true),
+	},
+	"NoREC": {
+		Features: FeatureOverrides{
+			CTE:         BoolPtr(false),
+			Aggregates:  BoolPtr(false),
+			GroupBy:     BoolPtr(false),
+			Having:      BoolPtr(false),
+			Distinct:    BoolPtr(false),
+			OrderBy:     BoolPtr(false),
+			Limit:       BoolPtr(false),
+			WindowFuncs: BoolPtr(false),
+		},
+		AllowSubquery: BoolPtr(true),
+		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
+	},
+	"TLP": {
+		Features: FeatureOverrides{
+			CTE:         BoolPtr(false),
+			Aggregates:  BoolPtr(false),
+			GroupBy:     BoolPtr(false),
+			Having:      BoolPtr(false),
+			Distinct:    BoolPtr(false),
+			OrderBy:     BoolPtr(false),
+			Limit:       BoolPtr(false),
+			WindowFuncs: BoolPtr(false),
+		},
+		AllowSubquery: BoolPtr(true),
+		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
+		JoinOnPolicy:  StringPtr("complex"),
+	},
+	"DQP": {
+		Features: FeatureOverrides{
+			CTE:         BoolPtr(false),
+			Aggregates:  BoolPtr(false),
+			GroupBy:     BoolPtr(false),
+			Having:      BoolPtr(false),
+			Distinct:    BoolPtr(false),
+			Limit:       BoolPtr(false),
+			WindowFuncs: BoolPtr(false),
+		},
+		AllowSubquery: BoolPtr(true),
+		PredicateMode: PredicateModePtr(generator.PredicateModeSimpleColumns),
+		MinJoinTables: IntPtr(2),
+	},
+	"CERT": {
+		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
+	},
+	"EET": {
+		AllowSubquery: BoolPtr(true),
+	},
+}
+
+func OracleProfileByName(name string) *OracleProfile {
+	profile, ok := OracleProfiles[name]
+	if !ok {
+		return nil
+	}
+	return &profile
+}

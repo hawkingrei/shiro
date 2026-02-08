@@ -7,6 +7,7 @@ Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope 
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
 Latest sync: SelectQueryBuilder now reuses query analysis for constraint checks to avoid redundant AST walks (2026-02-08).
 Latest sync: runner oracle overrides now use data-driven profiles for consistent capability gating (2026-02-08).
+Latest sync: QuerySpec now accepts oracle profiles to derive generator constraints from the same capability gating (2026-02-08).
 
 ## Generator / Oracles
 

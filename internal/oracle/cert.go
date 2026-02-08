@@ -43,6 +43,17 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		PredicateMode(generator.PredicateModeSimple).
 		RequireDeterministic().
 		MaxTries(10)
+	if profile := OracleProfileByName("CERT"); profile != nil {
+		constraints := generator.SelectQueryConstraints{
+			RequireWhere:         true,
+			RequireDeterministic: true,
+		}
+		applyProfileToSpec(&constraints, profile)
+		if profile.PredicateMode != nil {
+			constraints.PredicateMode = *profile.PredicateMode
+		}
+		builder = generator.NewSelectQueryBuilder(gen).WithConstraints(constraints).MaxTries(10)
+	}
 	var query *generator.SelectQuery
 	var restrictPred generator.Expr
 	lastReason := ""

@@ -74,6 +74,41 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
 		})
+	if profile := OracleProfileByName("CODDTest"); profile != nil {
+		constraints := generator.SelectQueryConstraints{
+			RequireWhere:         true,
+			RequireDeterministic: true,
+			DisallowAggregate:    true,
+			MaxJoinCount:         2,
+			MaxJoinCountSet:      true,
+			QueryGuardReason: func(query *generator.SelectQuery) (bool, string) {
+				if query == nil {
+					return false, "constraint:query_guard"
+				}
+				if len(query.With) > 0 {
+					return false, "constraint:query_guard"
+				}
+				if !queryUsesOnlyBaseTables(query, baseNames) {
+					return false, "constraint:query_guard"
+				}
+				if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
+					return false, reason
+				}
+				return true, ""
+			},
+			PredicateGuard: func(expr generator.Expr) bool {
+				return predicateMatches(expr, policy)
+			},
+		}
+		applyProfileToSpec(&constraints, profile)
+		if profile.PredicateMode != nil {
+			constraints.PredicateMode = *profile.PredicateMode
+		}
+		builder = generator.NewSelectQueryBuilder(gen).WithConstraints(constraints)
+		if constraints.MaxTries > 0 {
+			builder.MaxTries(constraints.MaxTries)
+		}
+	}
 	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("coddtest", reason), "builder_reason": reason, "builder_attempts": attempts}}
