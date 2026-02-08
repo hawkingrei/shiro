@@ -36,12 +36,12 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 
 ## PQS (Rigger OSDI20)
 
-1. Add a `PQS` oracle skeleton (`internal/oracle/pqs.go`) with an isolated capability profile and metrics namespace.
-2. Implement pivot-row sampling for generated queries (table/alias-aware), including deterministic row identity serialization for containment checks.
+1. Add a `PQS` oracle skeleton (`internal/oracle/pqs.go`) with an isolated capability profile and metrics namespace. (done for v1)
+2. Implement pivot-row sampling for generated queries (table/alias-aware), including deterministic row identity serialization for containment checks. (done for v1 single-table)
 3. Add a lightweight expression evaluator + rectifier for three-valued logic (`TRUE/FALSE/NULL`) that can force predicate truth for the sampled pivot row.
-4. Build PQS query synthesis paths for `WHERE` first, then `JOIN ON`, and add skip reasons when rectification is unsafe or unsupported.
-5. Add containment assertion SQL templates and reducer-friendly report fields (`pivot_values`, `rectified_predicates`, `containment_query`).
-6. Add staged tests: evaluator correctness, rectification invariants, pivot containment (single-table), then join-path containment.
+4. Build PQS query synthesis paths for `WHERE` first, then `JOIN ON`, and add skip reasons when rectification is unsafe or unsupported. (WHERE v1 done)
+5. Add containment assertion SQL templates and reducer-friendly report fields (`pivot_values`, `rectified_predicates`, `containment_query`). (done for v1)
+6. Add staged tests: evaluator correctness, rectification invariants, pivot containment (single-table), then join-path containment. (single-table predicate tests done)
 
 ## Reporting / Aggregation
 

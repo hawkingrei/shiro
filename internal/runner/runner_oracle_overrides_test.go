@@ -80,3 +80,34 @@ func TestApplyOracleOverridesCODDTest(t *testing.T) {
 	}
 }
 
+func TestApplyOracleOverridesPQS(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.Subqueries = true
+	cfg.Features.SetOperations = true
+	cfg.Features.Views = true
+	cfg.Features.OrderBy = true
+	state := &schema.State{}
+	r := &Runner{gen: generator.New(cfg, state, 3)}
+
+	restore := r.applyOracleOverrides("PQS")
+	defer restore()
+
+	if r.gen.Config.Features.Subqueries {
+		t.Fatalf("pqs override should disable subqueries")
+	}
+	if r.gen.Config.Features.SetOperations {
+		t.Fatalf("pqs override should disable set operations")
+	}
+	if r.gen.Config.Features.Views {
+		t.Fatalf("pqs override should disable views")
+	}
+	if r.gen.Config.Features.OrderBy {
+		t.Fatalf("pqs override should disable order by")
+	}
+	if r.gen.PredicateMode() != generator.PredicateModeNone {
+		t.Fatalf("pqs override should set predicate mode none")
+	}
+}

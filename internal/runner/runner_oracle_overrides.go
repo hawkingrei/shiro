@@ -113,6 +113,25 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		cfg.Features.WindowFuncs = false
 		r.gen.SetPredicateMode(generator.PredicateModeSimpleColumns)
 		r.gen.SetMinJoinTables(2)
+	case "PQS":
+		cfg.Features.CTE = false
+		cfg.Features.Views = false
+		cfg.Features.DerivedTables = false
+		cfg.Features.SetOperations = false
+		cfg.Features.NaturalJoins = false
+		cfg.Features.FullJoinEmulation = false
+		cfg.Features.Aggregates = false
+		cfg.Features.GroupBy = false
+		cfg.Features.Having = false
+		cfg.Features.Distinct = false
+		cfg.Features.OrderBy = false
+		cfg.Features.Limit = false
+		cfg.Features.WindowFuncs = false
+		cfg.Features.Subqueries = false
+		cfg.Features.NotExists = false
+		cfg.Features.NotIn = false
+		allowSubquery = false
+		r.gen.SetPredicateMode(generator.PredicateModeNone)
 	default:
 		return restore
 	}

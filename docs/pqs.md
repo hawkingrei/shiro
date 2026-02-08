@@ -35,3 +35,7 @@ If the pivot row is missing, the DBMS likely has a logic bug in optimization or 
 3. **PQS v3**: add subquery predicates (`IN/EXISTS/ANY/ALL`) and derived tables.
 4. **PQS v4**: add optional stress features (`DISTINCT`, `GROUP BY`, indexes, views) behind capability gates.
 5. Add per-stage observability: `pqs_runs`, `pqs_skip_reasons`, `pqs_containment_failures`, and reducer-friendly bug artifacts.
+
+## Shiro status
+- **PQS v1 implemented (single-table)**: pick a pivot row, build equality/`IS NULL` predicates over a subset of columns, and verify containment via `COUNT(*)` on the result set.
+- **Pending**: 3VL expression rectifier, join-aware pivot bindings, subquery predicates, and expanded stress features.

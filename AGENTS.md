@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and added basic tests (2026-02-08).
 - Centralized minimizer default rounds into a shared constant to avoid divergent defaults across reducers (2026-02-08).
 - Documented sqlSliceWeight scaling intent via a named constant to keep statement count dominant (2026-02-08).
 - Fixed revive lint by naming minimizer helper return values and removing an unused test parameter (2026-02-08).
