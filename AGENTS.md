@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
 - Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
 - QuerySpec now accepts oracle profiles so generator constraints can be derived from the same capability gating used by runtime overrides (2026-02-08).
 - Centralized query analysis reuse in SelectQueryBuilder to avoid redundant AST walks while keeping determinism checks accurate (2026-02-08).
