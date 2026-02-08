@@ -21,6 +21,8 @@ Links:
 
 ## Recent updates
 
+- Centralized minimizer default rounds into a shared constant to avoid divergent defaults across reducers (2026-02-08).
+- Documented sqlSliceWeight scaling intent via a named constant to keep statement count dominant (2026-02-08).
 - Fixed revive lint by naming minimizer helper return values and removing an unused test parameter (2026-02-08).
 - SelectQueryBuilder now invalidates cached analysis after attaching predicates so determinism checks stay accurate (2026-02-08).
 - Minimize pipeline was deeply refactored with strategy-based reduction (`case_error` vs replay-spec), multi-pass convergence (insert/case/spec alternating), validated insert-merge adoption, and weighted-candidate selection to avoid non-improving rewrites; added focused runner tests for merge validation, set-var dropping, and alternating reduction (2026-02-08).

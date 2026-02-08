@@ -14,7 +14,7 @@ func astReduceStatements(ctx context.Context, stmts []string, maxRounds int, tes
 		return stmts
 	}
 	if maxRounds <= 0 {
-		maxRounds = 8
+		maxRounds = minimizeDefaultRounds
 	}
 	p := parser.New()
 	reduced := append([]string{}, stmts...)
@@ -53,7 +53,7 @@ func astReduceSQL(ctx context.Context, stmt string, maxRounds int, test func(str
 		return stmt
 	}
 	if maxRounds <= 0 {
-		maxRounds = 8
+		maxRounds = minimizeDefaultRounds
 	}
 	trimmed := strings.TrimSpace(stmt)
 	explain := false

@@ -35,6 +35,9 @@ type minimizeOutput struct {
 
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
 const minimizePassLimit = 3
+const minimizeDefaultRounds = 8
+// sqlSliceWeightStmtMultiplier keeps statement count dominant in minimization scoring.
+const sqlSliceWeightStmtMultiplier = 100000
 
 func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec replaySpec) minimizeOutput {
 	if !r.cfg.Minimize.Enabled {
@@ -88,7 +91,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	minInserts := append([]string{}, origInserts...)
 	minCase := append([]string{}, origCase...)
 	specReduced := spec
-	maxRounds := normalizeMinimizeRounds(r.cfg.Minimize.MaxRounds)
+	maxRounds := r.cfg.Minimize.MaxRounds
 
 	switch spec.kind {
 	case "case_error":
@@ -115,13 +118,6 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		minimized: true,
 		status:    "success",
 	}
-}
-
-func normalizeMinimizeRounds(maxRounds int) int {
-	if maxRounds <= 0 {
-		return 8
-	}
-	return maxRounds
 }
 
 func reduceCaseErrorCandidate(
@@ -324,7 +320,7 @@ func validatedMergedInserts(inserts []string, test func([]string) bool) []string
 }
 
 func sqlSliceWeight(stmts []string) int {
-	weight := len(stmts) * 100000
+	weight := len(stmts) * sqlSliceWeightStmtMultiplier
 	for _, stmt := range stmts {
 		weight += len(strings.TrimSpace(stmt))
 	}
