@@ -229,7 +229,7 @@ func shrinkStatements(stmts []string, maxRounds int, test func([]string) bool) [
 		return stmts
 	}
 	if maxRounds <= 0 {
-		maxRounds = 8
+		maxRounds = minimizeDefaultRounds
 	}
 	n := 2
 	rounds := 0
