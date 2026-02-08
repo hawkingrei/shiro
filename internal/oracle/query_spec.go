@@ -10,7 +10,7 @@ type QuerySpec struct {
 	PredicateGuard      bool
 	MaxTries            int
 	SkipReasonOverrides map[string]string
-	Profile             *OracleProfile
+	Profile             *Profile
 }
 
 func buildQueryWithSpec(gen *generator.Generator, spec QuerySpec) (*generator.SelectQuery, map[string]any) {
@@ -45,7 +45,7 @@ func buildQueryWithSpec(gen *generator.Generator, spec QuerySpec) (*generator.Se
 	return query, nil
 }
 
-func applyProfileToSpec(dst *generator.SelectQueryConstraints, profile *OracleProfile) {
+func applyProfileToSpec(dst *generator.SelectQueryConstraints, profile *Profile) {
 	if dst == nil || profile == nil {
 		return
 	}

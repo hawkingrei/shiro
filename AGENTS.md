@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
 - QuerySpec now accepts oracle profiles so generator constraints can be derived from the same capability gating used by runtime overrides (2026-02-08).
 - Centralized query analysis reuse in SelectQueryBuilder to avoid redundant AST walks while keeping determinism checks accurate (2026-02-08).
 - Replaced hard-coded oracle overrides with data-driven profiles for easier tuning and more consistent capability gating (2026-02-08).

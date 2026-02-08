@@ -80,8 +80,8 @@ func (o FeatureOverrides) Apply(dst *config.Features) {
 	}
 }
 
-// OracleProfile captures per-oracle capability and generator overrides.
-type OracleProfile struct {
+// Profile captures per-oracle capability and generator overrides.
+type Profile struct {
 	Features               FeatureOverrides
 	AllowSubquery          *bool
 	PredicateMode          *generator.PredicateMode
@@ -117,8 +117,8 @@ func JoinTypePtr(v generator.JoinType) *generator.JoinType {
 	return &v
 }
 
-// OracleProfiles defines the default per-oracle capability profiles.
-var OracleProfiles = map[string]OracleProfile{
+// Profiles defines the default per-oracle capability profiles.
+var Profiles = map[string]Profile{
 	"GroundTruth": {
 		Features: FeatureOverrides{
 			CTE:               BoolPtr(false),
@@ -228,9 +228,9 @@ var OracleProfiles = map[string]OracleProfile{
 	},
 }
 
-// OracleProfileByName returns a profile by oracle name when available.
-func OracleProfileByName(name string) *OracleProfile {
-	profile, ok := OracleProfiles[name]
+// ProfileByName returns a profile by oracle name when available.
+func ProfileByName(name string) *Profile {
+	profile, ok := Profiles[name]
 	if !ok {
 		return nil
 	}

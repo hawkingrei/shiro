@@ -44,7 +44,7 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy.allowIsNull = true
 	spec := QuerySpec{
 		Oracle:          "tlp",
-		Profile:         OracleProfileByName("TLP"),
+		Profile:         ProfileByName("TLP"),
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
 		MaxTries:        tlpBuildMaxTries,

@@ -41,7 +41,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy.allowIsNull = true
 	spec := QuerySpec{
 		Oracle:          "dqp",
-		Profile:         OracleProfileByName("DQP"),
+		Profile:         ProfileByName("DQP"),
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
 		MaxTries:        dqpBuildMaxTries,

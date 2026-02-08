@@ -74,7 +74,7 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 		PredicateGuard(func(expr generator.Expr) bool {
 			return predicateMatches(expr, policy)
 		})
-	if profile := OracleProfileByName("CODDTest"); profile != nil {
+	if profile := ProfileByName("CODDTest"); profile != nil {
 		constraints := generator.SelectQueryConstraints{
 			RequireWhere:         true,
 			RequireDeterministic: true,

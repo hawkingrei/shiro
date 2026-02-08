@@ -43,7 +43,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		PredicateMode(generator.PredicateModeSimple).
 		RequireDeterministic().
 		MaxTries(10)
-	if profile := OracleProfileByName("CERT"); profile != nil {
+	if profile := ProfileByName("CERT"); profile != nil {
 		constraints := generator.SelectQueryConstraints{
 			RequireWhere:         true,
 			RequireDeterministic: true,

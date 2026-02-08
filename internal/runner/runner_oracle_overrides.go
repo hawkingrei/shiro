@@ -25,7 +25,7 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 		r.gen.SetDisallowScalarSubquery(origDisallowScalar)
 	}
 
-	profile := oracle.OracleProfileByName(name)
+	profile := oracle.ProfileByName(name)
 	if profile == nil {
 		return restore
 	}

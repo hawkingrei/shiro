@@ -38,7 +38,7 @@ const noRECBuildMaxTries = 10
 func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _ *schema.State) Result {
 	spec := QuerySpec{
 		Oracle:   "norec",
-		Profile:  OracleProfileByName("NoREC"),
+		Profile:  ProfileByName("NoREC"),
 		MaxTries: noRECBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireWhere:         true,
