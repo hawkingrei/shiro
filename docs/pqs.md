@@ -37,5 +37,6 @@ If the pivot row is missing, the DBMS likely has a logic bug in optimization or 
 5. Add per-stage observability: `pqs_runs`, `pqs_skip_reasons`, `pqs_containment_failures`, and reducer-friendly bug artifacts.
 
 ## Shiro status
-- **PQS v1 implemented (single-table)**: pick a pivot row, build equality/`IS NULL` predicates over a subset of columns, and verify containment via `COUNT(*)` on the result set.
-- **Pending**: 3VL expression rectifier, join-aware pivot bindings, subquery predicates, and expanded stress features.
+- **PQS v1 implemented (single-table)**: pick a pivot row, build equality/`IS NULL` predicates over a subset of columns, and verify containment via a pivot presence check.
+- **PQS v1.5 implemented (basic joins)**: sample pivots via `id`-range selection (avoid `ORDER BY RAND()`), build alias-aware containment checks across `JOIN ... USING (id)` for two-table pivots, and use `LIMIT 1` existence probes instead of `COUNT(*)`.
+- **Pending**: 3VL expression rectifier, join-aware `JOIN ON` predicate rectification, subquery predicates, and expanded stress features.

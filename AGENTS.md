@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Enhanced PQS pivot sampling with `id`-range selection (avoids `ORDER BY RAND()`), added basic two-table `JOIN ... USING (id)` pivots with alias-aware matching, switched containment checks to `LIMIT 1` existence probes, and enabled a default PQS oracle weight (2026-02-08).
 - Added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and expanded unit tests (2026-02-08).
 - Centralized minimizer default rounds into a shared constant to avoid divergent defaults across reducers (2026-02-08).
 - Documented sqlSliceWeight scaling intent via a named constant to keep statement count dominant (2026-02-08).

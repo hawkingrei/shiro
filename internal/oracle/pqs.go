@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	"shiro/internal/schema"
 )
 
-// PQS implements a v1 Pivoted Query Synthesis oracle (single-table WHERE).
+// PQS implements a basic Pivoted Query Synthesis oracle (single-table and simple joins).
 type PQS struct{}
 
 // Name returns the oracle identifier.
@@ -21,6 +22,8 @@ func (o PQS) Name() string { return "PQS" }
 const (
 	pqsPivotPickTries   = 6
 	pqsPredicateMaxCols = 3
+	pqsJoinPickTries    = 4
+	pqsPivotIDColumn    = "id"
 )
 
 type pqsPivotValue struct {
@@ -30,8 +33,20 @@ type pqsPivotValue struct {
 }
 
 type pqsPivotRow struct {
-	Table  schema.Table
-	Values map[string]pqsPivotValue
+	Tables []schema.Table
+	Values map[string]map[string]pqsPivotValue
+}
+
+type pqsAliasColumn struct {
+	Table  string
+	Column schema.Column
+	Alias  string
+}
+
+type pqsSelectColumn struct {
+	TableName string
+	Column    schema.Column
+	SQL       string
 }
 
 // Run selects a pivot row, builds a predicate guaranteed true for that row,
@@ -60,9 +75,12 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	querySQL := query.SQLString()
 	matchExpr := pqsMatchExpr(pivot, aliases)
 	matchSQL := buildExpr(matchExpr)
-	containSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) pqs WHERE %s", querySQL, matchSQL)
-	present, err := exec.QueryCount(ctx, containSQL)
-	if err != nil {
+	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
+	row := exec.QueryRowContext(ctx, containSQL)
+	var marker int
+	err = row.Scan(&marker)
+	present := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		reason, code := sqlErrorReason("pqs", err)
 		details := map[string]any{"error_reason": reason}
 		if code != 0 {
@@ -70,8 +88,9 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, Err: err, Details: details}
 	}
-	if present == 0 {
-		replayExpected := fmt.Sprintf("SELECT IF(COUNT(*)>0,1,0) FROM (%s) pqs WHERE %s", querySQL, matchSQL)
+	if !present {
+		replayExpected := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
+		tableNames := pqsPivotTableNames(pivot)
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
@@ -79,13 +98,14 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			Expected: "pivot_row_present",
 			Actual:   "pivot_row_missing",
 			Details: map[string]any{
-				"pqs_table":            pivot.Table.Name,
+				"pqs_table":            pqsSingleTableName(tableNames),
+				"pqs_tables":           tableNames,
 				"pqs_predicate":        buildExpr(predicate),
 				"pqs_match":            matchSQL,
 				"pivot_values":         pqsPivotValueMap(pivot),
 				"rectified_predicates": []string{buildExpr(predicate)},
 				"containment_query":    containSQL,
-				"replay_kind":          "count",
+				"replay_kind":          "exists",
 				"replay_expected_sql":  replayExpected,
 				"replay_actual_sql":    "SELECT 1",
 				"replay_expected_note": "pqs_contains",
@@ -100,9 +120,18 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 	if len(tables) == 0 {
 		return nil, map[string]any{"skip_reason": "pqs:no_tables"}, nil
 	}
+	if len(tables) >= 2 {
+		pivot, err := fetchPQSJoinPivotRow(ctx, exec, gen, tables)
+		if err != nil {
+			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
+		}
+		if pivot != nil {
+			return pivot, nil, nil
+		}
+	}
 	for i := 0; i < pqsPivotPickTries; i++ {
 		tbl := tables[gen.Rand.Intn(len(tables))]
-		pivot, err := fetchPQSPivotRow(ctx, exec, tbl)
+		pivot, err := fetchPQSPivotRow(ctx, exec, gen, tbl)
 		if err != nil {
 			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
 		}
@@ -114,13 +143,27 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 	return nil, map[string]any{"skip_reason": "pqs:no_rows"}, nil
 }
 
-func fetchPQSPivotRow(ctx context.Context, exec *db.DB, tbl schema.Table) (*pqsPivotRow, error) {
+func fetchPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator, tbl schema.Table) (*pqsPivotRow, error) {
 	if len(tbl.Columns) == 0 {
 		return nil, nil
 	}
-	colNames := make([]string, 0, len(tbl.Columns))
-	for _, col := range tbl.Columns {
-		colNames = append(colNames, col.Name)
+	if pqsTableHasColumn(tbl, pqsPivotIDColumn) {
+		pivot, err := fetchPQSPivotRowByID(ctx, exec, gen, tbl)
+		if err != nil || pivot != nil {
+			return pivot, err
+		}
+	}
+	return fetchPQSPivotRowByRand(ctx, exec, tbl)
+}
+
+func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) (*pqsPivotRow, error) {
+	cols := pqsSelectColumns([]schema.Table{tbl})
+	if len(cols) == 0 {
+		return nil, nil
+	}
+	colNames := make([]string, 0, len(cols))
+	for _, col := range cols {
+		colNames = append(colNames, col.SQL)
 	}
 	query := fmt.Sprintf("SELECT %s FROM %s ORDER BY RAND() LIMIT 1", strings.Join(colNames, ", "), tbl.Name)
 	rows, err := exec.QueryContext(ctx, query)
@@ -139,39 +182,74 @@ func fetchPQSPivotRow(ctx context.Context, exec *db.DB, tbl schema.Table) (*pqsP
 	if err := rows.Scan(scanArgs...); err != nil {
 		return nil, err
 	}
-	values := make(map[string]pqsPivotValue, len(tbl.Columns))
-	for i, col := range tbl.Columns {
-		val := pqsPivotValue{Column: col}
-		if raw[i] == nil {
-			val.Null = true
-		} else {
-			val.Raw = string(raw[i])
-		}
-		values[col.Name] = val
-	}
-	return &pqsPivotRow{Table: tbl, Values: values}, nil
+	return pqsPivotRowFromRaw([]schema.Table{tbl}, cols, raw), nil
 }
 
-func buildPQSQuery(pivot *pqsPivotRow) (*generator.SelectQuery, []string) {
-	query := &generator.SelectQuery{
-		From: generator.FromClause{BaseTable: pivot.Table.Name},
+func fetchPQSPivotRowByID(ctx context.Context, exec *db.DB, gen *generator.Generator, tbl schema.Table) (*pqsPivotRow, error) {
+	minID, maxID, ok, err := fetchPQSTableIDRange(ctx, exec, tbl)
+	if err != nil || !ok {
+		return nil, err
 	}
-	aliases := make([]string, 0, len(pivot.Table.Columns))
-	items := make([]generator.SelectItem, 0, len(pivot.Table.Columns))
-	for i, col := range pivot.Table.Columns {
-		alias := fmt.Sprintf("c%d", i)
-		items = append(items, generator.SelectItem{
-			Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: pivot.Table.Name, Name: col.Name, Type: col.Type}},
-			Alias: alias,
+	candidate := minID
+	if maxID > minID {
+		candidate = minID + gen.Rand.Int63n(maxID-minID+1)
+	}
+	where := fmt.Sprintf("%s.%s >= ?", tbl.Name, pqsPivotIDColumn)
+	pivot, err := fetchPQSPivotRowByQuery(ctx, exec, []schema.Table{tbl}, where, candidate)
+	if err != nil || pivot != nil {
+		return pivot, err
+	}
+	return fetchPQSPivotRowByQuery(ctx, exec, []schema.Table{tbl}, "")
+}
+
+func buildPQSQuery(pivot *pqsPivotRow) (*generator.SelectQuery, []pqsAliasColumn) {
+	if pivot == nil || len(pivot.Tables) == 0 {
+		return &generator.SelectQuery{}, nil
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{BaseTable: pivot.Tables[0].Name},
+	}
+	for i := 1; i < len(pivot.Tables); i++ {
+		query.From.Joins = append(query.From.Joins, generator.Join{
+			Type:  generator.JoinInner,
+			Table: pivot.Tables[i].Name,
+			Using: []string{pqsPivotIDColumn},
 		})
-		aliases = append(aliases, alias)
+	}
+	aliases := make([]pqsAliasColumn, 0, len(pivot.Tables)*len(pivot.Tables[0].Columns))
+	items := make([]generator.SelectItem, 0, len(pivot.Tables)*len(pivot.Tables[0].Columns))
+	multiTable := len(pivot.Tables) > 1
+	for tIdx, tbl := range pivot.Tables {
+		for _, col := range tbl.Columns {
+			alias := col.Name
+			if multiTable {
+				alias = fmt.Sprintf("t%d_%s", tIdx, col.Name)
+			}
+			items = append(items, generator.SelectItem{
+				Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}},
+				Alias: alias,
+			})
+			aliases = append(aliases, pqsAliasColumn{Table: tbl.Name, Column: col, Alias: alias})
+		}
 	}
 	query.Items = items
 	return query, aliases
 }
 
 func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generator.Expr {
-	cols := pivot.Table.Columns
+	if pivot == nil || len(pivot.Tables) == 0 {
+		return nil
+	}
+	type pqsColumnRef struct {
+		Table  string
+		Column schema.Column
+	}
+	cols := make([]pqsColumnRef, 0, len(pivot.Tables))
+	for _, tbl := range pivot.Tables {
+		for _, col := range tbl.Columns {
+			cols = append(cols, pqsColumnRef{Table: tbl.Name, Column: col})
+		}
+	}
 	if len(cols) == 0 {
 		return nil
 	}
@@ -190,8 +268,11 @@ func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generato
 	var expr generator.Expr
 	for _, idx := range indices[:useCols] {
 		col := cols[idx]
-		val := pivot.Values[col.Name]
-		ref := generator.ColumnRef{Table: pivot.Table.Name, Name: col.Name, Type: col.Type}
+		val, ok := pqsPivotValueFor(pivot, col.Table, col.Column.Name)
+		if !ok {
+			continue
+		}
+		ref := generator.ColumnRef{Table: col.Table, Name: col.Column.Name, Type: col.Column.Type}
 		part := pqsPredicateExprForValue(ref, val)
 		if expr == nil {
 			expr = part
@@ -202,11 +283,14 @@ func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generato
 	return expr
 }
 
-func pqsMatchExpr(pivot *pqsPivotRow, aliases []string) generator.Expr {
+func pqsMatchExpr(pivot *pqsPivotRow, aliases []pqsAliasColumn) generator.Expr {
 	var expr generator.Expr
-	for i, col := range pivot.Table.Columns {
-		val := pivot.Values[col.Name]
-		ref := generator.ColumnRef{Name: aliases[i], Type: col.Type}
+	for _, alias := range aliases {
+		val, ok := pqsPivotValueFor(pivot, alias.Table, alias.Column.Name)
+		if !ok {
+			continue
+		}
+		ref := generator.ColumnRef{Name: alias.Alias, Type: alias.Column.Type}
 		part := pqsPredicateExprForValue(ref, val)
 		if expr == nil {
 			expr = part
@@ -263,14 +347,223 @@ func pqsPivotValueMap(pivot *pqsPivotRow) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(pivot.Values))
-	for name, val := range pivot.Values {
-		if val.Null {
-			out[name] = nil
-		} else {
-			out[name] = val.Raw
+	for _, tbl := range pivot.Tables {
+		tableVals, ok := pivot.Values[tbl.Name]
+		if !ok {
+			continue
+		}
+		for _, col := range tbl.Columns {
+			val, ok := tableVals[col.Name]
+			if !ok {
+				continue
+			}
+			key := fmt.Sprintf("%s.%s", tbl.Name, col.Name)
+			if val.Null {
+				out[key] = nil
+			} else {
+				out[key] = val.Raw
+			}
 		}
 	}
 	return out
+}
+
+func pqsPivotValueFor(pivot *pqsPivotRow, tableName, columnName string) (pqsPivotValue, bool) {
+	if pivot == nil {
+		return pqsPivotValue{}, false
+	}
+	tableVals, ok := pivot.Values[tableName]
+	if !ok {
+		return pqsPivotValue{}, false
+	}
+	val, ok := tableVals[columnName]
+	return val, ok
+}
+
+func pqsPivotTableNames(pivot *pqsPivotRow) []string {
+	if pivot == nil {
+		return nil
+	}
+	names := make([]string, 0, len(pivot.Tables))
+	for _, tbl := range pivot.Tables {
+		names = append(names, tbl.Name)
+	}
+	return names
+}
+
+func pqsSingleTableName(tables []string) string {
+	if len(tables) == 1 {
+		return tables[0]
+	}
+	return ""
+}
+
+func pqsTableHasColumn(tbl schema.Table, name string) bool {
+	for _, col := range tbl.Columns {
+		if col.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func pqsSelectColumns(tables []schema.Table) []pqsSelectColumn {
+	cols := make([]pqsSelectColumn, 0, len(tables))
+	for _, tbl := range tables {
+		for _, col := range tbl.Columns {
+			cols = append(cols, pqsSelectColumn{
+				TableName: tbl.Name,
+				Column:    col,
+				SQL:       fmt.Sprintf("%s.%s", tbl.Name, col.Name),
+			})
+		}
+	}
+	return cols
+}
+
+func pqsPivotRowFromRaw(tables []schema.Table, cols []pqsSelectColumn, raw []sql.RawBytes) *pqsPivotRow {
+	values := make(map[string]map[string]pqsPivotValue, len(tables))
+	for _, tbl := range tables {
+		values[tbl.Name] = make(map[string]pqsPivotValue, len(tbl.Columns))
+	}
+	for i, col := range cols {
+		val := pqsPivotValue{Column: col.Column}
+		if raw[i] == nil {
+			val.Null = true
+		} else {
+			val.Raw = string(raw[i])
+		}
+		values[col.TableName][col.Column.Name] = val
+	}
+	return &pqsPivotRow{Tables: tables, Values: values}
+}
+
+func fetchPQSTableIDRange(ctx context.Context, exec *db.DB, tbl schema.Table) (int64, int64, bool, error) {
+	query := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s", pqsPivotIDColumn, pqsPivotIDColumn, tbl.Name)
+	row := exec.QueryRowContext(ctx, query)
+	var minVal sql.NullInt64
+	var maxVal sql.NullInt64
+	if err := row.Scan(&minVal, &maxVal); err != nil {
+		return 0, 0, false, err
+	}
+	if !minVal.Valid || !maxVal.Valid {
+		return 0, 0, false, nil
+	}
+	return minVal.Int64, maxVal.Int64, true, nil
+}
+
+func pqsFromClause(tables []schema.Table) string {
+	if len(tables) == 0 {
+		return ""
+	}
+	clause := tables[0].Name
+	for i := 1; i < len(tables); i++ {
+		clause = fmt.Sprintf("%s JOIN %s USING (%s)", clause, tables[i].Name, pqsPivotIDColumn)
+	}
+	return clause
+}
+
+func pqsOrderByClause(tables []schema.Table) string {
+	if len(tables) == 0 || !pqsTableHasColumn(tables[0], pqsPivotIDColumn) {
+		return ""
+	}
+	return fmt.Sprintf("ORDER BY %s.%s", tables[0].Name, pqsPivotIDColumn)
+}
+
+func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.Table, whereSQL string, args ...any) (*pqsPivotRow, error) {
+	cols := pqsSelectColumns(tables)
+	if len(cols) == 0 {
+		return nil, nil
+	}
+	selectList := make([]string, 0, len(cols))
+	for _, col := range cols {
+		selectList = append(selectList, col.SQL)
+	}
+	fromClause := pqsFromClause(tables)
+	if fromClause == "" {
+		return nil, nil
+	}
+	query := fmt.Sprintf("SELECT %s FROM %s", strings.Join(selectList, ", "), fromClause)
+	if whereSQL != "" {
+		query += " WHERE " + whereSQL
+	}
+	if orderBy := pqsOrderByClause(tables); orderBy != "" {
+		query += " " + orderBy
+	}
+	query += " LIMIT 1"
+	rows, err := exec.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, nil
+	}
+	raw := make([]sql.RawBytes, len(cols))
+	scanArgs := make([]any, len(raw))
+	for i := range raw {
+		scanArgs[i] = &raw[i]
+	}
+	if err := rows.Scan(scanArgs...); err != nil {
+		return nil, err
+	}
+	return pqsPivotRowFromRaw(tables, cols, raw), nil
+}
+
+func fetchPQSJoinPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator, tables []schema.Table) (*pqsPivotRow, error) {
+	if len(tables) < 2 {
+		return nil, nil
+	}
+	for i := 0; i < pqsJoinPickTries; i++ {
+		left := tables[gen.Rand.Intn(len(tables))]
+		right := left
+		for right.Name == left.Name {
+			right = tables[gen.Rand.Intn(len(tables))]
+		}
+		if !pqsTableHasColumn(left, pqsPivotIDColumn) || !pqsTableHasColumn(right, pqsPivotIDColumn) {
+			continue
+		}
+		pivot, err := fetchPQSJoinPivotRowForTables(ctx, exec, gen, left, right)
+		if err != nil {
+			return nil, err
+		}
+		if pivot != nil {
+			return pivot, nil
+		}
+	}
+	return nil, nil
+}
+
+func fetchPQSJoinPivotRowForTables(ctx context.Context, exec *db.DB, gen *generator.Generator, left, right schema.Table) (*pqsPivotRow, error) {
+	minLeft, maxLeft, okLeft, err := fetchPQSTableIDRange(ctx, exec, left)
+	if err != nil || !okLeft {
+		return nil, err
+	}
+	minRight, maxRight, okRight, err := fetchPQSTableIDRange(ctx, exec, right)
+	if err != nil || !okRight {
+		return nil, err
+	}
+	start := minLeft
+	if minRight > start {
+		start = minRight
+	}
+	end := maxLeft
+	if maxRight < end {
+		end = maxRight
+	}
+	if start > end {
+		return nil, nil
+	}
+	candidate := start
+	if end > start {
+		candidate = start + gen.Rand.Int63n(end-start+1)
+	}
+	where := fmt.Sprintf("%s.%s >= ?", left.Name, pqsPivotIDColumn)
+	pivot, err := fetchPQSPivotRowByQuery(ctx, exec, []schema.Table{left, right}, where, candidate)
+	if err != nil || pivot != nil {
+		return pivot, err
+	}
+	return fetchPQSPivotRowByQuery(ctx, exec, []schema.Table{left, right}, "")
 }
 
 func pqsMin(a, b int) int {

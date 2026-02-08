@@ -42,9 +42,9 @@ func TestPQSPredicateForPivotSingleColumn(t *testing.T) {
 		},
 	}
 	pivot := &pqsPivotRow{
-		Table: tbl,
-		Values: map[string]pqsPivotValue{
-			"c0": {Column: tbl.Columns[0], Raw: "7"},
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {"c0": {Column: tbl.Columns[0], Raw: "7"}},
 		},
 	}
 	expr := pqsPredicateForPivot(gen, pivot)
@@ -62,10 +62,12 @@ func TestPQSMatchExpr(t *testing.T) {
 		},
 	}
 	pivot := &pqsPivotRow{
-		Table: tbl,
-		Values: map[string]pqsPivotValue{
-			"c0": {Column: tbl.Columns[0], Raw: "3"},
-			"c1": {Column: tbl.Columns[1], Null: true},
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "3"},
+				"c1": {Column: tbl.Columns[1], Null: true},
+			},
 		},
 	}
 	query, aliases := buildPQSQuery(pivot)
@@ -87,19 +89,59 @@ func TestPQSPivotValueMap(t *testing.T) {
 		},
 	}
 	pivot := &pqsPivotRow{
-		Table: tbl,
-		Values: map[string]pqsPivotValue{
-			"c0": {Column: tbl.Columns[0], Raw: "5"},
-			"c1": {Column: tbl.Columns[1], Null: true},
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "5"},
+				"c1": {Column: tbl.Columns[1], Null: true},
+			},
 		},
 	}
 	got := pqsPivotValueMap(pivot)
 	want := map[string]any{
-		"c0": "5",
-		"c1": nil,
+		"t0.c0": "5",
+		"t0.c1": nil,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected pivot value map: %+v", got)
+	}
+}
+
+func TestPQSMatchExprMultiTable(t *testing.T) {
+	left := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	right := schema.Table{
+		Name: "t1",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c1", Type: schema.TypeVarchar},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{left, right},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"id": {Column: left.Columns[0], Raw: "1"},
+				"c0": {Column: left.Columns[1], Raw: "9"},
+			},
+			"t1": {
+				"id": {Column: right.Columns[0], Raw: "1"},
+				"c1": {Column: right.Columns[1], Null: true},
+			},
+		},
+	}
+	query, aliases := buildPQSQuery(pivot)
+	if query == nil || len(aliases) != 4 {
+		t.Fatalf("expected aliases for multi-table pivot query")
+	}
+	match := pqsMatchExpr(pivot, aliases)
+	if got := buildExpr(match); got != "t0_id = 1 AND t0_c0 = 9 AND t1_id = 1 AND t1_c1 IS NULL" {
+		t.Fatalf("expected match expr, got %s", got)
 	}
 }
 

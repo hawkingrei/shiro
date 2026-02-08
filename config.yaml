@@ -85,7 +85,7 @@ weights:
     tlp: 10
     eet: 4
     dqp: 10
-    pqs: 0
+    pqs: 2
     coddtest: 2
     dqe: 10
     impo: 10
