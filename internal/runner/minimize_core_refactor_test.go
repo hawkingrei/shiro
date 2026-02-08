@@ -18,7 +18,7 @@ func TestValidatedMergedInsertsRespectsReplay(t *testing.T) {
 		t.Fatalf("validatedMergedInserts should keep original when merged replay fails, got=%v", kept)
 	}
 
-	merged := validatedMergedInserts(inserts, func(stmts []string) bool {
+	merged := validatedMergedInserts(inserts, func(_ []string) bool {
 		return true
 	})
 	if len(merged) >= len(inserts) {

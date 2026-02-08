@@ -130,7 +130,7 @@ func reduceCaseErrorCandidate(
 	inserts []string,
 	caseSQL []string,
 	test func([]string, []string) bool,
-) ([]string, []string) {
+) (reducedInserts []string, reducedCase []string) {
 	currentInserts := append([]string{}, inserts...)
 	currentCase := append([]string{}, caseSQL...)
 	if len(currentInserts) > 1 {

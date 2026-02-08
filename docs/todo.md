@@ -8,6 +8,7 @@ Latest sync: Impo seed guardrail now preserves the last concrete skip reason, an
 Latest sync: minimizer now uses strategy-based multi-pass reduction (error-case vs replay-spec) with validated insert merge and weighted candidate selection to improve minimization depth and stability; added runner tests (2026-02-08).
 Latest sync: SelectQueryBuilder now skips full feature analysis for join-only constraints and reuses cached determinism metadata when present (2026-02-08).
 Latest sync: SelectQueryBuilder now invalidates cached analysis after predicate attachment to keep determinism checks accurate (2026-02-08).
+Latest sync: minimizer lint cleanup for revive (named returns + unused param removal) (2026-02-08).
 
 ## Generator / Oracles
 
