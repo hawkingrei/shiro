@@ -15,13 +15,13 @@ func TestPQSPredicateExprForValue(t *testing.T) {
 	ref := generator.ColumnRef{Table: "t0", Name: "c0", Type: intCol.Type}
 	val := pqsPivotValue{Column: intCol, Raw: "12"}
 	expr := pqsPredicateExprForValue(ref, val)
-	if got := buildExpr(expr); got != "t0.c0 = 12" {
+	if got := buildExpr(expr); got != "(t0.c0 = 12)" {
 		t.Fatalf("expected numeric predicate, got %s", got)
 	}
 
 	nullVal := pqsPivotValue{Column: intCol, Null: true}
 	nullExpr := pqsPredicateExprForValue(ref, nullVal)
-	if got := buildExpr(nullExpr); got != "t0.c0 IS NULL" {
+	if got := buildExpr(nullExpr); got != "(t0.c0 IS NULL)" {
 		t.Fatalf("expected null predicate, got %s", got)
 	}
 
@@ -29,7 +29,7 @@ func TestPQSPredicateExprForValue(t *testing.T) {
 	strRef := generator.ColumnRef{Table: "t0", Name: "c1", Type: strCol.Type}
 	strVal := pqsPivotValue{Column: strCol, Raw: "hi"}
 	strExpr := pqsPredicateExprForValue(strRef, strVal)
-	if got := buildExpr(strExpr); got != "t0.c1 = 'hi'" {
+	if got := buildExpr(strExpr); got != "(t0.c1 = 'hi')" {
 		t.Fatalf("expected string predicate, got %s", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestPQSPredicateForPivotSingleColumn(t *testing.T) {
 		},
 	}
 	expr := pqsPredicateForPivot(gen, pivot)
-	if got := buildExpr(expr); got != "t0.c0 = 7" {
+	if got := buildExpr(expr); got != "(t0.c0 = 7)" {
 		t.Fatalf("expected predicate, got %s", got)
 	}
 }
@@ -76,7 +76,7 @@ func TestPQSMatchExpr(t *testing.T) {
 		t.Fatalf("expected aliases for pivot query")
 	}
 	match := pqsMatchExpr(pivot, aliases)
-	if got := buildExpr(match); got != "c0 = 3 AND c1 IS NULL" {
+	if got := buildExpr(match); got != "((c0 = 3) AND (c1 IS NULL))" {
 		t.Fatalf("expected match expr, got %s", got)
 	}
 }
@@ -141,7 +141,7 @@ func TestPQSMatchExprMultiTable(t *testing.T) {
 		t.Fatalf("expected aliases for multi-table pivot query")
 	}
 	match := pqsMatchExpr(pivot, aliases)
-	if got := buildExpr(match); got != "t0_id = 1 AND t1_id = 1" {
+	if got := buildExpr(match); got != "((t0_id = 1) AND (t1_id = 1))" {
 		t.Fatalf("expected match expr, got %s", got)
 	}
 }
@@ -185,11 +185,11 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 	querySQL := query.SQLString()
 	matchSQL := buildExpr(pqsMatchExpr(pivot, aliases))
 	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
-	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 USING (id) WHERE t0.c0 = 7"
+	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 USING (id) WHERE (t0.c0 = 7)"
 	if querySQL != expectedQuery {
 		t.Fatalf("unexpected join query: %s", querySQL)
 	}
-	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE t0_id = 1 AND t1_id = 1 LIMIT 1"
+	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE ((t0_id = 1) AND (t1_id = 1)) LIMIT 1"
 	if containSQL != expectedContain {
 		t.Fatalf("unexpected containment SQL: %s", containSQL)
 	}
