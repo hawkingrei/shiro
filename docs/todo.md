@@ -24,6 +24,7 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 2. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
 3. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
 4. Add staged tests for join-path containment and rectification invariants. (join containment SQL test added; rectifier tests pending)
+5. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
 
 ## Reporting / Aggregation
 
