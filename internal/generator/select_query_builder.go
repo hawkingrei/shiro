@@ -368,6 +368,8 @@ func (b *SelectQueryBuilder) attachPredicate(query *SelectQuery, c SelectQueryCo
 		return false
 	}
 	query.Where = pred
+	// Invalidate cached analysis because predicate attachment mutates the query.
+	query.Analysis = nil
 	return true
 }
 
@@ -375,6 +377,9 @@ func (b *SelectQueryBuilder) attachPredicate(query *SelectQuery, c SelectQueryCo
 func QueryDeterministic(query *SelectQuery) bool {
 	if query == nil {
 		return true
+	}
+	if query.Analysis != nil {
+		return query.Analysis.Deterministic
 	}
 	for _, cte := range query.With {
 		if !QueryDeterministic(cte.Query) {
