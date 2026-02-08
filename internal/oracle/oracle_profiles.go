@@ -166,7 +166,7 @@ var Profiles = map[string]Profile{
 			NotIn:             BoolPtr(false),
 		},
 		AllowSubquery:          BoolPtr(false),
-		PredicateMode:          PredicateModePtr(generator.PredicateModeSimple),
+		PredicateMode:          PredicateModePtr(generator.PredicateModeSimpleColumns),
 		MinJoinTables:          IntPtr(1),
 		DisallowScalarSubquery: BoolPtr(true),
 	},
