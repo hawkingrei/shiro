@@ -21,6 +21,8 @@ Links:
 
 ## Recent updates
 
+- SelectQueryBuilder now invalidates cached analysis after attaching predicates so determinism checks stay accurate (2026-02-08).
+- Minimize pipeline was deeply refactored with strategy-based reduction (`case_error` vs replay-spec), multi-pass convergence (insert/case/spec alternating), validated insert-merge adoption, and weighted-candidate selection to avoid non-improving rewrites; added focused runner tests for merge validation, set-var dropping, and alternating reduction (2026-02-08).
 - Impo seed-query guardrail skips now retain the last concrete failure reason (`seed_guardrail:<reason>`), and minimize now runs a mandatory base-replay precheck: non-reproducible cases are marked `minimize_status=skipped` plus top-level `flaky=true` with `minimize_reason`/`flaky_reason=base_replay_not_reproducible`; added regression tests (2026-02-07).
 - GroundTruth now rewrites `USING` joins to explicit `ON` predicates before edge extraction/execution to avoid ambiguous `USING` resolution on multi-table left factors; EET adds stronger pre-guards (`scope_invalid`, DISTINCT+ORDER BY compatibility) and scope validation now treats NATURAL joins like USING for qualified-column visibility; report summaries switch minimize status flow to `in_progress/success/skipped/interrupted` with deferred interrupted fallback (2026-02-07).
 - Reduced oracle skip noise by adding QuerySpec `MaxTries` for constrained builders (TLP/DQP/NoREC/EET), disallowing TLP set operations at build-time, retrying GroundTruth candidate picking across empty/guardrail/edge-mismatch cases, and retrying Impo seed-query selection before skip; added TLP set-op skip regression test (2026-02-07).
@@ -147,3 +149,4 @@ Links:
 - EET now supports type-aware column identity rewrites using schema-based inference (2026-02-05).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).
+- SelectQueryBuilder now avoids full feature analysis for join-only constraints and reuses cached determinism checks when available (2026-02-08).

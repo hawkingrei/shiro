@@ -34,6 +34,7 @@ type minimizeOutput struct {
 }
 
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
+const minimizePassLimit = 3
 
 func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec replaySpec) minimizeOutput {
 	if !r.cfg.Minimize.Enabled {
@@ -74,52 +75,36 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		}
 	}
 	dedupedInserts := dedupeStatements(origInserts)
-	if len(dedupedInserts) > 0 && test(dedupedInserts, origCase) {
+	if sqlSliceWeight(dedupedInserts) < sqlSliceWeight(origInserts) && test(dedupedInserts, origCase) {
 		origInserts = dedupedInserts
 	}
-	dedupedCase := dedupeStatements(origCase)
-	if len(dedupedCase) > 0 && test(origInserts, dedupedCase) {
-		origCase = dedupedCase
-	}
-
-	minInserts := shrinkStatements(origInserts, r.cfg.Minimize.MaxRounds, func(stmts []string) bool {
-		return test(stmts, origCase)
-	})
-	if r.cfg.Minimize.MergeInserts {
-		minInserts = mergeInsertStatements(minInserts)
-	}
-
-	specReduced := spec
-	if spec.kind != "" && spec.kind != "case_error" {
-		testSpec := func(s replaySpec) bool {
-			return r.replayCase(minCtx, schemaSQL, minInserts, nil, result, s)
-		}
-		if specReduced.expectedSQL != "" {
-			specReduced.expectedSQL = astReduceSQL(minCtx, specReduced.expectedSQL, r.cfg.Minimize.MaxRounds, func(candidate string) bool {
-				tmp := specReduced
-				tmp.expectedSQL = candidate
-				return testSpec(tmp)
-			})
-		}
-		if specReduced.actualSQL != "" {
-			specReduced.actualSQL = astReduceSQL(minCtx, specReduced.actualSQL, r.cfg.Minimize.MaxRounds, func(candidate string) bool {
-				tmp := specReduced
-				tmp.actualSQL = candidate
-				return testSpec(tmp)
-			})
-		}
-	}
-
-	minCase := origCase
 	if spec.kind == "case_error" {
-		minCase = shrinkStatements(origCase, r.cfg.Minimize.MaxRounds, func(stmts []string) bool {
-			return test(minInserts, stmts)
-		})
-		minCase = astReduceStatements(minCtx, minCase, r.cfg.Minimize.MaxRounds, func(stmts []string) bool {
-			return test(minInserts, stmts)
-		})
-	} else if spec.kind != "" {
-		minCase = minimalCaseSQL(specReduced)
+		dedupedCase := dedupeStatements(origCase)
+		if sqlSliceWeight(dedupedCase) < sqlSliceWeight(origCase) && test(origInserts, dedupedCase) {
+			origCase = dedupedCase
+		}
+	}
+
+	minInserts := append([]string{}, origInserts...)
+	minCase := append([]string{}, origCase...)
+	specReduced := spec
+	maxRounds := normalizeMinimizeRounds(r.cfg.Minimize.MaxRounds)
+
+	switch spec.kind {
+	case "case_error":
+		minInserts, minCase = reduceCaseErrorCandidate(minCtx, maxRounds, minInserts, minCase, test)
+		if r.cfg.Minimize.MergeInserts {
+			minInserts = validatedMergedInserts(minInserts, func(stmts []string) bool {
+				return test(stmts, minCase)
+			})
+		}
+	default:
+		if spec.kind != "" {
+			minInserts, specReduced = reduceReplaySpecCandidate(minCtx, maxRounds, minInserts, specReduced, r.cfg.Minimize.MergeInserts, func(stmts []string, current replaySpec) bool {
+				return r.replayCase(minCtx, schemaSQL, stmts, minimalCaseSQL(current), result, current)
+			})
+			minCase = minimalCaseSQL(specReduced)
+		}
 	}
 
 	reproSQL := buildReproSQL(schemaSQL, minInserts, minCase, specReduced)
@@ -130,6 +115,220 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		minimized: true,
 		status:    "success",
 	}
+}
+
+func normalizeMinimizeRounds(maxRounds int) int {
+	if maxRounds <= 0 {
+		return 8
+	}
+	return maxRounds
+}
+
+func reduceCaseErrorCandidate(
+	ctx context.Context,
+	maxRounds int,
+	inserts []string,
+	caseSQL []string,
+	test func([]string, []string) bool,
+) ([]string, []string) {
+	currentInserts := append([]string{}, inserts...)
+	currentCase := append([]string{}, caseSQL...)
+	if len(currentInserts) > 1 {
+		shrunk := shrinkStatements(currentInserts, maxRounds, func(stmts []string) bool {
+			return test(stmts, currentCase)
+		})
+		currentInserts = betterSQLSlice(currentInserts, shrunk)
+	}
+	if len(currentCase) > 1 {
+		shrunk := shrinkStatements(currentCase, maxRounds, func(stmts []string) bool {
+			return test(currentInserts, stmts)
+		})
+		currentCase = betterSQLSlice(currentCase, shrunk)
+	}
+
+	for pass := 0; pass < minimizePassLimit; pass++ {
+		if ctx.Err() != nil {
+			break
+		}
+		changed := false
+
+		if len(currentInserts) > 1 {
+			shrunkInserts := shrinkStatements(currentInserts, maxRounds, func(stmts []string) bool {
+				return test(stmts, currentCase)
+			})
+			better := betterSQLSlice(currentInserts, shrunkInserts)
+			if sqlSliceWeight(better) < sqlSliceWeight(currentInserts) {
+				currentInserts = better
+				changed = true
+			}
+		}
+
+		if len(currentCase) > 1 {
+			shrunkCase := shrinkStatements(currentCase, maxRounds, func(stmts []string) bool {
+				return test(currentInserts, stmts)
+			})
+			better := betterSQLSlice(currentCase, shrunkCase)
+			if sqlSliceWeight(better) < sqlSliceWeight(currentCase) {
+				currentCase = better
+				changed = true
+			}
+		}
+
+		astReduced := astReduceStatements(ctx, currentCase, maxRounds, func(stmts []string) bool {
+			return test(currentInserts, stmts)
+		})
+		betterCase := betterSQLSlice(currentCase, astReduced)
+		if sqlSliceWeight(betterCase) < sqlSliceWeight(currentCase) {
+			currentCase = betterCase
+			changed = true
+		}
+
+		if !changed {
+			break
+		}
+	}
+	return currentInserts, currentCase
+}
+
+func reduceReplaySpecCandidate(
+	ctx context.Context,
+	maxRounds int,
+	inserts []string,
+	spec replaySpec,
+	mergeInserts bool,
+	test func([]string, replaySpec) bool,
+) ([]string, replaySpec) {
+	currentInserts := append([]string{}, inserts...)
+	currentSpec := spec
+
+	if len(currentInserts) > 1 {
+		shrunk := shrinkStatements(currentInserts, maxRounds, func(stmts []string) bool {
+			return test(stmts, currentSpec)
+		})
+		currentInserts = betterReplayCandidateInserts(currentInserts, shrunk, currentSpec)
+	}
+
+	for pass := 0; pass < minimizePassLimit; pass++ {
+		if ctx.Err() != nil {
+			break
+		}
+		changed := false
+
+		if len(currentInserts) > 1 {
+			shrunkInserts := shrinkStatements(currentInserts, maxRounds, func(stmts []string) bool {
+				return test(stmts, currentSpec)
+			})
+			better := betterReplayCandidateInserts(currentInserts, shrunkInserts, currentSpec)
+			if replayCandidateWeight(better, currentSpec) < replayCandidateWeight(currentInserts, currentSpec) {
+				currentInserts = better
+				changed = true
+			}
+		}
+
+		nextSpec := reduceReplaySpecSQL(ctx, maxRounds, currentSpec, currentInserts, test)
+		if replayCandidateWeight(currentInserts, nextSpec) < replayCandidateWeight(currentInserts, currentSpec) {
+			currentSpec = nextSpec
+			changed = true
+		}
+
+		if currentSpec.setVar != "" {
+			droppedSetVar := currentSpec
+			droppedSetVar.setVar = ""
+			if test(currentInserts, droppedSetVar) &&
+				replayCandidateWeight(currentInserts, droppedSetVar) < replayCandidateWeight(currentInserts, currentSpec) {
+				currentSpec = droppedSetVar
+				changed = true
+			}
+		}
+
+		if mergeInserts {
+			merged := validatedMergedInserts(currentInserts, func(stmts []string) bool {
+				return test(stmts, currentSpec)
+			})
+			if replayCandidateWeight(merged, currentSpec) < replayCandidateWeight(currentInserts, currentSpec) {
+				currentInserts = merged
+				changed = true
+			}
+		}
+
+		if !changed {
+			break
+		}
+	}
+
+	return currentInserts, currentSpec
+}
+
+func reduceReplaySpecSQL(
+	ctx context.Context,
+	maxRounds int,
+	spec replaySpec,
+	inserts []string,
+	test func([]string, replaySpec) bool,
+) replaySpec {
+	reduced := spec
+	if reduced.expectedSQL != "" {
+		candidate := astReduceSQL(ctx, reduced.expectedSQL, maxRounds, func(sqlText string) bool {
+			tmp := reduced
+			tmp.expectedSQL = sqlText
+			return test(inserts, tmp)
+		})
+		tmp := reduced
+		tmp.expectedSQL = candidate
+		if replayCandidateWeight(inserts, tmp) < replayCandidateWeight(inserts, reduced) {
+			reduced = tmp
+		}
+	}
+	if reduced.actualSQL != "" {
+		candidate := astReduceSQL(ctx, reduced.actualSQL, maxRounds, func(sqlText string) bool {
+			tmp := reduced
+			tmp.actualSQL = sqlText
+			return test(inserts, tmp)
+		})
+		tmp := reduced
+		tmp.actualSQL = candidate
+		if replayCandidateWeight(inserts, tmp) < replayCandidateWeight(inserts, reduced) {
+			reduced = tmp
+		}
+	}
+	return reduced
+}
+
+func betterReplayCandidateInserts(current, candidate []string, spec replaySpec) []string {
+	if replayCandidateWeight(candidate, spec) < replayCandidateWeight(current, spec) {
+		return candidate
+	}
+	return current
+}
+
+func replayCandidateWeight(inserts []string, spec replaySpec) int {
+	return sqlSliceWeight(inserts) + sqlSliceWeight(minimalCaseSQL(spec))
+}
+
+func betterSQLSlice(current, candidate []string) []string {
+	if sqlSliceWeight(candidate) < sqlSliceWeight(current) {
+		return candidate
+	}
+	return current
+}
+
+func validatedMergedInserts(inserts []string, test func([]string) bool) []string {
+	merged := mergeInsertStatements(inserts)
+	if sqlSliceWeight(merged) >= sqlSliceWeight(inserts) {
+		return inserts
+	}
+	if !test(merged) {
+		return inserts
+	}
+	return merged
+}
+
+func sqlSliceWeight(stmts []string) int {
+	weight := len(stmts) * 100000
+	for _, stmt := range stmts {
+		weight += len(strings.TrimSpace(stmt))
+	}
+	return weight
 }
 
 func (r *Runner) schemaSQL(ctx context.Context, tables map[string]struct{}) []string {

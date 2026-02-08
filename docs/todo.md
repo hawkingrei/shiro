@@ -5,6 +5,9 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
+Latest sync: minimizer now uses strategy-based multi-pass reduction (error-case vs replay-spec) with validated insert merge and weighted candidate selection to improve minimization depth and stability; added runner tests (2026-02-08).
+Latest sync: SelectQueryBuilder now skips full feature analysis for join-only constraints and reuses cached determinism metadata when present (2026-02-08).
+Latest sync: SelectQueryBuilder now invalidates cached analysis after predicate attachment to keep determinism checks accurate (2026-02-08).
 
 ## Generator / Oracles
 
@@ -50,6 +53,7 @@ Latest sync: Impo seed guardrail now preserves the last concrete skip reason, an
 8. Report summary now includes `minimize_status` and emits early case-allocation logs to improve logs/reports correlation. (done)
 9. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
 10. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
+11. Minimize now runs strategy-based multi-pass reduction with validated insert-merge adoption and weighted candidate acceptance to avoid non-improving rewrites. (done)
 
 ## Coverage / Guidance
 
