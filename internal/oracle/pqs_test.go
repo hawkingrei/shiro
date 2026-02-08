@@ -1,8 +1,10 @@
 package oracle
 
 import (
+	"reflect"
 	"testing"
 
+	"shiro/internal/config"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
 )
@@ -29,4 +31,96 @@ func TestPQSPredicateExprForValue(t *testing.T) {
 	if got := buildExpr(strExpr); got != "t0.c1 = 'hi'" {
 		t.Fatalf("expected string predicate, got %s", got)
 	}
+}
+
+func TestPQSPredicateForPivotSingleColumn(t *testing.T) {
+	gen := newPQSTestGenerator(t, 1)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Table: tbl,
+		Values: map[string]pqsPivotValue{
+			"c0": {Column: tbl.Columns[0], Raw: "7"},
+		},
+	}
+	expr := pqsPredicateForPivot(gen, pivot)
+	if got := buildExpr(expr); got != "t0.c0 = 7" {
+		t.Fatalf("expected predicate, got %s", got)
+	}
+}
+
+func TestPQSMatchExpr(t *testing.T) {
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+			{Name: "c1", Type: schema.TypeVarchar},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Table: tbl,
+		Values: map[string]pqsPivotValue{
+			"c0": {Column: tbl.Columns[0], Raw: "3"},
+			"c1": {Column: tbl.Columns[1], Null: true},
+		},
+	}
+	query, aliases := buildPQSQuery(pivot)
+	if query == nil || len(aliases) != 2 {
+		t.Fatalf("expected aliases for pivot query")
+	}
+	match := pqsMatchExpr(pivot, aliases)
+	if got := buildExpr(match); got != "c0 = 3 AND c1 IS NULL" {
+		t.Fatalf("expected match expr, got %s", got)
+	}
+}
+
+func TestPQSPivotValueMap(t *testing.T) {
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+			{Name: "c1", Type: schema.TypeVarchar},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Table: tbl,
+		Values: map[string]pqsPivotValue{
+			"c0": {Column: tbl.Columns[0], Raw: "5"},
+			"c1": {Column: tbl.Columns[1], Null: true},
+		},
+	}
+	got := pqsPivotValueMap(pivot)
+	want := map[string]any{
+		"c0": "5",
+		"c1": nil,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected pivot value map: %+v", got)
+	}
+}
+
+func TestPQSLiteralValueBool(t *testing.T) {
+	col := schema.Column{Name: "c0", Type: schema.TypeBool}
+	value := pqsLiteralValue(col, "1")
+	if value == nil {
+		t.Fatalf("expected literal value")
+	}
+	switch value.(type) {
+	case int64, int, bool:
+	default:
+		t.Fatalf("unexpected bool literal type %T", value)
+	}
+}
+
+func newPQSTestGenerator(t *testing.T, seed int64) *generator.Generator {
+	t.Helper()
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return generator.New(cfg, &schema.State{}, seed)
 }
