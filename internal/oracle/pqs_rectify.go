@@ -363,7 +363,7 @@ func pqsEvalOrdered(left, right pqsValue, op string) pqsTruth {
 	}
 }
 
-func pqsCompareEqual(left, right pqsValue) (bool, bool) {
+func pqsCompareEqual(left, right pqsValue) (equal bool, ok bool) {
 	if left.Kind == pqsValueString && right.Kind == pqsValueString {
 		return left.Str == right.Str, true
 	}
@@ -377,7 +377,7 @@ func pqsCompareEqual(left, right pqsValue) (bool, bool) {
 	return false, false
 }
 
-func pqsCompareNumeric(left, right pqsValue) (float64, float64, bool) {
+func pqsCompareNumeric(left, right pqsValue) (leftVal float64, rightVal float64, ok bool) {
 	lv, lok := pqsNumericValue(left)
 	rv, rok := pqsNumericValue(right)
 	if !lok || !rok {

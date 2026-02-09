@@ -205,7 +205,9 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 	if !rows.Next() {
 		return nil, nil
 	}
@@ -535,12 +537,12 @@ func pqsPivotRowFromRaw(tables []schema.Table, cols []pqsSelectColumn, raw []sql
 	return &pqsPivotRow{Tables: tables, Values: values}
 }
 
-func fetchPQSTableIDRange(ctx context.Context, exec *db.DB, tbl schema.Table) (int64, int64, bool, error) {
+func fetchPQSTableIDRange(ctx context.Context, exec *db.DB, tbl schema.Table) (minID int64, maxID int64, ok bool, err error) {
 	query := fmt.Sprintf("SELECT MIN(%s), MAX(%s) FROM %s", pqsPivotIDColumn, pqsPivotIDColumn, tbl.Name)
 	row := exec.QueryRowContext(ctx, query)
 	var minVal sql.NullInt64
 	var maxVal sql.NullInt64
-	if err := row.Scan(&minVal, &maxVal); err != nil {
+	if err = row.Scan(&minVal, &maxVal); err != nil {
 		return 0, 0, false, err
 	}
 	if !minVal.Valid || !maxVal.Valid {
@@ -592,7 +594,9 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 	if !rows.Next() {
 		return nil, nil
 	}
