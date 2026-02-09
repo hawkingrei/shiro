@@ -146,6 +146,11 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 		b.WriteString(createSQL)
 		b.WriteString(";\n\n")
 	}
+	dbName := ""
+	dbRow := exec.QueryRowContext(ctx, "SELECT DATABASE()")
+	if dbRow != nil {
+		_ = dbRow.Scan(&dbName)
+	}
 	for _, view := range views {
 		row := exec.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE VIEW %s", view.Name))
 		var name, createSQL, charset, collation string
@@ -154,17 +159,21 @@ func (r *Reporter) DumpSchema(ctx context.Context, c Case, exec *db.DB, state *s
 			b.WriteString(fmt.Sprintf("-- failed to dump view %s: %v\n\n", view.Name, err))
 			continue
 		}
-		b.WriteString(normalizeCreateView(createSQL))
+		b.WriteString(normalizeCreateView(createSQL, dbName))
 		b.WriteString(";\n\n")
 	}
 	b.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
 	return os.WriteFile(filepath.Join(c.Dir, "schema.sql"), []byte(b.String()), 0o644)
 }
 
-func normalizeCreateView(sql string) string {
+func normalizeCreateView(sql string, dbName string) string {
 	definerRe := regexp.MustCompile(`(?i)\s+DEFINER=\S+`)
 	out := definerRe.ReplaceAllString(sql, "")
 	out = strings.ReplaceAll(out, "SQL SECURITY DEFINER", "SQL SECURITY INVOKER")
+	if dbName != "" {
+		prefix := "`" + dbName + "`."
+		out = strings.ReplaceAll(out, prefix, "")
+	}
 	return strings.TrimSpace(out)
 }
 
