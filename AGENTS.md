@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
 - Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
 - Stripped database qualifiers from dumped CREATE VIEW statements in reports, with normalizeCreateView tests (2026-02-09).
 - Deduplicated CODDTest CASE conditions to reduce oversized dependent predicates, with regression coverage (2026-02-09).
