@@ -5,6 +5,7 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 Latest sync: hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
 Latest sync: replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
 Latest sync: switched the report diff viewer `compareMethod` to use `DiffMethod.WORDS_WITH_SPACE` for type-safe builds (2026-02-09).
+Latest sync: updated the remaining report diff viewer `compareMethod` usage to `DiffMethod.WORDS_WITH_SPACE` for type-safe builds (2026-02-09).
 Latest sync: configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification script for the web report build (2026-02-09).
 Latest sync: guarded `next build` behind a release flag and added a `build:release` script so local defaults use `next dev` (2026-02-09).
 Latest sync: switched the default `next dev` script to `--turbo` and added `dev:webpack` for a webpack fallback (2026-02-09).

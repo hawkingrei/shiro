@@ -505,7 +505,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />
