@@ -29,13 +29,24 @@ const workerFiles = [
   path.join(base, "cjs", "src", "computeWorker.js"),
 ];
 
-const expectedAlias = {
+const expectedWebpackAlias = {
   "react-diff-viewer-continued/lib/esm/src/compute-lines.js": path.resolve(
     vendorBase,
     "compute-lines.js"
   ),
   "react-diff-viewer-continued/lib/esm/src/computeWorker.ts":
     "react-diff-viewer-continued/lib/esm/src/computeWorker.js",
+  "react-diff-viewer-continued/lib/cjs/src/computeWorker.ts":
+    "react-diff-viewer-continued/lib/cjs/src/computeWorker.js",
+};
+
+const expectedTurbopackAlias = {
+  "./compute-lines.js": "./vendor/react-diff-viewer-continued/compute-lines.js",
+  "./computeWorker.ts": "./vendor/react-diff-viewer-continued/computeWorker.js",
+  "react-diff-viewer-continued/lib/esm/src/compute-lines.js":
+    "./vendor/react-diff-viewer-continued/compute-lines.js",
+  "react-diff-viewer-continued/lib/esm/src/computeWorker.ts":
+    "./vendor/react-diff-viewer-continued/computeWorker.js",
   "react-diff-viewer-continued/lib/cjs/src/computeWorker.ts":
     "react-diff-viewer-continued/lib/cjs/src/computeWorker.js",
 };
@@ -53,7 +64,7 @@ for (const file of workerFiles) {
 }
 
 const turbopackAlias = nextConfig.turbopack?.resolveAlias;
-for (const [from, to] of Object.entries(expectedAlias)) {
+for (const [from, to] of Object.entries(expectedTurbopackAlias)) {
   if (!turbopackAlias || turbopackAlias[from] !== to) {
     throw new Error(`turbopack alias missing for ${from}`);
   }
@@ -74,7 +85,7 @@ if (typeof nextConfig.webpack !== "function") {
 
 const webpackConfig = nextConfig.webpack({ resolve: {} });
 const webpackAlias = webpackConfig.resolve?.alias || {};
-for (const [from, to] of Object.entries(expectedAlias)) {
+for (const [from, to] of Object.entries(expectedWebpackAlias)) {
   if (webpackAlias[from] !== to) {
     throw new Error(`webpack alias missing for ${from}`);
   }

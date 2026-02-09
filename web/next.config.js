@@ -8,10 +8,11 @@ try {
 }
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
-const localComputeLines = path.resolve(
-  __dirname,
-  "vendor/react-diff-viewer-continued/compute-lines.js"
-);
+const vendorComputeLinesRel =
+  "./vendor/react-diff-viewer-continued/compute-lines.js";
+const vendorComputeWorkerRel =
+  "./vendor/react-diff-viewer-continued/computeWorker.js";
+const localComputeLines = path.resolve(__dirname, vendorComputeLinesRel);
 const computeLinesContext = path.join(
   "react-diff-viewer-continued",
   "lib",
@@ -27,12 +28,23 @@ const workerAlias = {
     "react-diff-viewer-continued/lib/cjs/src/computeWorker.js",
 };
 
+const turbopackAlias = {
+  "./compute-lines.js": vendorComputeLinesRel,
+  "./computeWorker.ts": vendorComputeWorkerRel,
+  "react-diff-viewer-continued/lib/esm/src/compute-lines.js":
+    vendorComputeLinesRel,
+  "react-diff-viewer-continued/lib/esm/src/computeWorker.ts":
+    vendorComputeWorkerRel,
+  "react-diff-viewer-continued/lib/cjs/src/computeWorker.ts":
+    "react-diff-viewer-continued/lib/cjs/src/computeWorker.js",
+};
+
 const nextConfig = {
   output: "export",
   trailingSlash: true,
   basePath,
   turbopack: {
-    resolveAlias: workerAlias,
+    resolveAlias: turbopackAlias,
   },
   experimental: {
     extensionAlias: {
