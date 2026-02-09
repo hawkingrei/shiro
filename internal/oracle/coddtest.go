@@ -50,30 +50,41 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	}
 	policy := predicatePolicyFor(gen)
 	policy.allowIsNull = false
-	builder := generator.NewSelectQueryBuilder(gen).
-		RequireWhere().
-		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic().
-		DisallowAggregate().
-		MaxJoinCount(2).
-		QueryGuardWithReason(func(query *generator.SelectQuery) (bool, string) {
-			if query == nil {
-				return false, "constraint:query_guard"
-			}
-			if len(query.With) > 0 {
-				return false, "constraint:query_guard"
-			}
-			if !queryUsesOnlyBaseTables(query, baseNames) {
-				return false, "constraint:query_guard"
-			}
-			if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
-				return false, reason
-			}
-			return true, ""
-		}).
-		PredicateGuard(func(expr generator.Expr) bool {
-			return predicateMatches(expr, policy)
-		})
+	queryGuard := func(query *generator.SelectQuery) (bool, string) {
+		if query == nil {
+			return false, "constraint:query_guard"
+		}
+		if len(query.With) > 0 {
+			return false, "constraint:query_guard"
+		}
+		if !queryUsesOnlyBaseTables(query, baseNames) {
+			return false, "constraint:query_guard"
+		}
+		if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
+			return false, reason
+		}
+		return true, ""
+	}
+	predicateGuard := func(expr generator.Expr) bool {
+		return predicateMatches(expr, policy)
+	}
+	constraints := generator.SelectQueryConstraints{
+		RequireWhere:         true,
+		PredicateMode:        generator.PredicateModeSimple,
+		RequireDeterministic: true,
+		DisallowAggregate:    true,
+		MaxJoinCount:         2,
+		MaxJoinCountSet:      true,
+		QueryGuardReason:     queryGuard,
+		PredicateGuard:       predicateGuard,
+	}
+	if profile := ProfileByName("CODDTest"); profile != nil {
+		applyProfileToSpec(&constraints, profile)
+		if profile.PredicateMode != nil {
+			constraints.PredicateMode = *profile.PredicateMode
+		}
+	}
+	builder := generator.NewSelectQueryBuilder(gen).WithConstraints(constraints)
 	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("coddtest", reason), "builder_reason": reason, "builder_attempts": attempts}}
@@ -242,6 +253,7 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 	}
 	defer util.CloseWithErr(rows, "coddtest rows")
 
+	seen := make(map[string]struct{})
 	caseExpr := generator.CaseExpr{}
 	for rows.Next() {
 		values := make([]sql.RawBytes, len(colNames)+1)
@@ -252,6 +264,12 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		if err := rows.Scan(scanArgs...); err != nil {
 			return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
 		}
+
+		key := coddtestCaseKey(cols, values)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 
 		var cond generator.Expr
 		for i, col := range cols {
@@ -315,6 +333,29 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+}
+
+func coddtestCaseKey(cols []generator.ColumnRef, values []sql.RawBytes) string {
+	if len(cols) == 0 || len(values) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, col := range cols {
+		b.WriteString(col.Table)
+		b.WriteByte('.')
+		b.WriteString(col.Name)
+		b.WriteByte('=')
+		if i >= len(values) || values[i] == nil {
+			b.WriteString("NULL")
+			b.WriteByte(';')
+			continue
+		}
+		b.WriteString(strconv.Itoa(len(values[i])))
+		b.WriteByte(':')
+		b.Write(values[i])
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 func queryUsesOnlyBaseTables(query *generator.SelectQuery, baseNames map[string]struct{}) bool {

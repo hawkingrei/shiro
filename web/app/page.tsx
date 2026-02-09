@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
-import ReactDiffViewer from "react-diff-viewer-continued";
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
   caseArchiveURL,
   caseID,
@@ -574,6 +574,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />
@@ -593,6 +594,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />

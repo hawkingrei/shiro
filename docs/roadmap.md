@@ -1,111 +1,69 @@
-# Shiro Roadmap: 100-Step Plan
+# Shiro Roadmap: Staged Plan
 
-Completed items are tracked in `docs/notes/summary.md`; this roadmap lists active and upcoming tasks only.
+This roadmap lists pending work only. Completed items are tracked in `docs/notes/summary.md` and `docs/notes/feature.md`.
 
-## Stability milestones
+## Stage 0: Correctness and Observability
 
-1. **Metrics baseline**: log sql_valid_ratio, impo_invalid_columns_ratio, impo_base_exec_failed_ratio every interval.
-2. **Alert thresholds**: keep sql_valid_ratio >= 0.95, impo_invalid_columns_ratio <= 0.05, impo_base_exec_failed_ratio <= 0.02 for a 2h run.
-3. **Feature gates**: stabilize in layers (single-table → joins → subqueries → aggregates) with per-layer configs.
-4. **Noise isolation**: categorize and cap non-bug errors; keep oracle false positives below 1%.
-5. **Long-run regression**: daily 6h/24h smoke with fixed seeds and auto-minimized repros.
+- Stabilize feature gates by layer (single-table, joins, subqueries, aggregates) with per-layer configs.
+- Isolate noise: categorize and cap non-bug errors, keep oracle false positives below 1%.
+- Run long-horizon regressions (daily 6h/24h smokes with fixed seeds and auto-minimized repros).
+- Add Impo skip reasons to `dynamic_state.json` for live observability.
+- Expose Impo seed vs. init SQL in summary fields for filtering.
+- Implement `rmUncertain` and an explicit unstable-function list; add per-oracle toggles for enforcement.
+- Add Impo result comparison with type normalization and column-name aware, order-insensitive matching.
+- Add stable hashing, row sampling, and max row-size guards for large Impo result sets.
+- Add Impo invariants when `cmp==2`, plus fallback to signature comparison for oversized rowsets.
+- Add per-worker oracle stats and per-oracle isolation to reduce cross-case contamination.
+- Add case deduplication by `(oracle, mutation, plan signature)`.
+- Centralize tuning knobs for template sampling weights and QPG template overrides.
 
-1. Add Impo oracle metrics to stats logging (counts, skips, truncations).
-2. Add Impo-specific skip reasons to dynamic_state.json for observability.
-3. Add Impo replay_kind to minimizer for base/mutated comparison.
-4. Capture Impo mutated SQL in case artifacts separately (e.g., impo_mutated.sql).
-5. Add Impo seed vs. init SQL to summary fields for quick filtering.
-6. Add Impo-specific config for max mutations per seed (cap).
-7. Add Impo-specific timeout budget per mutation batch.
-8. Add Impo skip if row count exceeds configurable threshold before fetching.
-9. Add Impo skip when base query has non-deterministic functions.
-10. Add Impo skip when base query includes plan cache hints or session vars.
-11. Add Impo switch to disable stage1 rewrites (for differential coverage).
-12. Add Impo switch to retain LEFT/RIGHT JOINs for experimental runs.
-13. Add Impo support for ANY/ALL mutation in compare-subquery expressions.
-14. Add Impo mutation for BETWEEN with safe strengthening/weakening rules.
-15. Add Impo mutation for IN-list expansion/shrink (non-NULL).
-16. Add Impo mutation for EXISTS/NOT EXISTS with polarity-aware flagging.
-17. Add Impo mutation for UNION/INTERSECT/MINUS if supported by TiDB.
-18. Add Impo mutation for DISTINCT on nested subqueries (if safe).
-19. Add Impo mutation for HAVING with GROUP BY retention (optional).
-20. Add Impo mutation for ORDER BY removal when not affecting semantics.
-21. Add Impo mutation for LIMIT expansion (beyond stage1 hard cap).
-22. Add Impo mutation to add redundant predicate (tautology/contradiction).
-23. Add Impo mutation to remove redundant predicate in CNF/DNF cases.
-24. Add Impo mutation to rewrite NOT(p) with De Morgan (guarded).
-25. Add Impo mutation for comparison operator normalization (<= vs <+1) in safe domains.
-26. Add Impo mutation for boolean columns using IS TRUE/IS FALSE toggles.
-27. Add Impo NULL-handling gate by checking schema nullability.
-28. Add Impo data generator switch to avoid NULLs per-oracle.
-29. Add Impo mode to allow NULLs with three-valued logic soundness checks.
-30. Add Impo result comparison that includes per-row type normalization.
-31. Add Impo result comparison that is order-insensitive but column-name aware.
-32. Add Impo result comparison with stable hashing to reduce memory.
-33. Add Impo optional row sampling for large results with false-positive guard.
-34. Add Impo diff artifact: missing vs. extra rows (sampled).
-35. Add Impo max row size guard to avoid huge row payloads.
-36. Add Impo configurable mutation selector (random subset vs. exhaustive).
-37. Add Impo mutation weights tuned for optimizer coverage.
-38. Add Impo skip if query uses window functions after stage1.
-40. Add Impo skip for recursive CTEs.
-41. Add Impo support for CTE-aware mutation and restoration.
-42. Add Impo with plan-guided mutation selection (tie into QPG signals).
-43. Add Impo coverage counters by mutation type.
-44. Add Impo case tag in report UI for filtering.
-45. Add Impo detail view in frontend (seed/init/mutated SQL, cmp).
-46. Add Impo compare-explain view (base vs mutated explain) in frontend.
-47. Add Impo UI diff for row samples when available.
-48. Add Impo CSV export for mutation coverage stats.
-49. Add Impo regression test: fixed query pair with known containment.
-50. Add Impo regression test: mutation set size and determinism.
-51. Add Impo fuzz test for mutation restore stability.
-52. Add Impo minimizer support for reducing mutated SQL separately.
-53. Add Impo replayer spec to validate containment in minimized cases.
-54. Add Impo compatibility check against TiDB version features.
-55. Add Impo skip when SQL includes unstable functions list (extend rmUncertain).
-56. Implement rmUncertain to drop/replace non-deterministic functions.
-57. Add config to toggle rmUncertain enforcement per oracle.
-58. Add new oracle statistics per worker to avoid contention.
-59. Add per-oracle isolation to reduce cross-case contamination.
-60. Add report grouping by oracle and mutation type.
-61. Add case deduplication by (oracle + mutation + plan signature).
-62. Add multi-run aggregation for Impo results.
-63. Add per-oracle seed persistence for repro.
-64. Add ability to replay Impo cases without stage1 rewrite.
-65. Add impomysql removal after port completion and references updated.
-66. Add migration note in docs for Impo oracle integration.
-67. Add docs: Pinolo mutation taxonomy with examples.
-68. Add docs: Impo oracle limitations and null semantics.
-69. Add docs: How to tune Impo mutation weights for optimizer focus.
-70. Add docs: Repro recipe for Impo cases.
-71. Add config example for Impo-only runs.
-72. Add CLI flag to prioritize Impo oracle.
-73. Add config to disable LIKE/REGEXP mutations if too noisy.
-74. Add config for LIKE/REGEXP mutation probability.
-75. Add guard for REGEXP patterns with empty strings.
-76. Add guard for LIKE pattern all-wildcard corner cases.
-77. Add guard for regex engine differences across TiDB versions.
-78. Add mutation for string collation-related comparisons (guarded).
-79. Add mutation for implicit type cast comparison (guarded).
-80. Add mutation for numeric boundary conditions (overflow-aware).
-81. Add mutation for decimal precision rounding (guarded).
-82. Add mutation for date/time boundary shifts (guarded).
-83. Add mutation for boolean normalization (0/1/TRUE/FALSE).
-84. Add mutation for IN subquery with ANY/ALL rewriting (guarded).
-85. Add mutation for semi-join rewriting hints (optimizer stress).
-86. Add mutation for join reordering hints (optimizer stress).
-87. Add Impo mode to target plan cache queries (prepare/execute).
-88. Add Impo skip for plan cache artifacts to avoid interference.
-89. Add adaptive selection between Impo and DQP based on plan coverage.
-90. Add dashboard panel for mutation yield vs. bug yield.
-91. Add CI smoke test for Impo oracle path.
-92. Add linter rule for oracle naming consistency.
-93. Add report field for Impo mutation seed.
-94. Add report field for Impo truncation status.
-95. Add report field for Impo max rows used.
-96. Add report field for Impo compare mode (full vs sample).
-97. Add self-check for Impo oracle invariants when cmp==2.
-98. Add fallback to signature compare when rowset too large (configurable).
-99. Add per-mutation timeout instrumentation and logging.
-100. Add tuning guide for overall oracle mix with Impo enabled.
+## Stage 1: Impo and Reporting
+
+- Add missing Impo mutations: DISTINCT in nested subqueries, redundant-predicate removal (CNF/DNF), guarded De Morgan rewrites, and boolean IS TRUE/IS FALSE toggles.
+- Add NULL-handling gates: schema nullability checks, NULL-avoidance generation switches, and three-valued-logic soundness mode.
+- Add set-op mutations beyond UNION, guarded by TiDB feature support (INTERSECT/EXCEPT).
+- Add mutation guards for window-function queries after stage1 and for LIKE/REGEXP corner cases.
+- Add CTE-aware mutation and restoration support.
+- Add plan-guided mutation selection tied to QPG signals.
+- Add configurable mutation selector (random subset vs. exhaustive) and mutation-weight tuning for optimizer coverage.
+- Add per-mutation timeout instrumentation and logging.
+- Add Impo mode to target plan-cache queries and skip plan-cache artifacts that cause interference.
+- Add ability to replay Impo cases without stage1 rewrites.
+- Add Impo minimizer support for reducing mutated SQL separately.
+- Add report fields for Impo mutation seed, truncation status, max rows used, and compare mode.
+- Add report grouping by oracle and mutation type, plus multi-run aggregation for Impo.
+- Add report UI: Impo case tag, detail view, compare-explain view, and row-sample diff display.
+- Add Impo diff artifacts for missing vs. extra rows (sampled).
+- Add CSV export for mutation coverage stats and a dashboard panel for mutation yield vs. bug yield.
+- Add Impo regression tests (known containment pair, mutation set determinism) and fuzz tests for mutation restore stability.
+- Add CI smoke test for the Impo oracle path.
+- Build report index for on-demand loading and update the UI to fetch per-case summaries.
+- Add report index sharding, optional gzip, and `report_base_url`/CORS documentation.
+- Add compatibility mode for legacy `report.json` when the index is missing.
+- Consider column-aware EXPLAIN diff once table parsing stabilizes.
+- Add TiDB feature compatibility checks for Impo mutations.
+- Remove `impomysql` after port completion and update references.
+- Add Impo docs: migration note, Pinolo mutation taxonomy, oracle limitations and NULL semantics, tuning guide, and repro recipe.
+- Add Impo-only config example and CLI flag to prioritize Impo.
+- Add configs to disable LIKE/REGEXP mutations and control their probability.
+- Add guards for REGEXP empty patterns, LIKE all-wildcard cases, and cross-version regex engine differences.
+- Add guarded mutations for collation comparisons, implicit casts, numeric boundaries, decimal rounding, date/time boundaries, and boolean normalization.
+- Add IN-subquery ANY/ALL rewriting mutation and optimizer-stress hints (semi-join, join reorder).
+- Add linter rule for oracle naming consistency.
+- Add per-oracle seed persistence for repro.
+- Add adaptive selection between Impo and DQP based on plan coverage.
+- Add a tuning guide for overall oracle mix with Impo enabled.
+
+## Stage 2: PQS and Adaptive
+
+- Extend the 3VL expression evaluator and rectifier for PQS to cover additional edge cases and dialect-specific NULL semantics.
+- Add join-aware pivot binding across aliases and JOIN ON rectification.
+- Extend containment SQL templates for join-path PQS and add reducer-friendly artifacts.
+- Add staged PQS tests for join-path containment.
+- Add an adaptive capability model (SQLancer++ style) to learn feature support and auto-tune gating.
+- Centralize query feature analysis and EXPLAIN parsing for QPG/DQP/CERT/report reuse.
+- Add KQE-lite join-graph coverage guidance for generator biasing.
+- Unify rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
+- Refine type compatibility and implicit cast rules using SQL standard guidance.
+- Extend grouping support to GROUPING SETS/CUBE with profile-based fallback for unsupported dialects.
+- Add per-feature observability counters for natural joins, full-join emulation, recursive CTE, window frames, and interval arithmetic.

@@ -62,5 +62,28 @@ func TestJoinConditionFromUsingFallback(t *testing.T) {
 	}
 }
 
+func TestNaturalJoinAllowedRejectsDuplicateNames(t *testing.T) {
+	gen := &Generator{}
+	left := []schema.Table{
+		{Name: "t0", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}},
+		{Name: "t1", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}},
+	}
+	right := schema.Table{Name: "t2", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}}
+	if gen.naturalJoinAllowed(left, right) {
+		t.Fatalf("expected natural join to be disallowed for duplicate left columns")
+	}
+}
+
+func TestNaturalJoinAllowedAcceptsUniqueNames(t *testing.T) {
+	gen := &Generator{}
+	left := []schema.Table{
+		{Name: "t0", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}},
+	}
+	right := schema.Table{Name: "t1", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}}
+	if !gen.naturalJoinAllowed(left, right) {
+		t.Fatalf("expected natural join to be allowed with unique left columns")
+	}
+}
+
 // GroundTruth retries queries when no join columns are present, so we do not
 // relax join column pairing here.

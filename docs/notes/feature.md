@@ -10,6 +10,12 @@
 - Added ESLint flat config using `eslint-config-next` and wired `npm run lint` to `eslint .`.
 - Added CI step to run `npm run lint` in `web`.
 
+## Web build and worker overrides
+- The diff viewer worker pipeline is vendored under `web/vendor/react-diff-viewer-continued/` to avoid the `compute-lines` ↔ worker import cycle while keeping Web Worker execution.
+- When upgrading `react-diff-viewer-continued`, re-sync `compute-core.js` from `lib/esm/src/compute-lines.js` and keep `computeWorker.js` importing `compute-core.js` (not `compute-lines.js`).
+- `web/next.config.js` must keep alias entries for `compute-lines.js` and relative `./computeWorker.ts` so Turbopack resolves the worker correctly.
+- Validate with `npm run test:worker` and use `SHIRO_RELEASE=1 npm run build` for optimized builds.
+
 ## Generator randomness
 - Randomized DATE/DATETIME/TIMESTAMP literals across year/month/day and full time range (2023-2026), with leap-year aware day bounds.
 - TQS randomValue now uses the same broader date/time range with leap-year handling.
@@ -46,3 +52,20 @@
 
 ## QPG stats
 - Added a monotonic seen SQL counter to avoid negative deltas from TTL-based sweeps.
+
+## PQS optimization
+- Reduced PQS containment SQL size by selecting and matching only `id` columns when all pivot tables expose them.
+- Added a minimal 3VL evaluator/rectifier for PQS predicates with rectification metadata and fallback reasons.
+- Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with per-run bandit metadata.
+- Skipped float/double columns when building PQS predicates to reduce false positives from exact float equality.
+
+## Impo roadmap completions
+- Logged per-interval `sql_valid_ratio`, `impo_invalid_columns_ratio`, and `impo_base_exec_failed_ratio`, with threshold alerts.
+- Persisted Impo artifacts (`impo_seed.sql`, `impo_init.sql`, `impo_mutated.sql`) in case outputs.
+- Added Impo config knobs for max mutations, timeout, stage1 disable, and LR join retention.
+- Added base row-count precheck and skip when exceeding the configured cap.
+- Added seed-query guards for nondeterminism and plan cache hints/session variables.
+- Implemented Impo mutations for ANY/ALL, BETWEEN, IN-list, EXISTS, HAVING, ORDER BY removal, LIMIT expansion, comparison normalization, WHERE tautology/contradiction, and UNION/UNION ALL variants.
+- Rejected recursive CTEs while allowing non-recursive WITH in Impo init.
+- Emitted mutation-type coverage counters in Impo details.
+- Recorded Impo replay metadata and wired `impo_contains` for minimizer replay checks.

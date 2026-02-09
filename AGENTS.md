@@ -18,9 +18,39 @@ Links:
 
 - After each task completes, review and update `AGENTS.md` and `docs/todo.md`, removing completed items and syncing current progress.
 - Documentation must be written in English.
+- When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
 
 ## Recent updates
 
+- Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
+- Stripped database qualifiers from dumped CREATE VIEW statements in reports, with normalizeCreateView tests (2026-02-09).
+- Deduplicated CODDTest CASE conditions to reduce oversized dependent predicates, with regression coverage (2026-02-09).
+- Guarded NATURAL JOIN generation when left-side duplicate column names would cause ambiguity, with generator regression coverage (2026-02-09).
+- Addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status updates) (2026-02-09).
+- Fixed PQS lints by handling `rows.Close()` errors and naming multi-value returns flagged by revive (2026-02-09).
+- Skipped float/double columns when building PQS predicates to avoid exact-float false positives (2026-02-09).
+- Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with bandit metadata and predicate-range tests (2026-02-09).
+- Added a minimal PQS 3VL evaluator/rectifier with predicate rectification metadata and fallback reasons (2026-02-08).
+- Optimized PQS containment queries to match only `id` columns when available, reducing SQL size (2026-02-08).
+- Reviewed a PQS-focused run: 20 PQS cases (18 join, 1 single-table, 1 error), with one TiDB runtime error (`Error 1105: index out of range`) that was non-reproducible in minimize (2026-02-09).
+- Added a PQS join containment SQL integration test for basic two-table pivots (2026-02-08).
+- Cleaned `docs/roadmap.md` completed items, reorganized the roadmap by stages, and synced `docs/todo.md` with `docs/notes/follow-ups.md` (2026-02-08).
+- Moved completed Impo roadmap items out of TODO tracking and recorded them in feature notes (2026-02-08).
+- Enhanced PQS pivot sampling with `id`-range selection (avoids `ORDER BY RAND()`), added basic two-table `JOIN ... USING (id)` pivots with alias-aware matching, switched containment checks to `LIMIT 1` existence probes, and enabled a default PQS oracle weight (2026-02-08).
+- Added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and expanded unit tests (2026-02-08).
+- Updated the remaining report diff viewer `compareMethod` usage to the `DiffMethod.WORDS_WITH_SPACE` enum to satisfy Next.js type checks (2026-02-09).
+- Switched the report diff viewer `compareMethod` to use the `DiffMethod.WORDS_WITH_SPACE` enum for type-safe Next.js builds (2026-02-09).
+- Replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
+- Hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
+- Configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification test for the web report build (2026-02-09).
+- Guarded `next build` behind a release flag so local defaults use `next dev`, and added a `build:release` script for optimized builds (2026-02-09).
+- Switched the default `next dev` script to `--turbo` and added `dev:webpack` for a webpack fallback (2026-02-09).
+- Vendored `react-diff-viewer-continued` compute worker implementation to break the worker/compute-lines import cycle while keeping Worker execution, and aliased Next.js to the local compute-lines module (2026-02-09).
+- CI now verifies the web worker alias config and runs a release web build via `SHIRO_RELEASE=1` to exercise the optimized build path (2026-02-09).
+- Next config now loads webpack via Next's bundled webpack fallback to keep the worker config test runnable in CI (2026-02-09).
+- Turbopack aliases now include relative compute-lines/computeWorker specifiers to avoid resolution failures when the diff viewer uses relative worker imports (2026-02-09).
+- Documented web worker override upgrade guidance in `docs/notes/feature.md` (2026-02-09).
+- Adjusted flaky errno test to use non-fatal assertions (2026-02-09).
 - Fixed lint follow-ups: `cmd/shiro-report` now closes worker sync HTTP response bodies via `resp.Body.Close()` (for `bodyclose`) and `internal/report` now documents exported case-archive constants (`CaseArchiveName`/`CaseArchiveCodec`) to satisfy `revive` (2026-02-08).
 - Addressed PR #78 review findings: Worker now defaults writes to deny without token (optional `ALLOW_INSECURE_WRITES` for local dev), enforces request body/sync-case limits, adds `Vary: Origin`, fixes PATCH empty-payload semantics, normalizes download/report/archive URLs to HTTP(S), hardens AI prompt user-input delimiters, and updates shiro-report with `-artifact-public-base-url`, worker sync timeout/error handling, and S3 listing-based sidecar detection; frontend now hides non-HTTP(S) artifact links (2026-02-07).
 - CI: added a dedicated frontend pipeline job in `.github/workflows/ci.yaml` that runs web compile (`tsc --noEmit`), lint, and tests; backend/integration job now depends on the web job (2026-02-06).
@@ -34,6 +64,17 @@ Links:
 - Created branch `feat/fuzz-display-query-capability` in dedicated worktree for fuzz display/query capability enhancement; currently in requirements phase before implementation (2026-02-06).
 - Captured requirements: use UUIDv7 as canonical bug id across runner/report/frontend, upload artifacts under `s3://<bucket>/<uuid>/`, push report manifests to Cloudflare for search, and support frontend archive download per case with Cloudflare Worker+D1+AI search infra (2026-02-06).
 - Chosen cloud split for this project: case artifacts remain in S3, aggregated `reports.json` is published to Cloudflare R2, and metadata/tagging/search APIs run on Cloudflare Workers + D1 + AI search (2026-02-06).
+- Refined profile constraint application to avoid relaxing subquery bans; simplified CERT/CODDTest builder setup; added override/profile regression tests (2026-02-08).
+- NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
+- Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
+- QuerySpec now accepts oracle profiles so generator constraints can be derived from the same capability gating used by runtime overrides (2026-02-08).
+- Centralized query analysis reuse in SelectQueryBuilder to avoid redundant AST walks while keeping determinism checks accurate (2026-02-08).
+- Replaced hard-coded oracle overrides with data-driven profiles for easier tuning and more consistent capability gating (2026-02-08).
+- Centralized minimizer default rounds into a shared constant to avoid divergent defaults across reducers (2026-02-08).
+- Documented sqlSliceWeight scaling intent via a named constant to keep statement count dominant (2026-02-08).
+- Fixed revive lint by naming minimizer helper return values and removing an unused test parameter (2026-02-08).
+- SelectQueryBuilder now invalidates cached analysis after attaching predicates so determinism checks stay accurate (2026-02-08).
+- Minimize pipeline was deeply refactored with strategy-based reduction (`case_error` vs replay-spec), multi-pass convergence (insert/case/spec alternating), validated insert-merge adoption, and weighted-candidate selection to avoid non-improving rewrites; added focused runner tests for merge validation, set-var dropping, and alternating reduction (2026-02-08).
 - Impo seed-query guardrail skips now retain the last concrete failure reason (`seed_guardrail:<reason>`), and minimize now runs a mandatory base-replay precheck: non-reproducible cases are marked `minimize_status=skipped` plus top-level `flaky=true` with `minimize_reason`/`flaky_reason=base_replay_not_reproducible`; added regression tests (2026-02-07).
 - GroundTruth now rewrites `USING` joins to explicit `ON` predicates before edge extraction/execution to avoid ambiguous `USING` resolution on multi-table left factors; EET adds stronger pre-guards (`scope_invalid`, DISTINCT+ORDER BY compatibility) and scope validation now treats NATURAL joins like USING for qualified-column visibility; report summaries switch minimize status flow to `in_progress/success/skipped/interrupted` with deferred interrupted fallback (2026-02-07).
 - Reduced oracle skip noise by adding QuerySpec `MaxTries` for constrained builders (TLP/DQP/NoREC/EET), disallowing TLP set operations at build-time, retrying GroundTruth candidate picking across empty/guardrail/edge-mismatch cases, and retrying Impo seed-query selection before skip; added TLP set-op skip regression test (2026-02-07).
@@ -160,3 +201,4 @@ Links:
 - EET now supports type-aware column identity rewrites using schema-based inference (2026-02-05).
 - Shared ORDER BY ordinal parsing helpers between generator tests and EET (2026-02-04).
 - Report row sampling now detects truncation via LIMIT maxRows+1 and documents SQL safety (2026-02-04).
+- SelectQueryBuilder now avoids full feature analysis for join-only constraints and reuses cached determinism checks when available (2026-02-08).

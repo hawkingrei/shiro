@@ -233,7 +233,7 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 				continue
 			}
 		}
-		features := AnalyzeQueryFeatures(query)
+		features := constraintFeaturesFor(query, c)
 		if reason := constraintViolationReason(query, c, features); reason != "" {
 			lastReason = reason
 			continue
@@ -245,6 +245,35 @@ func (b *SelectQueryBuilder) BuildWithReason() (*SelectQuery, string, int) {
 	}
 	b.gen.recordBuilderStats(maxTries, lastReason)
 	return nil, lastReason, maxTries
+}
+
+func constraintFeaturesFor(query *SelectQuery, c SelectQueryConstraints) QueryFeatures {
+	if query == nil {
+		return QueryFeatures{}
+	}
+	if query.Analysis != nil {
+		return QueryFeatures{
+			JoinCount:    query.Analysis.JoinCount,
+			HasAggregate: query.Analysis.HasAggregate,
+			HasWindow:    query.Analysis.HasWindow,
+			HasSubquery:  query.Analysis.HasSubquery,
+		}
+	}
+	needsFull := c.DisallowWindow || c.DisallowSubquery || c.DisallowAggregate || c.RequireDeterministic
+	if needsFull {
+		analysis := AnalyzeQuery(query)
+		query.Analysis = &analysis
+		return QueryFeatures{
+			JoinCount:    analysis.JoinCount,
+			HasAggregate: analysis.HasAggregate,
+			HasWindow:    analysis.HasWindow,
+			HasSubquery:  analysis.HasSubquery,
+		}
+	}
+	if c.MaxJoinCountSet || c.MinJoinTablesSet {
+		return QueryFeatures{JoinCount: len(query.From.Joins)}
+	}
+	return QueryFeatures{}
 }
 
 func constraintViolationReason(query *SelectQuery, c SelectQueryConstraints, features QueryFeatures) string {
@@ -339,6 +368,8 @@ func (b *SelectQueryBuilder) attachPredicate(query *SelectQuery, c SelectQueryCo
 		return false
 	}
 	query.Where = pred
+	// Invalidate cached analysis because predicate attachment mutates the query.
+	query.Analysis = nil
 	return true
 }
 
@@ -346,6 +377,9 @@ func (b *SelectQueryBuilder) attachPredicate(query *SelectQuery, c SelectQueryCo
 func QueryDeterministic(query *SelectQuery) bool {
 	if query == nil {
 		return true
+	}
+	if query.Analysis != nil {
+		return query.Analysis.Deterministic
 	}
 	for _, cte := range query.With {
 		if !QueryDeterministic(cte.Query) {
