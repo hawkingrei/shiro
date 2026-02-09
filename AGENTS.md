@@ -21,7 +21,7 @@ Links:
 
 ## Recent updates
 
-- Patched `react-diff-viewer-continued` worker import to use `computeWorker.js` via patch-package and added a verification test script for the web report build (2026-02-09).
+- Configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification test for the web report build (2026-02-09).
 - Refined profile constraint application to avoid relaxing subquery bans; simplified CERT/CODDTest builder setup; added override/profile regression tests (2026-02-08).
 - NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
 - Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
