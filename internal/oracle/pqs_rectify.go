@@ -48,6 +48,10 @@ type pqsPredicateMeta struct {
 
 func pqsBuildPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsPredicateMeta) {
 	meta := pqsPredicateMeta{Fallback: true}
+	if !pqsHasSafePredicateColumns(pivot) {
+		meta.Reason = "predicate_no_safe_columns"
+		return nil, meta
+	}
 	arm, banditEnabled := pqsPickPredicateArm(gen)
 	meta.BanditEnabled = banditEnabled
 	meta.PredicateArm = int(arm)
@@ -119,7 +123,34 @@ func pqsRandomPredicate(gen *generator.Generator, pivot *pqsPivotRow) generator.
 	if gen == nil || pivot == nil || len(pivot.Tables) == 0 {
 		return nil
 	}
-	return gen.GenerateSimplePredicateColumns(pivot.Tables, 2)
+	safeTables := pqsSafePredicateTables(pivot.Tables)
+	if len(safeTables) == 0 {
+		return nil
+	}
+	return gen.GenerateSimplePredicateColumns(safeTables, 2)
+}
+
+func pqsSafePredicateTables(tables []schema.Table) []schema.Table {
+	if len(tables) == 0 {
+		return nil
+	}
+	out := make([]schema.Table, 0, len(tables))
+	for _, tbl := range tables {
+		cols := make([]schema.Column, 0, len(tbl.Columns))
+		for _, col := range tbl.Columns {
+			if !pqsPredicateColumnAllowed(col) {
+				continue
+			}
+			cols = append(cols, col)
+		}
+		if len(cols) == 0 {
+			continue
+		}
+		copyTbl := tbl
+		copyTbl.Columns = cols
+		out = append(out, copyTbl)
+	}
+	return out
 }
 
 func pqsRectifyExpr(expr generator.Expr, truth pqsTruth) generator.Expr {

@@ -159,6 +159,30 @@ func TestPQSPredicateForPivotRange(t *testing.T) {
 	}
 }
 
+func TestPQSPredicateSkipsFloatColumns(t *testing.T) {
+	gen := newPQSTestGenerator(t, 3)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeFloat},
+			{Name: "c1", Type: schema.TypeDouble},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "1.23"},
+				"c1": {Column: tbl.Columns[1], Raw: "4.56"},
+			},
+		},
+	}
+	expr := pqsPredicateForPivotWithRange(gen, pivot, 1, 2)
+	if expr != nil {
+		t.Fatalf("expected nil predicate for float-only columns")
+	}
+}
+
 func TestPQSMatchExpr(t *testing.T) {
 	tbl := schema.Table{
 		Name: "t0",

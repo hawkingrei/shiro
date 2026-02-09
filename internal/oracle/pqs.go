@@ -288,6 +288,29 @@ func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generato
 	return pqsPredicateForPivotWithRange(gen, pivot, 1, pqsPredicateMaxCols)
 }
 
+func pqsHasSafePredicateColumns(pivot *pqsPivotRow) bool {
+	if pivot == nil {
+		return false
+	}
+	for _, tbl := range pivot.Tables {
+		for _, col := range tbl.Columns {
+			if pqsPredicateColumnAllowed(col) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pqsPredicateColumnAllowed(col schema.Column) bool {
+	switch col.Type {
+	case schema.TypeFloat, schema.TypeDouble:
+		return false
+	default:
+		return true
+	}
+}
+
 func pqsPredicateForPivotWithRange(gen *generator.Generator, pivot *pqsPivotRow, minCols, maxCols int) generator.Expr {
 	if pivot == nil || len(pivot.Tables) == 0 {
 		return nil
@@ -299,6 +322,9 @@ func pqsPredicateForPivotWithRange(gen *generator.Generator, pivot *pqsPivotRow,
 	cols := make([]pqsColumnRef, 0, len(pivot.Tables))
 	for _, tbl := range pivot.Tables {
 		for _, col := range tbl.Columns {
+			if !pqsPredicateColumnAllowed(col) {
+				continue
+			}
 			cols = append(cols, pqsColumnRef{Table: tbl.Name, Column: col})
 		}
 	}

@@ -51,6 +51,7 @@
 - Reduced PQS containment SQL size by selecting and matching only `id` columns when all pivot tables expose them.
 - Added a minimal 3VL evaluator/rectifier for PQS predicates with rectification metadata and fallback reasons.
 - Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with per-run bandit metadata.
+- Skipped float/double columns when building PQS predicates to reduce false positives from exact float equality.
 
 ## Impo roadmap completions
 - Logged per-interval `sql_valid_ratio`, `impo_invalid_columns_ratio`, and `impo_base_exec_failed_ratio`, with threshold alerts.
