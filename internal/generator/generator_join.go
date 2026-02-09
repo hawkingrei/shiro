@@ -389,7 +389,8 @@ func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*S
 		}
 		if joinType != JoinCross {
 			using := g.pickUsingColumns(tables[:i], tables[i])
-			if g.Config.Features.NaturalJoins && len(using) > 0 && util.Chance(g.Rand, NaturalJoinProb) {
+			naturalOK := g.naturalJoinAllowed(tables[:i], tables[i])
+			if g.Config.Features.NaturalJoins && naturalOK && len(using) > 0 && util.Chance(g.Rand, NaturalJoinProb) {
 				join.Natural = true
 				join.Using = using
 			} else if len(using) > 0 && util.Chance(g.Rand, g.joinUsingProb()) {
@@ -467,6 +468,26 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 	}
 	g.Rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 	return names[:count]
+}
+
+func (g *Generator) naturalJoinAllowed(left []schema.Table, right schema.Table) bool {
+	if g == nil || len(left) == 0 || len(right.Columns) == 0 {
+		return false
+	}
+	leftCols := g.collectColumns(left)
+	if len(leftCols) == 0 {
+		return false
+	}
+	counts := make(map[string]int, len(leftCols))
+	for _, col := range leftCols {
+		counts[col.Name]++
+	}
+	for _, col := range right.Columns {
+		if counts[col.Name] > 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Generator) joinCondition(left []schema.Table, right schema.Table) Expr {

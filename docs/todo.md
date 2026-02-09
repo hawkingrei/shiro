@@ -1,7 +1,25 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status) (2026-02-09).
+Latest sync: fixed PQS lints for errcheck (rows.Close) and revive confusing-results (2026-02-09).
+Latest sync: aligned TODO with follow-ups after PQS float-guard work (2026-02-09).
+Latest sync: deduplicated CODDTest CASE conditions to reduce oversized dependent predicates (2026-02-09).
+Latest sync: ensured PQS pivot row fetch checks rows.Err to avoid silent skips (2026-02-09).
+Latest sync: stripped database qualifiers from dumped CREATE VIEW statements in reports (2026-02-09).
+Latest sync: added NATURAL JOIN guard to avoid ambiguous columns in generated SQL (2026-02-09).
+Latest sync: documented TiDB issue formatting guidance (collapse schema/load data details, format run query SQL) (2026-02-09).
 Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CTE guards, FULL JOIN emulation edge cases, window determinism/named-window overrides, GROUPING ordinal unwrap), oracle SQL helper fast-path/build tests, TiDB-compat regressions to keep `INTERSECT ALL`/`EXCEPT ALL` disabled, nil-operand hardening for expression determinism/build paths, runner-side `error_reason/bug_hint` classification for PlanCache and GroundTruth mismatch reporting, P1 batch-1 skip-reduction overrides for GroundTruth/CODDTest, systemic NoREC constraint tightening via builder-level set-op disallow + query guard reasons, scope-manager enforcement for `USING` qualified-column visibility with regression tests, NATURAL JOIN column-visibility enforcement, set-op ORDER/LIMIT normalization, inline-subquery `WITH` guard unification, canonical `plan_reference_missing` bug-hint alignment, GroundTruth DSG mismatch reason taxonomy with retry-on-mismatch picking, GroundTruth USING-to-ON rewrite for ambiguity reduction, CODDTest build-time null/type prechecks, EET/TLP signature prechecks for invalid ORDER BY ordinals and known-table column visibility, EET distinct-order/scope pre-guards, top-level interval aggregation for `groundtruth_dsg_mismatch_reason`, summary/index top-level propagation of `groundtruth_dsg_mismatch_reason`, builder retry tuning for constrained oracles, GroundTruth/Impo retry-on-invalid-seed behavior, and summary-level `minimize_status` with interrupted fallback.
+Latest sync: skipped float/double columns when building PQS predicates to avoid exact-float false positives (2026-02-09).
+Latest sync: added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with bandit metadata and predicate-range tests (2026-02-09).
+Latest sync: added a minimal PQS 3VL evaluator/rectifier with predicate rectification metadata and fallback reasons (2026-02-08).
+Latest sync: optimized PQS containment queries to match only `id` columns when available, reducing SQL size (2026-02-08).
+Latest sync: reviewed a PQS-focused run: 20 PQS cases (18 join, 1 single-table, 1 error), with one TiDB runtime error (`Error 1105: index out of range`) that was non-reproducible in minimize (2026-02-09).
+Latest sync: added a PQS join containment SQL integration test for basic two-table pivots (2026-02-08).
+Latest sync: cleaned `docs/roadmap.md` completed items, reorganized the roadmap by stages, and synced `docs/todo.md` with `docs/notes/follow-ups.md` (2026-02-08).
+Latest sync: moved completed Impo roadmap items out of TODO tracking and recorded them in feature notes (2026-02-08).
+Latest sync: enhanced PQS pivot sampling with `id`-range selection (avoids `ORDER BY RAND()`), added basic two-table `JOIN ... USING (id)` pivots with alias-aware matching, switched containment checks to `LIMIT 1` existence probes, and enabled a default PQS oracle weight (2026-02-08).
+Latest sync: added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and expanded unit tests (2026-02-08).
 Latest sync: hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
 Latest sync: replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
 Latest sync: switched the report diff viewer `compareMethod` to use `DiffMethod.WORDS_WITH_SPACE` for type-safe builds (2026-02-09).
@@ -43,38 +61,21 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
 10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
 11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
-12. GroundTruth now emits detailed `dsg_key_mismatch_*` skip reasons and retries candidate generation before skipping. (done)
-13. CODDTest now enforces null/type guardrails during query build to reduce runtime `coddtest:null_guard` skips. (done)
-14. EET/TLP now run signature prechecks for invalid ORDER BY ordinals and known-table column visibility before executing signature SQL. (done)
-15. Runner interval summary now reports aggregated `groundtruth_dsg_mismatch_reason` from GroundTruth skip deltas. (done)
-16. Summary/report index metadata now propagates `groundtruth_dsg_mismatch_reason` as a top-level field. (done)
-17. Constrained oracle builders now use higher build retries (`QuerySpec.MaxTries`) and TLP disallows set-ops at build time to reduce false-positive/empty-query skips. (done)
-18. GroundTruth and Impo now retry candidate picking before returning skip reasons on empty/guardrail seeds. (done)
-19. GroundTruth now rewrites USING joins to explicit ON predicates during query picking to avoid ambiguous USING resolution in multi-table left factors. (done)
-20. EET now runs additional scope/distinct-order pre-guards before signature execution to reduce SQL-invalid base errors. (done)
 
 ## PQS (Rigger OSDI20)
 
-1. Add a `PQS` oracle skeleton (`internal/oracle/pqs.go`) with an isolated capability profile and metrics namespace.
-2. Implement pivot-row sampling for generated queries (table/alias-aware), including deterministic row identity serialization for containment checks.
-3. Add a lightweight expression evaluator + rectifier for three-valued logic (`TRUE/FALSE/NULL`) that can force predicate truth for the sampled pivot row.
-4. Build PQS query synthesis paths for `WHERE` first, then `JOIN ON`, and add skip reasons when rectification is unsafe or unsupported.
-5. Add containment assertion SQL templates and reducer-friendly report fields (`pivot_values`, `rectified_predicates`, `containment_query`).
-6. Add staged tests: evaluator correctness, rectification invariants, pivot containment (single-table), then join-path containment.
+1. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
+2. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
+3. Add staged tests for join-path containment and rectification invariants. (join containment SQL test added; rectifier tests added)
+4. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
 
 ## Reporting / Aggregation
 
-1. Build a report index for on-demand loading (replace monolithic `report.json` for large runs). Define `report_index.json` (or sharded `report_index_000.json` + `report_index.meta.json`) with `version`, `generated_at`, and `cases[]` entries containing `case_id`, `oracle`, `reason`, `error_reason`, `flaky`, `timestamp`, `path`, and `has_details`.
-2. Add index writer in `internal/report`: scan case dirs, read `summary.json`, emit index files with a configurable shard size; include optional `index.gz` support for CDN/S3.
-3. Update report UI to load the index first, then fetch individual `summary.json` files on demand; add paging and client-side caching; keep a compatibility mode to read legacy `report.json` when index is missing.
-4. Add `report_base_url` (or reuse existing config) to allow loading reports from a public S3/HTTP endpoint; ensure CORS guidance is documented.
+1. Build a report index for on-demand loading (replace monolithic `report.json` for large runs).
+2. Add index writer with sharding and optional gzip support for CDN/S3.
+3. Update report UI to load the index first, then fetch individual `summary.json` files on demand with paging and caching.
+4. Add `report_base_url` (or reuse existing config) to allow loading reports from HTTP/S3 endpoints with CORS guidance.
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
-6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
-7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
-8. Report summary now includes `minimize_status` and emits early case-allocation logs to improve logs/reports correlation. (done)
-9. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
-10. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
-11. Minimize now runs strategy-based multi-pass reduction with validated insert-merge adoption and weighted candidate acceptance to avoid non-improving rewrites. (done)
 
 ## Coverage / Guidance
 

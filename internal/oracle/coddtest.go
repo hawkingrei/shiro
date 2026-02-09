@@ -253,6 +253,7 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 	}
 	defer util.CloseWithErr(rows, "coddtest rows")
 
+	seen := make(map[string]struct{})
 	caseExpr := generator.CaseExpr{}
 	for rows.Next() {
 		values := make([]sql.RawBytes, len(colNames)+1)
@@ -263,6 +264,12 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		if err := rows.Scan(scanArgs...); err != nil {
 			return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
 		}
+
+		key := coddtestCaseKey(cols, values)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 
 		var cond generator.Expr
 		for i, col := range cols {
@@ -326,6 +333,29 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+}
+
+func coddtestCaseKey(cols []generator.ColumnRef, values []sql.RawBytes) string {
+	if len(cols) == 0 || len(values) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, col := range cols {
+		b.WriteString(col.Table)
+		b.WriteByte('.')
+		b.WriteString(col.Name)
+		b.WriteByte('=')
+		if i >= len(values) || values[i] == nil {
+			b.WriteString("NULL")
+			b.WriteByte(';')
+			continue
+		}
+		b.WriteString(strconv.Itoa(len(values[i])))
+		b.WriteByte(':')
+		b.Write(values[i])
+		b.WriteByte(';')
+	}
+	return b.String()
 }
 
 func queryUsesOnlyBaseTables(query *generator.SelectQuery, baseNames map[string]struct{}) bool {

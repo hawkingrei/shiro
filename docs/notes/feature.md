@@ -52,3 +52,20 @@
 
 ## QPG stats
 - Added a monotonic seen SQL counter to avoid negative deltas from TTL-based sweeps.
+
+## PQS optimization
+- Reduced PQS containment SQL size by selecting and matching only `id` columns when all pivot tables expose them.
+- Added a minimal 3VL evaluator/rectifier for PQS predicates with rectification metadata and fallback reasons.
+- Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with per-run bandit metadata.
+- Skipped float/double columns when building PQS predicates to reduce false positives from exact float equality.
+
+## Impo roadmap completions
+- Logged per-interval `sql_valid_ratio`, `impo_invalid_columns_ratio`, and `impo_base_exec_failed_ratio`, with threshold alerts.
+- Persisted Impo artifacts (`impo_seed.sql`, `impo_init.sql`, `impo_mutated.sql`) in case outputs.
+- Added Impo config knobs for max mutations, timeout, stage1 disable, and LR join retention.
+- Added base row-count precheck and skip when exceeding the configured cap.
+- Added seed-query guards for nondeterminism and plan cache hints/session variables.
+- Implemented Impo mutations for ANY/ALL, BETWEEN, IN-list, EXISTS, HAVING, ORDER BY removal, LIMIT expansion, comparison normalization, WHERE tautology/contradiction, and UNION/UNION ALL variants.
+- Rejected recursive CTEs while allowing non-recursive WITH in Impo init.
+- Emitted mutation-type coverage counters in Impo details.
+- Recorded Impo replay metadata and wired `impo_contains` for minimizer replay checks.

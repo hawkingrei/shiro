@@ -18,9 +18,26 @@ Links:
 
 - After each task completes, review and update `AGENTS.md` and `docs/todo.md`, removing completed items and syncing current progress.
 - Documentation must be written in English.
+- When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
 
 ## Recent updates
 
+- Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
+- Stripped database qualifiers from dumped CREATE VIEW statements in reports, with normalizeCreateView tests (2026-02-09).
+- Deduplicated CODDTest CASE conditions to reduce oversized dependent predicates, with regression coverage (2026-02-09).
+- Guarded NATURAL JOIN generation when left-side duplicate column names would cause ambiguity, with generator regression coverage (2026-02-09).
+- Addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status updates) (2026-02-09).
+- Fixed PQS lints by handling `rows.Close()` errors and naming multi-value returns flagged by revive (2026-02-09).
+- Skipped float/double columns when building PQS predicates to avoid exact-float false positives (2026-02-09).
+- Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with bandit metadata and predicate-range tests (2026-02-09).
+- Added a minimal PQS 3VL evaluator/rectifier with predicate rectification metadata and fallback reasons (2026-02-08).
+- Optimized PQS containment queries to match only `id` columns when available, reducing SQL size (2026-02-08).
+- Reviewed a PQS-focused run: 20 PQS cases (18 join, 1 single-table, 1 error), with one TiDB runtime error (`Error 1105: index out of range`) that was non-reproducible in minimize (2026-02-09).
+- Added a PQS join containment SQL integration test for basic two-table pivots (2026-02-08).
+- Cleaned `docs/roadmap.md` completed items, reorganized the roadmap by stages, and synced `docs/todo.md` with `docs/notes/follow-ups.md` (2026-02-08).
+- Moved completed Impo roadmap items out of TODO tracking and recorded them in feature notes (2026-02-08).
+- Enhanced PQS pivot sampling with `id`-range selection (avoids `ORDER BY RAND()`), added basic two-table `JOIN ... USING (id)` pivots with alias-aware matching, switched containment checks to `LIMIT 1` existence probes, and enabled a default PQS oracle weight (2026-02-08).
+- Added PQS v1 oracle (single-table pivot selection, equality/IS NULL predicates, containment check), wired weights/overrides/config, and expanded unit tests (2026-02-08).
 - Updated the remaining report diff viewer `compareMethod` usage to the `DiffMethod.WORDS_WITH_SPACE` enum to satisfy Next.js type checks (2026-02-09).
 - Switched the report diff viewer `compareMethod` to use the `DiffMethod.WORDS_WITH_SPACE` enum for type-safe Next.js builds (2026-02-09).
 - Replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
