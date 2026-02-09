@@ -9,6 +9,7 @@ Latest sync: vendored `react-diff-viewer-continued` compute worker implementatio
 Latest sync: CI now verifies the web worker alias config and runs a release web build via `SHIRO_RELEASE=1` to exercise the optimized build path (2026-02-09).
 Latest sync: next config now loads webpack via Next's bundled webpack fallback so the worker config test runs in CI without a direct webpack dependency (2026-02-09).
 Latest sync: turbopack aliases now include relative compute-lines/computeWorker specifiers to avoid resolution failures with relative worker imports (2026-02-09).
+Latest sync: documented web worker override upgrade guidance in `docs/notes/feature.md` (2026-02-09).
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
