@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"shiro/internal/report"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestGroundTruthDSGMismatchReasonFromDetails(t *testing.T) {
@@ -73,7 +75,7 @@ func TestApplyMinimizeOutcomeFlakyBaseReplay(t *testing.T) {
 		status: "skipped",
 		reason: minimizeReasonBaseReplayNotReproducible,
 		flaky:  true,
-	})
+	}, nil)
 	if summary.MinimizeStatus != "skipped" {
 		t.Fatalf("MinimizeStatus=%q want=skipped", summary.MinimizeStatus)
 	}
@@ -96,7 +98,7 @@ func TestApplyMinimizeOutcomeSuccess(t *testing.T) {
 	applyMinimizeOutcome(&summary, details, minimizeOutput{
 		minimized: true,
 		status:    "success",
-	})
+	}, nil)
 	if summary.MinimizeStatus != "success" {
 		t.Fatalf("MinimizeStatus=%q want=success", summary.MinimizeStatus)
 	}
@@ -105,5 +107,28 @@ func TestApplyMinimizeOutcomeSuccess(t *testing.T) {
 	}
 	if _, ok := details["minimize_reason"]; ok {
 		t.Fatalf("unexpected minimize_reason detail")
+	}
+}
+
+func TestApplyMinimizeOutcomeFlakyErrno(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "in_progress",
+		Flaky:          false,
+	}
+	details := map[string]any{}
+	err := &mysql.MySQLError{
+		Number:  1064,
+		Message: "syntax error",
+	}
+	applyMinimizeOutcome(&summary, details, minimizeOutput{
+		status: "skipped",
+		reason: minimizeReasonBaseReplayNotReproducible,
+		flaky:  true,
+	}, err)
+	if summary.Flaky {
+		t.Errorf("Flaky=true want=false")
+	}
+	if _, ok := details["flaky_reason"]; ok {
+		t.Errorf("unexpected flaky_reason detail")
 	}
 }

@@ -33,6 +33,7 @@ Links:
 - Next config now loads webpack via Next's bundled webpack fallback to keep the worker config test runnable in CI (2026-02-09).
 - Turbopack aliases now include relative compute-lines/computeWorker specifiers to avoid resolution failures when the diff viewer uses relative worker imports (2026-02-09).
 - Documented web worker override upgrade guidance in `docs/notes/feature.md` (2026-02-09).
+- Adjusted flaky errno test to use non-fatal assertions (2026-02-09).
 - Refined profile constraint application to avoid relaxing subquery bans; simplified CERT/CODDTest builder setup; added override/profile regression tests (2026-02-08).
 - NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
 - Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
