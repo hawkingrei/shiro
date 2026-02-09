@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
 import ReactDiffViewer from "react-diff-viewer-continued";
 
@@ -135,7 +135,7 @@ const formatExplain = (text: string) => {
     .join("\n");
 };
 
-type CaseBlock = { label: string; content: JSX.Element; copyText?: string };
+type CaseBlock = { label: string; content: ReactNode; copyText?: string };
 
 const renderBlock = (block: CaseBlock | null) => {
   if (!block) {
