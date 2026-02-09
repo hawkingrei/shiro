@@ -34,6 +34,75 @@ func TestPQSPredicateExprForValue(t *testing.T) {
 	}
 }
 
+func TestPQSEvalRectify(t *testing.T) {
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+			{Name: "c1", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "1"},
+				"c1": {Column: tbl.Columns[1], Null: true},
+			},
+		},
+	}
+	refC0 := generator.ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}
+	refC1 := generator.ColumnRef{Table: "t0", Name: "c1", Type: schema.TypeInt}
+
+	trueExpr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: refC0},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: int64(1)},
+	}
+	if got := pqsEvalExpr(trueExpr, pivot); got != pqsTruthTrue {
+		t.Fatalf("expected true eval, got %v", got)
+	}
+	rectTrue := pqsRectifyExpr(trueExpr, pqsTruthTrue)
+	if got := buildExpr(rectTrue); got != "(t0.c0 = 1)" {
+		t.Fatalf("expected rectified true, got %s", got)
+	}
+
+	falseExpr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: refC0},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: int64(2)},
+	}
+	if got := pqsEvalExpr(falseExpr, pivot); got != pqsTruthFalse {
+		t.Fatalf("expected false eval, got %v", got)
+	}
+	rectFalse := pqsRectifyExpr(falseExpr, pqsTruthFalse)
+	if got := buildExpr(rectFalse); got != "NOT (t0.c0 = 2)" {
+		t.Fatalf("expected rectified false, got %s", got)
+	}
+
+	nullExpr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: refC1},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: int64(1)},
+	}
+	if got := pqsEvalExpr(nullExpr, pivot); got != pqsTruthNull {
+		t.Fatalf("expected null eval, got %v", got)
+	}
+	rectNull := pqsRectifyExpr(nullExpr, pqsTruthNull)
+	if got := buildExpr(rectNull); got != "((t0.c1 = 1) IS NULL)" {
+		t.Fatalf("expected rectified null, got %s", got)
+	}
+
+	unknownExpr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: refC0},
+		Op:    "LIKE",
+		Right: generator.LiteralExpr{Value: "%"},
+	}
+	if got := pqsEvalExpr(unknownExpr, pivot); got != pqsTruthUnknown {
+		t.Fatalf("expected unknown eval, got %v", got)
+	}
+}
+
 func TestPQSPredicateForPivotSingleColumn(t *testing.T) {
 	gen := newPQSTestGenerator(t, 1)
 	tbl := schema.Table{

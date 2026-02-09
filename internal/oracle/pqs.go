@@ -66,9 +66,13 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	query, aliases := buildPQSQuery(pivot)
-	predicate := pqsPredicateForPivot(gen, pivot)
+	predicate, predMeta := pqsBuildPredicate(gen, pivot)
 	if predicate == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "pqs:predicate_empty"}}
+		reason := "pqs:predicate_empty"
+		if predMeta.Reason != "" {
+			reason = "pqs:" + predMeta.Reason
+		}
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": reason}}
 	}
 	query.Where = predicate
 
@@ -82,7 +86,14 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	present := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		reason, code := sqlErrorReason("pqs", err)
-		details := map[string]any{"error_reason": reason}
+		details := map[string]any{
+			"error_reason":            reason,
+			"pqs_predicate":           predMeta.Rectified,
+			"pqs_predicate_original":  predMeta.Original,
+			"pqs_predicate_rectified": predMeta.Rectified,
+			"pqs_rectify_reason":      predMeta.Reason,
+			"pqs_rectify_fallback":    predMeta.Fallback,
+		}
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
@@ -98,17 +109,21 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			Expected: "pivot_row_present",
 			Actual:   "pivot_row_missing",
 			Details: map[string]any{
-				"pqs_table":            pqsSingleTableName(tableNames),
-				"pqs_tables":           tableNames,
-				"pqs_predicate":        buildExpr(predicate),
-				"pqs_match":            matchSQL,
-				"pivot_values":         pqsPivotValueMap(pivot),
-				"rectified_predicates": []string{buildExpr(predicate)},
-				"containment_query":    containSQL,
-				"replay_kind":          "exists",
-				"replay_expected_sql":  replayExpected,
-				"replay_actual_sql":    "SELECT 1",
-				"replay_expected_note": "pqs_contains",
+				"pqs_table":               pqsSingleTableName(tableNames),
+				"pqs_tables":              tableNames,
+				"pqs_predicate":           predMeta.Rectified,
+				"pqs_predicate_original":  predMeta.Original,
+				"pqs_predicate_rectified": predMeta.Rectified,
+				"pqs_rectify_reason":      predMeta.Reason,
+				"pqs_rectify_fallback":    predMeta.Fallback,
+				"pqs_match":               matchSQL,
+				"pivot_values":            pqsPivotValueMap(pivot),
+				"rectified_predicates":    []string{predMeta.Rectified},
+				"containment_query":       containSQL,
+				"replay_kind":             "exists",
+				"replay_expected_sql":     replayExpected,
+				"replay_actual_sql":       "SELECT 1",
+				"replay_expected_note":    "pqs_contains",
 			},
 		}
 	}
