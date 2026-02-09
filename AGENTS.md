@@ -25,6 +25,7 @@ Links:
 - Guarded `next build` behind a release flag so local defaults use `next dev`, and added a `build:release` script for optimized builds (2026-02-09).
 - Switched the default `next dev` script to `--webpack` and added `dev:turbo` for optional Turbopack runs (2026-02-09).
 - Vendored `react-diff-viewer-continued` compute worker implementation to break the worker/compute-lines import cycle while keeping Worker execution, and aliased Next.js to the local compute-lines module (2026-02-09).
+- CI now verifies the web worker alias config and runs a release web build via `SHIRO_RELEASE=1` to exercise the optimized build path (2026-02-09).
 - Refined profile constraint application to avoid relaxing subquery bans; simplified CERT/CODDTest builder setup; added override/profile regression tests (2026-02-08).
 - NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
 - Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).
