@@ -21,6 +21,18 @@ Links:
 
 ## Recent updates
 
+- Updated the remaining report diff viewer `compareMethod` usage to the `DiffMethod.WORDS_WITH_SPACE` enum to satisfy Next.js type checks (2026-02-09).
+- Switched the report diff viewer `compareMethod` to use the `DiffMethod.WORDS_WITH_SPACE` enum for type-safe Next.js builds (2026-02-09).
+- Replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
+- Hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
+- Configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification test for the web report build (2026-02-09).
+- Guarded `next build` behind a release flag so local defaults use `next dev`, and added a `build:release` script for optimized builds (2026-02-09).
+- Switched the default `next dev` script to `--turbo` and added `dev:webpack` for a webpack fallback (2026-02-09).
+- Vendored `react-diff-viewer-continued` compute worker implementation to break the worker/compute-lines import cycle while keeping Worker execution, and aliased Next.js to the local compute-lines module (2026-02-09).
+- CI now verifies the web worker alias config and runs a release web build via `SHIRO_RELEASE=1` to exercise the optimized build path (2026-02-09).
+- Next config now loads webpack via Next's bundled webpack fallback to keep the worker config test runnable in CI (2026-02-09).
+- Turbopack aliases now include relative compute-lines/computeWorker specifiers to avoid resolution failures when the diff viewer uses relative worker imports (2026-02-09).
+- Documented web worker override upgrade guidance in `docs/notes/feature.md` (2026-02-09).
 - Refined profile constraint application to avoid relaxing subquery bans; simplified CERT/CODDTest builder setup; added override/profile regression tests (2026-02-08).
 - NoREC profile now disables set operations; added profile-constraint mapping tests and SelectQueryBuilder analysis refresh regression coverage (2026-02-08).
 - Renamed oracle profile types/helpers to avoid revive stutter warnings (2026-02-08).

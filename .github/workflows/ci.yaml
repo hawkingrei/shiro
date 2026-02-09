@@ -46,6 +46,17 @@ jobs:
       - name: Run web lint
         working-directory: web
         run: npm run lint
+
+      - name: Verify web worker config
+        working-directory: web
+        run: npm run test:worker
+
+      - name: Run web build (release)
+        working-directory: web
+        env:
+          SHIRO_RELEASE: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
       - name: Install TiUP
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh

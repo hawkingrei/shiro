@@ -10,6 +10,12 @@
 - Added ESLint flat config using `eslint-config-next` and wired `npm run lint` to `eslint .`.
 - Added CI step to run `npm run lint` in `web`.
 
+## Web build and worker overrides
+- The diff viewer worker pipeline is vendored under `web/vendor/react-diff-viewer-continued/` to avoid the `compute-lines` ↔ worker import cycle while keeping Web Worker execution.
+- When upgrading `react-diff-viewer-continued`, re-sync `compute-core.js` from `lib/esm/src/compute-lines.js` and keep `computeWorker.js` importing `compute-core.js` (not `compute-lines.js`).
+- `web/next.config.js` must keep alias entries for `compute-lines.js` and relative `./computeWorker.ts` so Turbopack resolves the worker correctly.
+- Validate with `npm run test:worker` and use `SHIRO_RELEASE=1 npm run build` for optimized builds.
+
 ## Generator randomness
 - Randomized DATE/DATETIME/TIMESTAMP literals across year/month/day and full time range (2023-2026), with leap-year aware day bounds.
 - TQS randomValue now uses the same broader date/time range with leap-year handling.
