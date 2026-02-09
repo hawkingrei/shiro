@@ -18,9 +18,11 @@ Links:
 
 - After each task completes, review and update `AGENTS.md` and `docs/todo.md`, removing completed items and syncing current progress.
 - Documentation must be written in English.
+- When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
 
 ## Recent updates
 
+- Guarded NATURAL JOIN generation when left-side duplicate column names would cause ambiguity, with generator regression coverage (2026-02-09).
 - Addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status updates) (2026-02-09).
 - Fixed PQS lints by handling `rows.Close()` errors and naming multi-value returns flagged by revive (2026-02-09).
 - Skipped float/double columns when building PQS predicates to avoid exact-float false positives (2026-02-09).
