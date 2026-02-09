@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
-const webpack = require("webpack");
+let webpack;
+try {
+  webpack = require("next/dist/compiled/webpack/webpack");
+} catch {
+  webpack = require("webpack");
+}
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const localComputeLines = path.resolve(
