@@ -205,9 +205,7 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			return nil, err
@@ -220,6 +218,9 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return pqsPivotRowFromRaw([]schema.Table{tbl}, cols, raw), nil
@@ -606,9 +607,7 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			return nil, err
@@ -621,6 +620,9 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return pqsPivotRowFromRaw(tables, cols, raw), nil

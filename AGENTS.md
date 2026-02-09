@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
 - Stripped database qualifiers from dumped CREATE VIEW statements in reports, with normalizeCreateView tests (2026-02-09).
 - Deduplicated CODDTest CASE conditions to reduce oversized dependent predicates, with regression coverage (2026-02-09).
 - Guarded NATURAL JOIN generation when left-side duplicate column names would cause ambiguity, with generator regression coverage (2026-02-09).

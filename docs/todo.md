@@ -5,6 +5,7 @@ Latest sync: addressed PQS review feedback (bool literal consistency, row error 
 Latest sync: fixed PQS lints for errcheck (rows.Close) and revive confusing-results (2026-02-09).
 Latest sync: aligned TODO with follow-ups after PQS float-guard work (2026-02-09).
 Latest sync: deduplicated CODDTest CASE conditions to reduce oversized dependent predicates (2026-02-09).
+Latest sync: ensured PQS pivot row fetch checks rows.Err to avoid silent skips (2026-02-09).
 Latest sync: stripped database qualifiers from dumped CREATE VIEW statements in reports (2026-02-09).
 Latest sync: added NATURAL JOIN guard to avoid ambiguous columns in generated SQL (2026-02-09).
 Latest sync: documented TiDB issue formatting guidance (collapse schema/load data details, format run query SQL) (2026-02-09).
