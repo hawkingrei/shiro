@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
 - Configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification test for the web report build (2026-02-09).
 - Guarded `next build` behind a release flag so local defaults use `next dev`, and added a `build:release` script for optimized builds (2026-02-09).
 - Switched the default `next dev` script to `--turbo` and added `dev:webpack` for a webpack fallback (2026-02-09).

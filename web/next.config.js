@@ -1,11 +1,43 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
-let webpack;
-try {
-  webpack = require("next/dist/compiled/webpack/webpack");
-} catch {
-  webpack = require("webpack");
-}
+
+const webpackLib = (() => {
+  try {
+    return require("next/dist/compiled/webpack/webpack");
+  } catch {
+    try {
+      return require("webpack");
+    } catch {
+      return null;
+    }
+  }
+})();
+
+const resolveNormalModuleReplacementPlugin = (webpackModule) => {
+  const candidates = [
+    webpackModule?.NormalModuleReplacementPlugin,
+    webpackModule?.webpack?.NormalModuleReplacementPlugin,
+    webpackModule?.default?.NormalModuleReplacementPlugin,
+    webpackModule?.default?.webpack?.NormalModuleReplacementPlugin,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "function") {
+      return candidate;
+    }
+  }
+
+  try {
+    const fallback = require("webpack");
+    if (typeof fallback?.NormalModuleReplacementPlugin === "function") {
+      return fallback.NormalModuleReplacementPlugin;
+    }
+  } catch {}
+
+  return null;
+};
+
+const NormalModuleReplacementPlugin =
+  resolveNormalModuleReplacementPlugin(webpackLib);
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const vendorComputeLinesRel =
@@ -63,16 +95,22 @@ const nextConfig = {
       ".ts": [".ts", ".js"],
       ".tsx": [".tsx", ".jsx", ".js"],
     };
-    const replacementPlugin = new webpack.NormalModuleReplacementPlugin(
-      /^\.\/compute-lines\.js$/,
-      (resource) => {
-        if (resource.context && resource.context.includes(computeLinesContext)) {
-          resource.request = localComputeLines;
+    if (NormalModuleReplacementPlugin) {
+      const replacementPlugin = new NormalModuleReplacementPlugin(
+        /^\.\/compute-lines\.js$/,
+        (resource) => {
+          if (
+            resource.context &&
+            resource.context.includes(computeLinesContext)
+          ) {
+            resource.request = localComputeLines;
+          }
         }
-      }
-    );
-    replacementPlugin.__shiro_label = "replace-react-diff-viewer-compute-lines";
-    config.plugins = [...(config.plugins || []), replacementPlugin];
+      );
+      replacementPlugin.__shiro_label =
+        "replace-react-diff-viewer-compute-lines";
+      config.plugins = [...(config.plugins || []), replacementPlugin];
+    }
     return config;
   },
 };
