@@ -67,12 +67,29 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	query, aliases := buildPQSQuery(pivot)
 	predicate, predMeta := pqsBuildPredicate(gen, pivot)
+	updateBandit := func(ok bool, err error, skipped bool) {
+		if !predMeta.BanditEnabled {
+			return
+		}
+		reward := pqsBanditReward(ok, err, skipped)
+		pqsUpdatePredicateArm(gen, pqsPredicateArm(predMeta.PredicateArm), reward)
+	}
+	attachBandit := func(details map[string]any) map[string]any {
+		if details == nil {
+			details = map[string]any{}
+		}
+		details["pqs_bandit_enabled"] = predMeta.BanditEnabled
+		details["pqs_bandit_arm"] = predMeta.PredicateArm
+		details["pqs_bandit_arm_name"] = predMeta.PredicateArmID
+		return details
+	}
 	if predicate == nil {
 		reason := "pqs:predicate_empty"
 		if predMeta.Reason != "" {
 			reason = "pqs:" + predMeta.Reason
 		}
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": reason}}
+		updateBandit(true, nil, true)
+		return Result{OK: true, Oracle: o.Name(), Details: attachBandit(map[string]any{"skip_reason": reason})}
 	}
 	query.Where = predicate
 
@@ -97,18 +114,20 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, Err: err, Details: details}
+		updateBandit(true, err, false)
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, Err: err, Details: attachBandit(details)}
 	}
 	if !present {
 		replayExpected := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
 		tableNames := pqsPivotTableNames(pivot)
+		updateBandit(false, nil, false)
 		return Result{
 			OK:       false,
 			Oracle:   o.Name(),
 			SQL:      []string{querySQL, containSQL},
 			Expected: "pivot_row_present",
 			Actual:   "pivot_row_missing",
-			Details: map[string]any{
+			Details: attachBandit(map[string]any{
 				"pqs_table":               pqsSingleTableName(tableNames),
 				"pqs_tables":              tableNames,
 				"pqs_predicate":           predMeta.Rectified,
@@ -124,9 +143,10 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				"replay_expected_sql":     replayExpected,
 				"replay_actual_sql":       "SELECT 1",
 				"replay_expected_note":    "pqs_contains",
-			},
+			}),
 		}
 	}
+	updateBandit(true, nil, false)
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}}
 }
 
@@ -265,6 +285,10 @@ func buildPQSQuery(pivot *pqsPivotRow) (*generator.SelectQuery, []pqsAliasColumn
 }
 
 func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generator.Expr {
+	return pqsPredicateForPivotWithRange(gen, pivot, 1, pqsPredicateMaxCols)
+}
+
+func pqsPredicateForPivotWithRange(gen *generator.Generator, pivot *pqsPivotRow, minCols, maxCols int) generator.Expr {
 	if pivot == nil || len(pivot.Tables) == 0 {
 		return nil
 	}
@@ -288,10 +312,20 @@ func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generato
 	gen.Rand.Shuffle(len(indices), func(i, j int) {
 		indices[i], indices[j] = indices[j], indices[i]
 	})
-	maxCols := pqsMin(pqsPredicateMaxCols, len(indices))
-	useCols := 1
-	if maxCols > 1 {
-		useCols = 1 + gen.Rand.Intn(maxCols)
+	maxAllowed := pqsMin(maxCols, len(indices))
+	if maxAllowed <= 0 {
+		return nil
+	}
+	minAllowed := minCols
+	if minAllowed < 1 {
+		minAllowed = 1
+	}
+	if minAllowed > maxAllowed {
+		minAllowed = maxAllowed
+	}
+	useCols := minAllowed
+	if maxAllowed > minAllowed {
+		useCols = minAllowed + gen.Rand.Intn(maxAllowed-minAllowed+1)
 	}
 	var expr generator.Expr
 	for _, idx := range indices[:useCols] {

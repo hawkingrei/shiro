@@ -1,7 +1,7 @@
 # Follow-ups
 
 This list mirrors `docs/todo.md` and is kept in sync to avoid stale plans.
-Last sync: 2026-02-08.
+Last sync: 2026-02-09.
 
 ## Generator / Oracles
 
@@ -19,10 +19,9 @@ Last sync: 2026-02-08.
 
 ## PQS (Rigger OSDI20)
 
-1. Add a lightweight expression evaluator + rectifier for three-valued logic (`TRUE/FALSE/NULL`) that can force predicate truth for the sampled pivot row.
-2. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
-3. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
-4. Add staged tests for join-path containment and rectification invariants.
+1. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
+2. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
+3. Add staged tests for join-path containment and rectification invariants.
 
 ## Reporting / Aggregation
 

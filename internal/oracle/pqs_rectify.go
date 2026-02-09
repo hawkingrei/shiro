@@ -37,14 +37,46 @@ type pqsValue struct {
 }
 
 type pqsPredicateMeta struct {
-	Original  string
-	Rectified string
-	Reason    string
-	Fallback  bool
+	Original       string
+	Rectified      string
+	Reason         string
+	Fallback       bool
+	BanditEnabled  bool
+	PredicateArm   int
+	PredicateArmID string
 }
 
 func pqsBuildPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsPredicateMeta) {
 	meta := pqsPredicateMeta{Fallback: true}
+	arm, banditEnabled := pqsPickPredicateArm(gen)
+	meta.BanditEnabled = banditEnabled
+	meta.PredicateArm = int(arm)
+	meta.PredicateArmID = pqsPredicateArmName(arm)
+	switch arm {
+	case pqsArmPivotSingle:
+		predicate := pqsPredicateForPivotWithRange(gen, pivot, 1, 1)
+		if predicate == nil {
+			meta.Reason = "strategy_pivot_single_empty"
+			return nil, meta
+		}
+		meta.Original = buildExpr(predicate)
+		meta.Rectified = meta.Original
+		meta.Reason = "strategy_pivot_single"
+		meta.Fallback = true
+		return predicate, meta
+	case pqsArmPivotMulti:
+		predicate := pqsPredicateForPivotWithRange(gen, pivot, 2, pqsPredicateMaxCols)
+		if predicate == nil {
+			meta.Reason = "strategy_pivot_multi_empty"
+			return nil, meta
+		}
+		meta.Original = buildExpr(predicate)
+		meta.Rectified = meta.Original
+		meta.Reason = "strategy_pivot_multi"
+		meta.Fallback = true
+		return predicate, meta
+	default:
+	}
 	candidate := pqsRandomPredicate(gen, pivot)
 	if candidate != nil {
 		meta.Original = buildExpr(candidate)

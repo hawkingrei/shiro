@@ -123,6 +123,42 @@ func TestPQSPredicateForPivotSingleColumn(t *testing.T) {
 	}
 }
 
+func TestPQSPredicateForPivotRange(t *testing.T) {
+	gen := newPQSTestGenerator(t, 2)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+			{Name: "c1", Type: schema.TypeInt},
+			{Name: "c2", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "1"},
+				"c1": {Column: tbl.Columns[1], Raw: "2"},
+				"c2": {Column: tbl.Columns[2], Raw: "3"},
+			},
+		},
+	}
+	single := pqsPredicateForPivotWithRange(gen, pivot, 1, 1)
+	if single == nil {
+		t.Fatalf("expected single-column predicate")
+	}
+	if got := countColumnExpr(single); got != 1 {
+		t.Fatalf("expected 1 column expr, got %d", got)
+	}
+	multi := pqsPredicateForPivotWithRange(gen, pivot, 2, 3)
+	if multi == nil {
+		t.Fatalf("expected multi-column predicate")
+	}
+	if got := countColumnExpr(multi); got < 2 {
+		t.Fatalf("expected at least 2 column exprs, got %d", got)
+	}
+}
+
 func TestPQSMatchExpr(t *testing.T) {
 	tbl := schema.Table{
 		Name: "t0",
@@ -284,4 +320,17 @@ func newPQSTestGenerator(t *testing.T, seed int64) *generator.Generator {
 		t.Fatalf("load config: %v", err)
 	}
 	return generator.New(cfg, &schema.State{}, seed)
+}
+
+func countColumnExpr(expr generator.Expr) int {
+	switch e := expr.(type) {
+	case generator.BinaryExpr:
+		return countColumnExpr(e.Left) + countColumnExpr(e.Right)
+	case generator.UnaryExpr:
+		return countColumnExpr(e.Expr)
+	case generator.ColumnExpr:
+		return 1
+	default:
+		return 0
+	}
 }
