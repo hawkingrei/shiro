@@ -11,6 +11,7 @@ import (
 	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 // PQS implements a basic Pivoted Query Synthesis oracle (single-table and simple joins).
