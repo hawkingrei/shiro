@@ -56,7 +56,7 @@ This roadmap lists pending work only. Completed items are tracked in `docs/notes
 
 ## Stage 2: PQS and Adaptive
 
-- Implement a 3VL expression evaluator and rectifier for PQS.
+- Extend the 3VL expression evaluator and rectifier for PQS to cover additional edge cases and dialect-specific NULL semantics.
 - Add join-aware pivot binding across aliases and JOIN ON rectification.
 - Extend containment SQL templates for join-path PQS and add reducer-friendly artifacts.
 - Add staged PQS tests for join-path containment.

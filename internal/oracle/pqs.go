@@ -209,6 +209,9 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 		_ = rows.Close()
 	}()
 	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	raw := make([]sql.RawBytes, len(colNames))
@@ -321,7 +324,16 @@ func pqsPredicateForPivotWithRange(gen *generator.Generator, pivot *pqsPivotRow,
 		Table  string
 		Column schema.Column
 	}
-	cols := make([]pqsColumnRef, 0, len(pivot.Tables))
+	allowedCols := 0
+	for _, tbl := range pivot.Tables {
+		for _, col := range tbl.Columns {
+			if !pqsPredicateColumnAllowed(col) {
+				continue
+			}
+			allowedCols++
+		}
+	}
+	cols := make([]pqsColumnRef, 0, allowedCols)
 	for _, tbl := range pivot.Tables {
 		for _, col := range tbl.Columns {
 			if !pqsPredicateColumnAllowed(col) {
@@ -413,18 +425,14 @@ func pqsLiteralValue(col schema.Column, raw string) any {
 			return v
 		}
 	case schema.TypeFloat, schema.TypeDouble:
-		if v, err := strconv.ParseFloat(raw, 64); err == nil {
-			return v
-		}
+		return raw
 	case schema.TypeBool:
-		if raw == "0" || raw == "1" {
-			if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
-				return v
-			}
-		}
 		lower := strings.ToLower(raw)
-		if lower == "true" || lower == "false" {
-			return lower == "true"
+		if lower == "true" || lower == "1" {
+			return true
+		}
+		if lower == "false" || lower == "0" {
+			return false
 		}
 	case schema.TypeDecimal:
 		return raw
@@ -507,7 +515,11 @@ func pqsTableColumn(tbl schema.Table, name string) (schema.Column, bool) {
 }
 
 func pqsSelectColumns(tables []schema.Table) []pqsSelectColumn {
-	cols := make([]pqsSelectColumn, 0, len(tables))
+	totalCols := 0
+	for _, tbl := range tables {
+		totalCols += len(tbl.Columns)
+	}
+	cols := make([]pqsSelectColumn, 0, totalCols)
 	for _, tbl := range tables {
 		for _, col := range tbl.Columns {
 			cols = append(cols, pqsSelectColumn{
@@ -598,6 +610,9 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 		_ = rows.Close()
 	}()
 	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	raw := make([]sql.RawBytes, len(cols))

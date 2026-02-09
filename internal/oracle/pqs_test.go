@@ -330,10 +330,12 @@ func TestPQSLiteralValueBool(t *testing.T) {
 	if value == nil {
 		t.Fatalf("expected literal value")
 	}
-	switch value.(type) {
-	case int64, int, bool:
-	default:
+	boolVal, ok := value.(bool)
+	if !ok {
 		t.Fatalf("unexpected bool literal type %T", value)
+	}
+	if !boolVal {
+		t.Fatalf("expected true for bool literal")
 	}
 }
 

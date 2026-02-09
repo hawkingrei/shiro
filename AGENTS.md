@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status updates) (2026-02-09).
 - Fixed PQS lints by handling `rows.Close()` errors and naming multi-value returns flagged by revive (2026-02-09).
 - Skipped float/double columns when building PQS predicates to avoid exact-float false positives (2026-02-09).
 - Added a PQS predicate-strategy bandit (rectify-random vs pivot-single/multi) with bandit metadata and predicate-range tests (2026-02-09).
