@@ -1,10 +1,17 @@
 /** @type {import('next').NextConfig} */
 const path = require("path");
+const webpack = require("webpack");
 
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 const localComputeLines = path.resolve(
   __dirname,
   "vendor/react-diff-viewer-continued/compute-lines.js"
+);
+const computeLinesContext = path.join(
+  "react-diff-viewer-continued",
+  "lib",
+  "esm",
+  "src"
 );
 
 const workerAlias = {
@@ -39,6 +46,16 @@ const nextConfig = {
       ".ts": [".ts", ".js"],
       ".tsx": [".tsx", ".jsx", ".js"],
     };
+    const replacementPlugin = new webpack.NormalModuleReplacementPlugin(
+      /^\.\/compute-lines\.js$/,
+      (resource) => {
+        if (resource.context && resource.context.includes(computeLinesContext)) {
+          resource.request = localComputeLines;
+        }
+      }
+    );
+    replacementPlugin.__shiro_label = "replace-react-diff-viewer-compute-lines";
+    config.plugins = [...(config.plugins || []), replacementPlugin];
     return config;
   },
 };
