@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
-import ReactDiffViewer from "react-diff-viewer-continued";
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 
 type FileContent = {
   name?: string;
@@ -485,7 +485,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />

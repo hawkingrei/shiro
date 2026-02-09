@@ -21,6 +21,7 @@ Links:
 
 ## Recent updates
 
+- Switched the report diff viewer `compareMethod` to use the `DiffMethod.WORDS_WITH_SPACE` enum for type-safe Next.js builds (2026-02-09).
 - Replaced the `JSX.Element` type alias in the report page with `ReactNode` to avoid missing JSX namespace errors during Next.js builds (2026-02-09).
 - Hardened compute worker webpack replacement plugin resolution so CI tests do not fail when `NormalModuleReplacementPlugin` is missing from the bundled webpack export (2026-02-09).
 - Configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification test for the web report build (2026-02-09).
