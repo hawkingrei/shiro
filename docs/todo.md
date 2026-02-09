@@ -5,6 +5,7 @@ Last review: 2026-02-07. Added broader SQL2023 regression coverage (recursive CT
 Latest sync: configured Next.js alias/extension alias to map `computeWorker.ts` to the shipped `computeWorker.js` and updated the worker verification script for the web report build (2026-02-09).
 Latest sync: guarded `next build` behind a release flag and added a `build:release` script so local defaults use `next dev` (2026-02-09).
 Latest sync: switched the default `next dev` script to `--webpack` and added `dev:turbo` for optional Turbopack runs (2026-02-09).
+Latest sync: vendored `react-diff-viewer-continued` compute worker implementation to break the worker/compute-lines cycle while keeping Worker execution, and aliased Next.js to the local compute-lines module (2026-02-09).
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).

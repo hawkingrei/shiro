@@ -1,7 +1,14 @@
 /** @type {import('next').NextConfig} */
+const path = require("path");
+
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
+const localComputeLines = path.resolve(
+  __dirname,
+  "vendor/react-diff-viewer-continued/compute-lines.js"
+);
 
 const workerAlias = {
+  "react-diff-viewer-continued/lib/esm/src/compute-lines.js": localComputeLines,
   "react-diff-viewer-continued/lib/esm/src/computeWorker.ts":
     "react-diff-viewer-continued/lib/esm/src/computeWorker.js",
   "react-diff-viewer-continued/lib/cjs/src/computeWorker.ts":

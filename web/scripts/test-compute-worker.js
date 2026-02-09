@@ -3,6 +3,19 @@ const path = require("path");
 
 const nextConfig = require("../next.config.js");
 
+const vendorBase = path.join(
+  __dirname,
+  "..",
+  "vendor",
+  "react-diff-viewer-continued"
+);
+
+const vendorFiles = [
+  path.join(vendorBase, "compute-core.js"),
+  path.join(vendorBase, "compute-lines.js"),
+  path.join(vendorBase, "computeWorker.js"),
+];
+
 const base = path.join(
   __dirname,
   "..",
@@ -17,11 +30,21 @@ const workerFiles = [
 ];
 
 const expectedAlias = {
+  "react-diff-viewer-continued/lib/esm/src/compute-lines.js": path.resolve(
+    vendorBase,
+    "compute-lines.js"
+  ),
   "react-diff-viewer-continued/lib/esm/src/computeWorker.ts":
     "react-diff-viewer-continued/lib/esm/src/computeWorker.js",
   "react-diff-viewer-continued/lib/cjs/src/computeWorker.ts":
     "react-diff-viewer-continued/lib/cjs/src/computeWorker.js",
 };
+
+for (const file of vendorFiles) {
+  if (!fs.existsSync(file)) {
+    throw new Error(`missing vendor file: ${file}`);
+  }
+}
 
 for (const file of workerFiles) {
   if (!fs.existsSync(file)) {
