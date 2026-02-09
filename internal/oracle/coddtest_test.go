@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"shiro/internal/config"
@@ -95,5 +96,34 @@ func TestCODDTestPredicatePrecheckReason(t *testing.T) {
 	}
 	if reason := coddtestPredicatePrecheckReason(state, unsupported); reason != "constraint:type_guard" {
 		t.Fatalf("expected constraint:type_guard, got %q", reason)
+	}
+}
+
+func TestCODDTestCaseKeyDedupes(t *testing.T) {
+	cols := []generator.ColumnRef{
+		{Table: "t0", Name: "id", Type: schema.TypeInt},
+		{Table: "t1", Name: "k0", Type: schema.TypeVarchar},
+	}
+	values1 := []sql.RawBytes{[]byte("1"), []byte("s32")}
+	values2 := []sql.RawBytes{[]byte("1"), []byte("s32")}
+	values3 := []sql.RawBytes{[]byte("2"), []byte("s32")}
+	values4 := []sql.RawBytes{nil, []byte("s32")}
+
+	key1 := coddtestCaseKey(cols, values1)
+	key2 := coddtestCaseKey(cols, values2)
+	key3 := coddtestCaseKey(cols, values3)
+	key4 := coddtestCaseKey(cols, values4)
+
+	if key1 == "" {
+		t.Fatalf("expected non-empty key")
+	}
+	if key1 != key2 {
+		t.Fatalf("expected identical keys for identical values")
+	}
+	if key1 == key3 {
+		t.Fatalf("expected different keys for different values")
+	}
+	if key1 == key4 {
+		t.Fatalf("expected different keys for NULL values")
 	}
 }
