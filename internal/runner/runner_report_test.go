@@ -126,9 +126,9 @@ func TestApplyMinimizeOutcomeFlakyErrno(t *testing.T) {
 		flaky:  true,
 	}, err)
 	if summary.Flaky {
-		t.Fatalf("Flaky=true want=false")
+		t.Errorf("Flaky=true want=false")
 	}
 	if _, ok := details["flaky_reason"]; ok {
-		t.Fatalf("unexpected flaky_reason detail")
+		t.Errorf("unexpected flaky_reason detail")
 	}
 }
