@@ -44,6 +44,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy := eetPredicatePolicy(gen)
 	spec := QuerySpec{
 		Oracle:          "eet",
+		Profile:         ProfileByName("EET"),
 		PredicatePolicy: policy,
 		PredicateGuard:  true,
 		MaxTries:        eetBuildMaxTries,

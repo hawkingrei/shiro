@@ -105,7 +105,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	result.Details = details
 	annotateResultForReporting(&result)
 	details = result.Details
-	flaky := isFlakyExplain(details)
+	flaky := isFlakyExplain(details, result.Err)
 	errorReason := ""
 	if reason, ok := details["error_reason"].(string); ok {
 		errorReason = reason
@@ -219,7 +219,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
 	if r.cfg.Minimize.Enabled && spec.kind != "" {
 		minimized := r.minimizeCase(ctx, result, spec)
-		applyMinimizeOutcome(&summary, details, minimized)
+		applyMinimizeOutcome(&summary, details, minimized, result.Err)
 		if minimized.minimized {
 			if len(minimized.caseSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
@@ -339,7 +339,21 @@ func (r *Runner) queryResultRows(ctx context.Context, sqlText string, maxRows in
 	return b.String(), truncated, nil
 }
 
-func isFlakyExplain(details map[string]any) bool {
+func hasErrno(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := mysqlErrCode(err); ok {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "errno")
+}
+
+func isFlakyExplain(details map[string]any, err error) bool {
+	if hasErrno(err) {
+		return false
+	}
 	if details == nil {
 		return false
 	}
@@ -375,7 +389,7 @@ func groundTruthDSGMismatchReasonFromDetails(details map[string]any) string {
 	}
 }
 
-func applyMinimizeOutcome(summary *report.Summary, details map[string]any, output minimizeOutput) {
+func applyMinimizeOutcome(summary *report.Summary, details map[string]any, output minimizeOutput, err error) {
 	if summary == nil {
 		return
 	}
@@ -394,7 +408,7 @@ func applyMinimizeOutcome(summary *report.Summary, details map[string]any, outpu
 	if details != nil && reason != "" {
 		details["minimize_reason"] = reason
 	}
-	if output.flaky {
+	if output.flaky && !hasErrno(err) {
 		summary.Flaky = true
 		if details != nil && reason != "" {
 			details["flaky_reason"] = reason

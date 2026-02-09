@@ -50,30 +50,41 @@ func (o CODDTest) Run(ctx context.Context, exec *db.DB, gen *generator.Generator
 	}
 	policy := predicatePolicyFor(gen)
 	policy.allowIsNull = false
-	builder := generator.NewSelectQueryBuilder(gen).
-		RequireWhere().
-		PredicateMode(generator.PredicateModeSimple).
-		RequireDeterministic().
-		DisallowAggregate().
-		MaxJoinCount(2).
-		QueryGuardWithReason(func(query *generator.SelectQuery) (bool, string) {
-			if query == nil {
-				return false, "constraint:query_guard"
-			}
-			if len(query.With) > 0 {
-				return false, "constraint:query_guard"
-			}
-			if !queryUsesOnlyBaseTables(query, baseNames) {
-				return false, "constraint:query_guard"
-			}
-			if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
-				return false, reason
-			}
-			return true, ""
-		}).
-		PredicateGuard(func(expr generator.Expr) bool {
-			return predicateMatches(expr, policy)
-		})
+	queryGuard := func(query *generator.SelectQuery) (bool, string) {
+		if query == nil {
+			return false, "constraint:query_guard"
+		}
+		if len(query.With) > 0 {
+			return false, "constraint:query_guard"
+		}
+		if !queryUsesOnlyBaseTables(query, baseNames) {
+			return false, "constraint:query_guard"
+		}
+		if reason := coddtestPredicatePrecheckReason(state, query); reason != "" {
+			return false, reason
+		}
+		return true, ""
+	}
+	predicateGuard := func(expr generator.Expr) bool {
+		return predicateMatches(expr, policy)
+	}
+	constraints := generator.SelectQueryConstraints{
+		RequireWhere:         true,
+		PredicateMode:        generator.PredicateModeSimple,
+		RequireDeterministic: true,
+		DisallowAggregate:    true,
+		MaxJoinCount:         2,
+		MaxJoinCountSet:      true,
+		QueryGuardReason:     queryGuard,
+		PredicateGuard:       predicateGuard,
+	}
+	if profile := ProfileByName("CODDTest"); profile != nil {
+		applyProfileToSpec(&constraints, profile)
+		if profile.PredicateMode != nil {
+			constraints.PredicateMode = *profile.PredicateMode
+		}
+	}
+	builder := generator.NewSelectQueryBuilder(gen).WithConstraints(constraints)
 	query, reason, attempts := builder.BuildWithReason()
 	if query == nil || query.Where == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": builderSkipReason("coddtest", reason), "builder_reason": reason, "builder_attempts": attempts}}

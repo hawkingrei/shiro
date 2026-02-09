@@ -59,6 +59,14 @@ func AnalyzeQuery(query *SelectQuery) QueryAnalysis {
 		return QueryAnalysis{}
 	}
 	features := AnalyzeQueryFeatures(query)
+	return AnalyzeQueryWithFeatures(query, features)
+}
+
+// AnalyzeQueryWithFeatures builds QueryAnalysis with precomputed features.
+func AnalyzeQueryWithFeatures(query *SelectQuery, features QueryFeatures) QueryAnalysis {
+	if query == nil {
+		return QueryAnalysis{}
+	}
 	return QueryAnalysis{
 		Deterministic: QueryDeterministic(query),
 		HasAggregate:  features.HasAggregate,
@@ -81,7 +89,20 @@ func (g *Generator) setQueryAnalysis(query *SelectQuery) {
 	if g == nil || query == nil {
 		return
 	}
-	analysis := AnalyzeQuery(query)
+	if query.Analysis == nil {
+		analysis := AnalyzeQuery(query)
+		query.Analysis = &analysis
+		g.LastAnalysis = &analysis
+		return
+	}
+	g.LastAnalysis = query.Analysis
+}
+
+func (g *Generator) setQueryAnalysisWithFeatures(query *SelectQuery, features QueryFeatures) {
+	if g == nil || query == nil {
+		return
+	}
+	analysis := AnalyzeQueryWithFeatures(query, features)
 	query.Analysis = &analysis
 	g.LastAnalysis = &analysis
 }

@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -148,6 +149,27 @@ func TestSelectQueryBuilderDisallowSetOps(t *testing.T) {
 	}
 	if len(query.SetOps) > 0 {
 		t.Fatalf("unexpected set operations")
+	}
+}
+
+func TestSelectQueryBuilderRefreshesAnalysisAfterAttachPredicate(t *testing.T) {
+	gen := newTestGenerator(t)
+	gen.SetPredicateMode(PredicateModeNone)
+	query := NewSelectQueryBuilder(gen).
+		RequireWhere().
+		MaxTries(50).
+		Build()
+	if query == nil || query.Where == nil {
+		t.Fatalf("expected query with attached predicate")
+	}
+	if query.Analysis == nil {
+		t.Fatalf("expected query analysis")
+	}
+	cached := *query.Analysis
+	query.Analysis = nil
+	fresh := AnalyzeQuery(query)
+	if !reflect.DeepEqual(cached, fresh) {
+		t.Fatalf("expected refreshed analysis, cached=%+v fresh=%+v", cached, fresh)
 	}
 }
 

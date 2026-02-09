@@ -111,3 +111,61 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 		t.Fatalf("pqs override should set predicate mode none")
 	}
 }
+
+func TestApplyOracleOverridesAllowSubquery(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Features.Subqueries = false
+	cfg.Features.NotExists = false
+	cfg.Features.NotIn = false
+	state := &schema.State{}
+	r := &Runner{gen: generator.New(cfg, state, 4)}
+
+	restore := r.applyOracleOverrides("EET")
+
+	if !r.gen.Config.Features.Subqueries {
+		t.Fatalf("eet override should enable subqueries")
+	}
+	if !r.gen.Config.Features.NotExists {
+		t.Fatalf("eet override should enable not exists")
+	}
+	if !r.gen.Config.Features.NotIn {
+		t.Fatalf("eet override should enable not in")
+	}
+
+	restore()
+
+	if r.gen.Config.Features.Subqueries != cfg.Features.Subqueries {
+		t.Fatalf("expected subqueries restored")
+	}
+	if r.gen.Config.Features.NotExists != cfg.Features.NotExists {
+		t.Fatalf("expected not exists restored")
+	}
+	if r.gen.Config.Features.NotIn != cfg.Features.NotIn {
+		t.Fatalf("expected not in restored")
+	}
+}
+
+func TestApplyOracleOverridesJoinUsingProbMin(t *testing.T) {
+	cfg, err := config.Load("../../config.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.JoinUsingProb = 0
+	state := &schema.State{}
+	r := &Runner{gen: generator.New(cfg, state, 5)}
+
+	restore := r.applyOracleOverrides("GroundTruth")
+
+	if r.gen.Config.Oracles.JoinUsingProb < 100 {
+		t.Fatalf("groundtruth override should raise join using prob, got %d", r.gen.Config.Oracles.JoinUsingProb)
+	}
+
+	restore()
+
+	if r.gen.Config.Oracles.JoinUsingProb != cfg.Oracles.JoinUsingProb {
+		t.Fatalf("expected join using prob restored")
+	}
+}

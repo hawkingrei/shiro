@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
-import ReactDiffViewer from "react-diff-viewer-continued";
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 
 type FileContent = {
   name?: string;
@@ -135,7 +135,7 @@ const formatExplain = (text: string) => {
     .join("\n");
 };
 
-type CaseBlock = { label: string; content: JSX.Element; copyText?: string };
+type CaseBlock = { label: string; content: ReactNode; copyText?: string };
 
 const renderBlock = (block: CaseBlock | null) => {
   if (!block) {
@@ -485,7 +485,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />
@@ -505,7 +505,7 @@ export default function Page() {
                       splitView
                       showDiffOnly={!showExplainSame}
                       useDarkTheme={false}
-                      compareMethod="diffWordsWithSpace"
+                      compareMethod={DiffMethod.WORDS_WITH_SPACE}
                       disableWordDiff={false}
                       extraLinesSurroundingDiff={2}
                     />
