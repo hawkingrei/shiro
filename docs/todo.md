@@ -2,6 +2,7 @@
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
 Latest sync: completed PQS v2/v3 (join-aware JOIN ON, subquery predicates, derived tables) and refreshed PQS TODOs (2026-02-09).
+Latest sync: added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
 Latest sync: addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status) (2026-02-09).
 Latest sync: fixed PQS lints for errcheck (rows.Close) and revive confusing-results (2026-02-09).
 Latest sync: aligned TODO with follow-ups after PQS float-guard work (2026-02-09).
@@ -53,7 +54,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 
 1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
 2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
-3. DQP: expand plan-hint coverage and add optimizer variables if needed.
+3. DQP: expand plan-hint coverage and add optimizer variables if needed. (Added SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern.)
 4. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
 5. Consider lowering DSG per-table row counts to stay under the GroundTruth cap.
 6. Split join-only vs join+filter predicates into explicit strategies with separate weights and observability.

@@ -15,11 +15,11 @@
     "next": "^16.1.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "react-diff-viewer-continued": "^4.1.0",
+    "react-diff-viewer-continued": "^4.1.2",
     "sql-formatter": "^15.5.2"
   },
   "devDependencies": {
-    "@types/node": "25.2.1",
+    "@types/node": "25.2.2",
     "@types/react": "19.2.13",
     "typescript": "5.9.3",
     "eslint": "^9.0.0",
