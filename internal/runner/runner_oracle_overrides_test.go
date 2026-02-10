@@ -98,6 +98,15 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 	if !r.gen.Config.Features.Subqueries {
 		t.Fatalf("pqs override should enable subqueries")
 	}
+	if !r.gen.Config.Features.QuantifiedSubqueries {
+		t.Fatalf("pqs override should enable quantified subqueries")
+	}
+	if r.gen.Config.Features.NotExists {
+		t.Fatalf("pqs override should disable not exists")
+	}
+	if r.gen.Config.Features.NotIn {
+		t.Fatalf("pqs override should disable not in")
+	}
 	if !r.gen.Config.Features.DerivedTables {
 		t.Fatalf("pqs override should enable derived tables")
 	}

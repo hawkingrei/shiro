@@ -32,6 +32,8 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 
 	cfg := origCfg
 	profile.Features.Apply(&cfg.Features)
+	explicitNotExists := profile.Features.NotExists
+	explicitNotIn := profile.Features.NotIn
 	if profile.JoinOnPolicy != nil {
 		cfg.Oracles.JoinOnPolicy = *profile.JoinOnPolicy
 	}
@@ -48,6 +50,12 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 			cfg.Features.NotExists = false
 			cfg.Features.NotIn = false
 		}
+	}
+	if explicitNotExists != nil {
+		cfg.Features.NotExists = *explicitNotExists
+	}
+	if explicitNotIn != nil {
+		cfg.Features.NotIn = *explicitNotIn
 	}
 	r.gen.Config = cfg
 
