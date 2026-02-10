@@ -120,7 +120,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			reason = "pqs:" + predMeta.Reason
 		}
 		updateBandit(true, nil, true)
-		details := pqsAttachMeta(map[string]any{"skip_reason": reason}, predMeta, subqueryMeta, joinMeta, joinOn, derivedTables)
+		details := pqsAttachMeta(map[string]any{"skip_reason": reason}, subqueryMeta, joinMeta, joinOn, derivedTables)
 		return Result{OK: true, Oracle: o.Name(), Details: attachBandit(details)}
 	}
 	query.Where = predicate
@@ -142,7 +142,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			"pqs_predicate_rectified": predMeta.Rectified,
 			"pqs_rectify_reason":      predMeta.Reason,
 			"pqs_rectify_fallback":    predMeta.Fallback,
-		}, predMeta, subqueryMeta, joinMeta, joinOn, derivedTables)
+		}, subqueryMeta, joinMeta, joinOn, derivedTables)
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
@@ -175,7 +175,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				"replay_expected_sql":     replayExpected,
 				"replay_actual_sql":       "SELECT 1",
 				"replay_expected_note":    "pqs_contains",
-			}, predMeta, subqueryMeta, joinMeta, joinOn, derivedTables)),
+			}, subqueryMeta, joinMeta, joinOn, derivedTables)),
 		}
 	}
 	updateBandit(true, nil, false)
@@ -552,7 +552,7 @@ func pqsBuildSubqueryPredicate(gen *generator.Generator, pivot *pqsPivotRow, for
 		}
 		kind = kinds[gen.Rand.Intn(len(kinds))]
 	}
-	return pqsBuildSubqueryPredicateWithKind(gen, pivot, tbl, col, val, kind)
+	return pqsBuildSubqueryPredicateWithKind(tbl, col, val, kind)
 }
 
 func pqsBuildSubqueryPredicateForKind(gen *generator.Generator, pivot *pqsPivotRow, kind string) (generator.Expr, pqsSubqueryMeta) {
@@ -560,10 +560,10 @@ func pqsBuildSubqueryPredicateForKind(gen *generator.Generator, pivot *pqsPivotR
 	if !ok {
 		return nil, pqsSubqueryMeta{Reason: "subquery_no_columns"}
 	}
-	return pqsBuildSubqueryPredicateWithKind(gen, pivot, tbl, col, val, kind)
+	return pqsBuildSubqueryPredicateWithKind(tbl, col, val, kind)
 }
 
-func pqsBuildSubqueryPredicateWithKind(gen *generator.Generator, pivot *pqsPivotRow, tbl schema.Table, col schema.Column, val pqsPivotValue, kind string) (generator.Expr, pqsSubqueryMeta) {
+func pqsBuildSubqueryPredicateWithKind(tbl schema.Table, col schema.Column, val pqsPivotValue, kind string) (generator.Expr, pqsSubqueryMeta) {
 	meta := pqsSubqueryMeta{Kind: kind, Table: tbl.Name, Column: col.Name}
 	if val.Null && kind != "exists" {
 		kind = "exists"
@@ -656,7 +656,7 @@ func pqsCombinePredicates(left, right generator.Expr) generator.Expr {
 	return generator.BinaryExpr{Left: left, Op: "AND", Right: right}
 }
 
-func pqsAttachMeta(details map[string]any, predMeta pqsPredicateMeta, subqueryMeta pqsSubqueryMeta, joinMeta *pqsJoinPredicateMeta, joinOn bool, derivedTables []string) map[string]any {
+func pqsAttachMeta(details map[string]any, subqueryMeta pqsSubqueryMeta, joinMeta *pqsJoinPredicateMeta, joinOn bool, derivedTables []string) map[string]any {
 	if details == nil {
 		details = map[string]any{}
 	}
