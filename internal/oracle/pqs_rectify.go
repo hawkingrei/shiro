@@ -127,50 +127,6 @@ func pqsBuildPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.
 	return fallback, meta
 }
 
-func pqsBuildJoinPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsJoinPredicateMeta) {
-	meta := pqsJoinPredicateMeta{Fallback: true}
-	if !pqsHasSafePredicateColumns(pivot) {
-		meta.Reason = "predicate_no_safe_columns"
-		return nil, meta
-	}
-	candidate := pqsRandomPredicate(gen, pivot)
-	if candidate != nil {
-		meta.Original = buildExpr(candidate)
-		truth := pqsEvalExpr(candidate, pivot)
-		rectified := pqsRectifyExpr(candidate, truth)
-		switch truth {
-		case pqsTruthTrue:
-			meta.Reason = "rectify_true"
-		case pqsTruthFalse:
-			meta.Reason = "rectify_false"
-		case pqsTruthNull:
-			meta.Reason = "rectify_null"
-		default:
-			meta.Reason = "predicate_unsupported"
-		}
-		if rectified != nil && truth != pqsTruthUnknown {
-			meta.Rectified = buildExpr(rectified)
-			meta.Fallback = false
-			return rectified, meta
-		}
-		if rectified == nil {
-			meta.Reason = "rectify_failed"
-		}
-	}
-	fallback := pqsPredicateForPivot(gen, pivot)
-	if fallback == nil {
-		if meta.Reason == "" {
-			meta.Reason = "predicate_empty"
-		}
-		return nil, meta
-	}
-	if meta.Rectified == "" {
-		meta.Rectified = buildExpr(fallback)
-	}
-	meta.Fallback = true
-	return fallback, meta
-}
-
 func pqsRandomPredicate(gen *generator.Generator, pivot *pqsPivotRow) generator.Expr {
 	if gen == nil || pivot == nil || len(pivot.Tables) == 0 {
 		return nil

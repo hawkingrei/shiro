@@ -381,7 +381,7 @@ func pqsApplyJoinOn(gen *generator.Generator, pivot *pqsPivotRow, query *generat
 	if !ok {
 		return pqsJoinPredicateMeta{Reason: "join_base_missing"}, false
 	}
-	meta := pqsJoinPredicateMeta{}
+	meta := pqsJoinPredicateMeta{Fallback: true, Reason: "join_rectify_skip"}
 	preds := make([]string, 0, len(query.From.Joins))
 	onExprs := make([]generator.Expr, 0, len(query.From.Joins))
 	leftTables := []schema.Table{base}
@@ -397,7 +397,8 @@ func pqsApplyJoinOn(gen *generator.Generator, pivot *pqsPivotRow, query *generat
 			joinTables = append(joinTables, right)
 			rectified, meta = pqsBuildJoinPredicateForTables(gen, pivot, joinTables)
 		}
-		onExpr, ok := pqsJoinOnExpr(gen, pivot, base, right, rectified)
+		leftTable := leftTables[len(leftTables)-1]
+		onExpr, ok := pqsJoinOnExpr(gen, pivot, leftTable, right, rectified)
 		if !ok {
 			return pqsJoinPredicateMeta{Reason: "join_on_missing"}, false
 		}
@@ -543,24 +544,41 @@ func pqsBuildSubqueryPredicate(gen *generator.Generator, pivot *pqsPivotRow, for
 		meta.Reason = "subquery_no_columns"
 		return nil, meta
 	}
-	meta.Table = tbl.Name
-	meta.Column = col.Name
-	pivotPred := pqsPredicateExprForValue(generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, val)
-	subquery := pqsBuildSubqueryQuery(tbl, pivotPred)
+	kind := "exists"
+	if !val.Null {
+		kinds := []string{"exists", "in"}
+		if gen.Config.Features.QuantifiedSubqueries {
+			kinds = append(kinds, "any", "all")
+		}
+		kind = kinds[gen.Rand.Intn(len(kinds))]
+	}
+	return pqsBuildSubqueryPredicateWithKind(gen, pivot, tbl, col, val, kind)
+}
+
+func pqsBuildSubqueryPredicateForKind(gen *generator.Generator, pivot *pqsPivotRow, kind string) (generator.Expr, pqsSubqueryMeta) {
+	tbl, col, val, ok := pqsPickSubqueryColumn(gen, pivot)
+	if !ok {
+		return nil, pqsSubqueryMeta{Reason: "subquery_no_columns"}
+	}
+	return pqsBuildSubqueryPredicateWithKind(gen, pivot, tbl, col, val, kind)
+}
+
+func pqsBuildSubqueryPredicateWithKind(gen *generator.Generator, pivot *pqsPivotRow, tbl schema.Table, col schema.Column, val pqsPivotValue, kind string) (generator.Expr, pqsSubqueryMeta) {
+	meta := pqsSubqueryMeta{Kind: kind, Table: tbl.Name, Column: col.Name}
+	if val.Null && kind != "exists" {
+		kind = "exists"
+		meta.Kind = kind
+		meta.Reason = "subquery_null_fallback"
+	}
+	ref := generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
+	pivotPred := pqsPredicateExprForValue(ref, val)
+	selectExpr := generator.Expr(generator.LiteralExpr{Value: 1})
+	if kind != "exists" {
+		selectExpr = generator.ColumnExpr{Ref: ref}
+	}
+	subquery := pqsBuildSubqueryQuery(tbl, selectExpr, pivotPred)
 	meta.SQL = subquery.SQLString()
-	if val.Null {
-		meta.Kind = "exists"
-		expr := generator.ExistsExpr{Query: subquery}
-		meta.Predicate = buildExpr(expr)
-		return expr, meta
-	}
-	kinds := []string{"exists", "in"}
-	if gen.Config.Features.QuantifiedSubqueries {
-		kinds = append(kinds, "any", "all")
-	}
-	kind := kinds[gen.Rand.Intn(len(kinds))]
-	meta.Kind = kind
-	left := generator.ColumnExpr{Ref: generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}}
+	left := generator.ColumnExpr{Ref: ref}
 	switch kind {
 	case "in":
 		expr := generator.InExpr{Left: left, List: []generator.Expr{generator.SubqueryExpr{Query: subquery}}}
@@ -581,10 +599,13 @@ func pqsBuildSubqueryPredicate(gen *generator.Generator, pivot *pqsPivotRow, for
 	}
 }
 
-func pqsBuildSubqueryQuery(tbl schema.Table, predicate generator.Expr) *generator.SelectQuery {
+func pqsBuildSubqueryQuery(tbl schema.Table, selectExpr generator.Expr, predicate generator.Expr) *generator.SelectQuery {
+	if selectExpr == nil {
+		selectExpr = generator.LiteralExpr{Value: 1}
+	}
 	return &generator.SelectQuery{
 		Items: []generator.SelectItem{{
-			Expr:  generator.LiteralExpr{Value: 1},
+			Expr:  selectExpr,
 			Alias: "c0",
 		}},
 		From:  generator.FromClause{BaseTable: tbl.Name},
