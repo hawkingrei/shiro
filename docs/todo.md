@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: completed PQS v2/v3 (join-aware JOIN ON, subquery predicates, derived tables) and refreshed PQS TODOs (2026-02-09).
 Latest sync: added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
 Latest sync: addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status) (2026-02-09).
 Latest sync: fixed PQS lints for errcheck (rows.Close) and revive confusing-results (2026-02-09).
@@ -65,10 +66,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 
 ## PQS (Rigger OSDI20)
 
-1. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
-2. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
-3. Add staged tests for join-path containment and rectification invariants. (join containment SQL test added; rectifier tests added)
-4. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
+1. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
 
 ## Reporting / Aggregation
 

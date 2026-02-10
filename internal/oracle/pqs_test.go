@@ -324,6 +324,168 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 	}
 }
 
+func TestPQSJoinOnPredicate(t *testing.T) {
+	left := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	right := schema.Table{
+		Name: "t1",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c1", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{left, right},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"id": {Column: left.Columns[0], Raw: "1"},
+				"c0": {Column: left.Columns[1], Raw: "7"},
+			},
+			"t1": {
+				"id": {Column: right.Columns[0], Raw: "1"},
+				"c1": {Column: right.Columns[1], Raw: "9"},
+			},
+		},
+	}
+	expr, ok := pqsJoinOnExpr(nil, pivot, left, right, nil)
+	if !ok {
+		t.Fatalf("expected join-on predicate")
+	}
+	if got := buildExpr(expr); got != "((t0.id = t1.id) AND (t1.c1 = 9))" {
+		t.Fatalf("unexpected join-on predicate: %s", got)
+	}
+}
+
+func TestPQSSubqueryPredicateExists(t *testing.T) {
+	gen := newPQSTestGenerator(t, 4)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Null: true},
+			},
+		},
+	}
+	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "exists")
+	if expr == nil {
+		t.Fatalf("expected subquery predicate")
+	}
+	if meta.Kind != "exists" {
+		t.Fatalf("expected exists subquery, got %s", meta.Kind)
+	}
+	expected := "EXISTS (SELECT 1 AS c0 FROM t0 WHERE (t0.c0 IS NULL))"
+	if got := buildExpr(expr); got != expected {
+		t.Fatalf("unexpected exists predicate: %s", got)
+	}
+}
+
+func TestPQSSubqueryPredicateIn(t *testing.T) {
+	gen := newPQSTestGenerator(t, 6)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "7"},
+			},
+		},
+	}
+	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "in")
+	if expr == nil {
+		t.Fatalf("expected subquery predicate")
+	}
+	if meta.Kind != "in" {
+		t.Fatalf("expected in subquery, got %s", meta.Kind)
+	}
+	expected := "(t0.c0 IN ((SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7))))"
+	if got := buildExpr(expr); got != expected {
+		t.Fatalf("unexpected in predicate: %s", got)
+	}
+}
+
+func TestPQSSubqueryPredicateAnyAll(t *testing.T) {
+	gen := newPQSTestGenerator(t, 7)
+	gen.Config.Features.QuantifiedSubqueries = true
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "7"},
+			},
+		},
+	}
+	anyExpr, anyMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "any")
+	if anyExpr == nil {
+		t.Fatalf("expected any subquery predicate")
+	}
+	if anyMeta.Kind != "any" {
+		t.Fatalf("expected any subquery, got %s", anyMeta.Kind)
+	}
+	expectedAny := "(t0.c0 = ANY (SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7)))"
+	if got := buildExpr(anyExpr); got != expectedAny {
+		t.Fatalf("unexpected any predicate: %s", got)
+	}
+	allExpr, allMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "all")
+	if allExpr == nil {
+		t.Fatalf("expected all subquery predicate")
+	}
+	if allMeta.Kind != "all" {
+		t.Fatalf("expected all subquery, got %s", allMeta.Kind)
+	}
+	expectedAll := "(t0.c0 = ALL (SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7)))"
+	if got := buildExpr(allExpr); got != expectedAll {
+		t.Fatalf("unexpected all predicate: %s", got)
+	}
+}
+
+func TestPQSDerivedTableQuery(t *testing.T) {
+	gen := newPQSTestGenerator(t, 5)
+	tbl := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{tbl},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"c0": {Column: tbl.Columns[0], Raw: "7"},
+			},
+		},
+	}
+	query := pqsDerivedTableQuery(gen, pivot, tbl)
+	if query == nil {
+		t.Fatalf("expected derived table query")
+	}
+	expected := "SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7)"
+	if got := query.SQLString(); got != expected {
+		t.Fatalf("unexpected derived table query: %s", got)
+	}
+}
+
 func TestPQSLiteralValueBool(t *testing.T) {
 	col := schema.Column{Name: "c0", Type: schema.TypeBool}
 	value := pqsLiteralValue(col, "1")
