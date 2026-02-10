@@ -1,7 +1,19 @@
 import nextConfig from "eslint-config-next";
+import tseslint from "typescript-eslint";
 
 const config = [
-  ...nextConfig,
+  ...nextConfig.map((entry) => {
+    if (entry.name !== "next") {
+      return entry;
+    }
+    return {
+      ...entry,
+      languageOptions: {
+        ...entry.languageOptions,
+        parser: tseslint.parser,
+      },
+    };
+  }),
   {
     settings: {
       react: {
