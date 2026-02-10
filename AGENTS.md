@@ -23,6 +23,7 @@ Links:
 ## Recent updates
 
 - Pinned React version in ESLint settings and bumped CI Node to 20.19.0 to keep ESLint 10 compatible with Next.js linting (2026-02-10).
+- Switched Next ESLint base config to the TypeScript parser to avoid ESLint 10 scope manager incompatibilities (2026-02-10).
 - Added PQS v2/v3 support: join-aware `JOIN ON` predicates with rectification metadata, subquery predicates (`EXISTS`/`IN`/`ANY`/`ALL`), derived-table wrapping, and tests plus updated PQS docs/TODOs (2026-02-09).
 - Added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
 - Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
