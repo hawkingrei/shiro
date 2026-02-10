@@ -65,6 +65,10 @@ wrangler dev
 wrangler deploy
 ```
 
+## Assets
+The Git-integrated deploy expects an assets directory. This repo provides an empty `assets/` by default.
+If you want to serve a static UI, build it and copy the output into `assets/` before deploying.
+
 ## Integration with `cmd/shiro-report`
 Use these flags to publish report manifests to R2/S3-compatible storage and sync D1 metadata:
 ```bash
