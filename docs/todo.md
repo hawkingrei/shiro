@@ -35,6 +35,8 @@ Latest sync: next config now loads webpack via Next's bundled webpack fallback s
 Latest sync: turbopack aliases now include relative compute-lines/computeWorker specifiers to avoid resolution failures with relative worker imports (2026-02-09).
 Latest sync: documented web worker override upgrade guidance in `docs/notes/feature.md` (2026-02-09).
 Latest sync: adjusted flaky errno test assertions to use non-fatal checks (2026-02-09).
+Latest sync: fixed lints for worker sync HTTP response close path (`bodyclose`) and case-archive exported constant comments (`revive`) (2026-02-08).
+Latest sync: addressed PR #78 security/reliability findings for Worker auth defaults/body limits/download URL handling and `shiro-report` artifact URL generation (2026-02-07).
 Latest sync: cleaned lint-only `ineffassign` findings in GroundTruth query picking and runner DSG mismatch label extraction (2026-02-07).
 Latest sync: completed PR-77 follow-ups for alias rendering, nested-query scope enforcement (with strict empty-column-set checks), and FULL JOIN emulation USING anti-filter scope compatibility; added generator/oracle regression tests (2026-02-07).
 Latest sync: Impo seed guardrail now preserves the last concrete skip reason, and minimize now requires base replay reproducibility before reduction (non-reproducible cases are tagged flaky with explicit reason fields); added runner/oracle regression tests (2026-02-07).
@@ -75,6 +77,15 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 3. Update report UI to load the index first, then fetch individual `summary.json` files on demand with paging and caching.
 4. Add `report_base_url` (or reuse existing config) to allow loading reports from HTTP/S3 endpoints with CORS guidance.
 5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
+7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
+8. Report summary now includes `minimize_status` and emits early case-allocation logs to improve logs/reports correlation. (done)
+9. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
+10. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
+11. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
+12. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
+13. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
+14. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 
 ## Coverage / Guidance
 

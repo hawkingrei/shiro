@@ -145,6 +145,9 @@ const viewDDLBoostProb = 70
 func New(cfg config.Config, exec *db.DB) *Runner {
 	state := &schema.State{}
 	gen := generator.New(cfg, state, cfg.Seed)
+	caseReporter := report.New(cfg.PlanReplayer.OutputDir, cfg.MaxDataDumpRows)
+	// Use UUID-based report directory layout when S3 storage is enabled.
+	caseReporter.UseUUIDPath = cfg.Storage.S3.Enabled
 	cloudUploader, err := uploader.NewS3(cfg.Storage.S3)
 	if err != nil {
 		cloudUploader = nil
@@ -160,7 +163,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		state:                   state,
 		baseDB:                  cfg.Database,
 		validator:               validator.New(),
-		reporter:                report.New(cfg.PlanReplayer.OutputDir, cfg.MaxDataDumpRows),
+		reporter:                caseReporter,
 		replayer:                replayer.New(cfg.PlanReplayer),
 		uploader:                up,
 		impoSkipReasons:         make(map[string]int64),

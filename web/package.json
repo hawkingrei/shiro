@@ -8,7 +8,9 @@
     "build": "node scripts/guard-build.js && next build",
     "build:release": "SHIRO_RELEASE=1 next build",
     "start": "next start",
+    "compile": "tsc --noEmit",
     "lint": "eslint .",
+    "test": "tsx --test test/*.test.ts",
     "test:worker": "node scripts/test-compute-worker.js"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "@types/react": "19.2.13",
     "typescript": "5.9.3",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^16.1.6"
+    "eslint-config-next": "^16.1.6",
+    "tsx": "^4.20.6"
   }
 }
