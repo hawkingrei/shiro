@@ -95,8 +95,11 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 	restore := r.applyOracleOverrides("PQS")
 	defer restore()
 
-	if r.gen.Config.Features.Subqueries {
-		t.Fatalf("pqs override should disable subqueries")
+	if !r.gen.Config.Features.Subqueries {
+		t.Fatalf("pqs override should enable subqueries")
+	}
+	if !r.gen.Config.Features.DerivedTables {
+		t.Fatalf("pqs override should enable derived tables")
 	}
 	if r.gen.Config.Features.SetOperations {
 		t.Fatalf("pqs override should disable set operations")

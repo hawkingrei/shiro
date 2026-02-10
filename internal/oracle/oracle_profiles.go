@@ -7,22 +7,23 @@ import (
 
 // FeatureOverrides describes per-oracle feature flags to toggle capabilities.
 type FeatureOverrides struct {
-	CTE               *bool
-	Views             *bool
-	DerivedTables     *bool
-	SetOperations     *bool
-	NaturalJoins      *bool
-	FullJoinEmulation *bool
-	Aggregates        *bool
-	GroupBy           *bool
-	Having            *bool
-	Distinct          *bool
-	OrderBy           *bool
-	Limit             *bool
-	WindowFuncs       *bool
-	Subqueries        *bool
-	NotExists         *bool
-	NotIn             *bool
+	CTE                  *bool
+	Views                *bool
+	DerivedTables        *bool
+	SetOperations        *bool
+	NaturalJoins         *bool
+	FullJoinEmulation    *bool
+	Aggregates           *bool
+	GroupBy              *bool
+	Having               *bool
+	Distinct             *bool
+	OrderBy              *bool
+	Limit                *bool
+	WindowFuncs          *bool
+	Subqueries           *bool
+	QuantifiedSubqueries *bool
+	NotExists            *bool
+	NotIn                *bool
 }
 
 // Apply copies overrides onto the target feature set.
@@ -71,6 +72,9 @@ func (o FeatureOverrides) Apply(dst *config.Features) {
 	}
 	if o.Subqueries != nil {
 		dst.Subqueries = *o.Subqueries
+	}
+	if o.QuantifiedSubqueries != nil {
+		dst.QuantifiedSubqueries = *o.QuantifiedSubqueries
 	}
 	if o.NotExists != nil {
 		dst.NotExists = *o.NotExists
@@ -223,24 +227,25 @@ var Profiles = map[string]Profile{
 	},
 	"PQS": {
 		Features: FeatureOverrides{
-			CTE:               BoolPtr(false),
-			Views:             BoolPtr(false),
-			DerivedTables:     BoolPtr(false),
-			SetOperations:     BoolPtr(false),
-			NaturalJoins:      BoolPtr(false),
-			FullJoinEmulation: BoolPtr(false),
-			Aggregates:        BoolPtr(false),
-			GroupBy:           BoolPtr(false),
-			Having:            BoolPtr(false),
-			Distinct:          BoolPtr(false),
-			OrderBy:           BoolPtr(false),
-			Limit:             BoolPtr(false),
-			WindowFuncs:       BoolPtr(false),
-			Subqueries:        BoolPtr(false),
-			NotExists:         BoolPtr(false),
-			NotIn:             BoolPtr(false),
+			CTE:                  BoolPtr(false),
+			Views:                BoolPtr(false),
+			DerivedTables:        BoolPtr(true),
+			SetOperations:        BoolPtr(false),
+			NaturalJoins:         BoolPtr(false),
+			FullJoinEmulation:    BoolPtr(false),
+			Aggregates:           BoolPtr(false),
+			GroupBy:              BoolPtr(false),
+			Having:               BoolPtr(false),
+			Distinct:             BoolPtr(false),
+			OrderBy:              BoolPtr(false),
+			Limit:                BoolPtr(false),
+			WindowFuncs:          BoolPtr(false),
+			Subqueries:           BoolPtr(true),
+			QuantifiedSubqueries: BoolPtr(true),
+			NotExists:            BoolPtr(false),
+			NotIn:                BoolPtr(false),
 		},
-		AllowSubquery: BoolPtr(false),
+		AllowSubquery: BoolPtr(true),
 		PredicateMode: PredicateModePtr(generator.PredicateModeNone),
 	},
 	"CERT": {

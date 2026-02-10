@@ -46,6 +46,14 @@ type pqsPredicateMeta struct {
 	PredicateArmID string
 }
 
+type pqsJoinPredicateMeta struct {
+	Original   string
+	Rectified  string
+	Reason     string
+	Fallback   bool
+	Predicates []string
+}
+
 func pqsBuildPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsPredicateMeta) {
 	meta := pqsPredicateMeta{Fallback: true}
 	if !pqsHasSafePredicateColumns(pivot) {
@@ -119,6 +127,50 @@ func pqsBuildPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.
 	return fallback, meta
 }
 
+func pqsBuildJoinPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsJoinPredicateMeta) {
+	meta := pqsJoinPredicateMeta{Fallback: true}
+	if !pqsHasSafePredicateColumns(pivot) {
+		meta.Reason = "predicate_no_safe_columns"
+		return nil, meta
+	}
+	candidate := pqsRandomPredicate(gen, pivot)
+	if candidate != nil {
+		meta.Original = buildExpr(candidate)
+		truth := pqsEvalExpr(candidate, pivot)
+		rectified := pqsRectifyExpr(candidate, truth)
+		switch truth {
+		case pqsTruthTrue:
+			meta.Reason = "rectify_true"
+		case pqsTruthFalse:
+			meta.Reason = "rectify_false"
+		case pqsTruthNull:
+			meta.Reason = "rectify_null"
+		default:
+			meta.Reason = "predicate_unsupported"
+		}
+		if rectified != nil && truth != pqsTruthUnknown {
+			meta.Rectified = buildExpr(rectified)
+			meta.Fallback = false
+			return rectified, meta
+		}
+		if rectified == nil {
+			meta.Reason = "rectify_failed"
+		}
+	}
+	fallback := pqsPredicateForPivot(gen, pivot)
+	if fallback == nil {
+		if meta.Reason == "" {
+			meta.Reason = "predicate_empty"
+		}
+		return nil, meta
+	}
+	if meta.Rectified == "" {
+		meta.Rectified = buildExpr(fallback)
+	}
+	meta.Fallback = true
+	return fallback, meta
+}
+
 func pqsRandomPredicate(gen *generator.Generator, pivot *pqsPivotRow) generator.Expr {
 	if gen == nil || pivot == nil || len(pivot.Tables) == 0 {
 		return nil
@@ -128,6 +180,46 @@ func pqsRandomPredicate(gen *generator.Generator, pivot *pqsPivotRow) generator.
 		return nil
 	}
 	return gen.GenerateSimplePredicateColumns(safeTables, 2)
+}
+
+func pqsBuildJoinPredicateForTables(gen *generator.Generator, pivot *pqsPivotRow, tables []schema.Table) (generator.Expr, pqsJoinPredicateMeta) {
+	meta := pqsJoinPredicateMeta{Fallback: true}
+	if gen == nil || pivot == nil || len(tables) == 0 {
+		meta.Reason = "predicate_disabled"
+		return nil, meta
+	}
+	safeTables := pqsSafePredicateTables(tables)
+	if len(safeTables) == 0 {
+		meta.Reason = "predicate_no_safe_columns"
+		return nil, meta
+	}
+	candidate := gen.GenerateSimplePredicateColumns(safeTables, 2)
+	if candidate == nil {
+		meta.Reason = "predicate_empty"
+		return nil, meta
+	}
+	meta.Original = buildExpr(candidate)
+	truth := pqsEvalExpr(candidate, pivot)
+	rectified := pqsRectifyExpr(candidate, truth)
+	switch truth {
+	case pqsTruthTrue:
+		meta.Reason = "rectify_true"
+	case pqsTruthFalse:
+		meta.Reason = "rectify_false"
+	case pqsTruthNull:
+		meta.Reason = "rectify_null"
+	default:
+		meta.Reason = "predicate_unsupported"
+	}
+	if rectified != nil && truth != pqsTruthUnknown {
+		meta.Rectified = buildExpr(rectified)
+		meta.Fallback = false
+		return rectified, meta
+	}
+	if rectified == nil {
+		meta.Reason = "rectify_failed"
+	}
+	return nil, meta
 }
 
 func pqsSafePredicateTables(tables []schema.Table) []schema.Table {

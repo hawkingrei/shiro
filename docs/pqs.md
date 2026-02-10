@@ -40,4 +40,6 @@ If the pivot row is missing, the DBMS likely has a logic bug in optimization or 
 - **PQS v1 implemented (single-table)**: pick a pivot row, build equality/`IS NULL` predicates over a subset of columns, and verify containment via a pivot presence check.
 - **PQS v1.5 implemented (basic joins)**: sample pivots via `id`-range selection (avoid `ORDER BY RAND()`), build alias-aware containment checks across `JOIN ... USING (id)` for two-table pivots, and use `LIMIT 1` existence probes instead of `COUNT(*)`.
 - **3VL rectifier implemented**: evaluate and rectify predicates under SQL three-valued logic for PQS containment checks (excluding join-aware `JOIN ON` and subqueries).
-- **Pending**: join-aware `JOIN ON` predicate rectification, subquery predicates, and expanded stress features.
+- **PQS v2 implemented (join-aware `JOIN ON`)**: build join predicates with pivot-bound equality plus rectified predicates over visible tables, and record join-on metadata for reports.
+- **PQS v3 implemented (subqueries + derived tables)**: add `EXISTS`/`IN`/`ANY`/`ALL` subquery predicates plus derived-table wrapping with pivot-safe filters.
+- **Pending**: expanded stress features (e.g., `DISTINCT`, `GROUP BY`, indexes, views) behind capability gates.
