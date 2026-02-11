@@ -234,10 +234,16 @@ type Adaptive struct {
 
 // StorageConfig holds external storage settings.
 type StorageConfig struct {
-	S3 S3Config `yaml:"s3"`
+	S3  S3Config  `yaml:"s3"`
+	GCS GCSConfig `yaml:"gcs"`
 }
 
-// S3Config configures S3 uploads.
+// CloudEnabled reports whether any cloud storage backend is enabled.
+func (s StorageConfig) CloudEnabled() bool {
+	return s.GCS.Enabled || s.S3.Enabled
+}
+
+// S3Config configures S3 uploads (legacy and S3-compatible endpoints).
 type S3Config struct {
 	Enabled         bool   `yaml:"enabled"`
 	Endpoint        string `yaml:"endpoint"`
@@ -248,6 +254,14 @@ type S3Config struct {
 	SecretAccessKey string `yaml:"secret_access_key"`
 	SessionToken    string `yaml:"session_token"`
 	UsePathStyle    bool   `yaml:"use_path_style"`
+}
+
+// GCSConfig configures GCS uploads.
+type GCSConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Bucket          string `yaml:"bucket"`
+	Prefix          string `yaml:"prefix"`
+	CredentialsFile string `yaml:"credentials_file"`
 }
 
 // Load reads configuration from a YAML file.
