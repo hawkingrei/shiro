@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Guarded USING joins against ambiguous left-side columns by considering all left-table columns, with generator regression coverage (2026-02-11).
 - Fixed PQS USING-id select qualification, enriched case logs with case_id/error_reason/minimize fields, and stabilized QPG delta logging with reset flags (2026-02-11).
 - Clarified recursive CTE feature semantics and refactored generator interval log format strings for readability (2026-02-11).
 - Added `config.example.yaml` and switched tests to load it instead of `config.yaml` to avoid local-only config dependencies (2026-02-11).

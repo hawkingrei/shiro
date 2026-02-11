@@ -438,7 +438,11 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 	// USING requires same column names; we only relax type matching by category (number/string/time/bool).
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
+	leftAllCounts := map[string]int{}
 	for _, ltbl := range left {
+		for _, col := range g.collectColumns([]schema.Table{ltbl}) {
+			leftAllCounts[col.Name]++
+		}
 		for _, lcol := range g.collectJoinColumns(ltbl, useIndexPrefix) {
 			leftCounts[lcol.Name]++
 			if _, ok := leftTypes[lcol.Name]; !ok {
@@ -451,6 +455,9 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 		pairs := g.collectJoinPairs(ltbl, right, true, useIndexPrefix)
 		for _, pair := range pairs {
 			if leftCounts[pair.Left.Name] != 1 {
+				continue
+			}
+			if leftAllCounts[pair.Left.Name] != 1 {
 				continue
 			}
 			if !compatibleColumnType(leftTypes[pair.Left.Name], pair.Left.Type) {
