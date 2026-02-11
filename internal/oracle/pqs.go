@@ -127,6 +127,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		return Result{OK: true, Oracle: o.Name(), Details: attachBandit(details)}
 	}
 	query.Where = predicate
+	pqsFinalizeQuery(query, state, joinOn)
 
 	querySQL := query.SQLString()
 	matchExpr := pqsMatchExpr(pivot, aliases)
@@ -834,6 +835,15 @@ func pqsNormalizeUsingIDColumns(items []generator.SelectItem) {
 		col.Ref.Table = ""
 		item.Expr = col
 		items[i] = item
+	}
+}
+
+func pqsFinalizeQuery(query *generator.SelectQuery, state *schema.State, joinOn bool) {
+	if query == nil || joinOn || state == nil {
+		return
+	}
+	if queryHasUsingQualifiedRefs(query) {
+		rewriteUsingToOn(query, state)
 	}
 }
 

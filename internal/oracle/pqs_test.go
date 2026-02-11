@@ -311,10 +311,12 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 		generator.ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt},
 		pivot.Values["t0"]["c0"],
 	)
+	state := &schema.State{Tables: []schema.Table{left, right}}
+	pqsFinalizeQuery(query, state, false)
 	querySQL := query.SQLString()
 	matchSQL := buildExpr(pqsMatchExpr(pivot, aliases))
 	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
-	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 USING (id) WHERE (t0.c0 = 7)"
+	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 ON (t0.id = t1.id) WHERE (t0.c0 = 7)"
 	if querySQL != expectedQuery {
 		t.Fatalf("unexpected join query: %s", querySQL)
 	}
