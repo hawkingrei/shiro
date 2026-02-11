@@ -85,6 +85,15 @@ const detailBool = (details: Record<string, unknown> | null, key: string): boole
   return false;
 };
 
+const reservedFileKeys = new Set([
+  "case.sql",
+  "inserts.sql",
+  "plan_replayer.zip",
+  "data.tsv",
+  "schema.sql",
+  "report.json",
+]);
+
 const caseHasTruncation = (c: CaseEntry): boolean => {
   return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
 };
@@ -516,14 +525,6 @@ export default function Page() {
             expectedExplain && actualExplain ? { oldValue: expectedExplain, newValue: actualExplain } : null;
           const optimizedDiff =
             optimizedExplain && unoptimizedExplain ? { oldValue: unoptimizedExplain, newValue: optimizedExplain } : null;
-          const reservedFileKeys = new Set([
-            "case.sql",
-            "inserts.sql",
-            "plan_replayer.zip",
-            "data.tsv",
-            "schema.sql",
-            "report.json",
-          ]);
           const expectedText = c.expected || "";
           const actualText = c.actual || "";
           const expectedBlock: CaseBlock | null = expectedText
@@ -802,9 +803,8 @@ export default function Page() {
                     const files = c.files || {};
                     const reportFile = files["report.json"];
                     if (reportFile?.content) {
-                      const label = reportFile.truncated
-                        ? `${reportFile.name} (truncated)`
-                        : reportFile.name || "report.json";
+                      const baseName = reportFile.name || "report.json";
+                      const label = reportFile.truncated ? `${baseName} (truncated)` : baseName;
                       return (
                         <details className="fold" key="report.json" open={false}>
                           <summary>
