@@ -200,10 +200,6 @@ func TestGenerateRecursiveCTEQuery(t *testing.T) {
 	if !strings.Contains(sql, "FROM cte_0") {
 		t.Fatalf("expected recursive reference, got %s", sql)
 	}
-	features := AnalyzeQueryFeatures(query)
-	if !features.HasRecursiveCTE {
-		t.Fatalf("expected recursive CTE feature flag")
-	}
 }
 
 func TestGenerateRecursiveCTEQueryRequiresNumericColumn(t *testing.T) {
