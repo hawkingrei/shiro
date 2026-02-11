@@ -21,11 +21,14 @@ import (
 	"shiro/internal/report"
 	"shiro/internal/util"
 
+	"cloud.google.com/go/storage"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 // FileContent holds inlined report file content.
@@ -82,6 +85,7 @@ type loadOptions struct {
 
 type publishOptions struct {
 	S3            config.S3Config
+	GCS           config.GCSConfig
 	PublicBaseURL string
 }
 
@@ -109,9 +113,9 @@ type workerSyncCase struct {
 }
 
 func main() {
-	input := flag.String("input", ".report", "input directory or s3://bucket/prefix")
+	input := flag.String("input", ".report", "input directory, gs://bucket/prefix, or legacy s3://bucket/prefix")
 	output := flag.String("output", "web/public", "output directory for report.json/reports.json")
-	configPath := flag.String("config", "config.yaml", "path to config file (for S3 access)")
+	configPath := flag.String("config", "config.yaml", "path to config file (for GCS/S3 access)")
 	maxBytes := flag.Int("max-bytes", 64*1024, "max bytes to read per case file")
 	maxZipBytes := flag.Int("max-zip-bytes", 20*1024*1024, "max bytes to read for plan_replayer.zip")
 	publishEndpoint := flag.String("publish-endpoint", "", "S3-compatible endpoint for publishing report.json/reports.json (for example Cloudflare R2)")
@@ -122,8 +126,11 @@ func main() {
 	publishSecret := flag.String("publish-secret-access-key", "", "secret key for publishing report manifests")
 	publishSessionToken := flag.String("publish-session-token", "", "session token for publishing report manifests")
 	publishUsePathStyle := flag.Bool("publish-use-path-style", true, "whether to use path-style S3 addressing for publish endpoint")
-	publishPublicBaseURL := flag.String("publish-public-base-url", "", "public base URL for published manifests")
-	artifactPublicBaseURL := flag.String("artifact-public-base-url", "", "public HTTP(S) base URL used to derive per-case report/archive links from s3 upload locations")
+	publishPublicBaseURL := flag.String("publish-public-base-url", "", "public base URL for published manifests (S3/GCS)")
+	publishGCSBucket := flag.String("publish-gcs-bucket", "", "target GCS bucket for publishing report manifests")
+	publishGCSPrefix := flag.String("publish-gcs-prefix", "", "target prefix for publishing report manifests")
+	publishGCSCredentialsFile := flag.String("publish-gcs-credentials-file", "", "service account JSON for GCS publish (optional, uses ADC when empty)")
+	artifactPublicBaseURL := flag.String("artifact-public-base-url", "", "public HTTP(S) base URL used to derive per-case report/archive links from gs:// or s3:// upload locations")
 	workerSyncEndpoint := flag.String("worker-sync-endpoint", "", "cloudflare worker sync endpoint for D1 metadata upsert")
 	workerSyncToken := flag.String("worker-sync-token", "", "bearer token used for worker sync endpoint")
 	flag.Parse()
@@ -137,7 +144,20 @@ func main() {
 
 	var cases []CaseEntry
 	var err error
-	if strings.HasPrefix(*input, "s3://") {
+	if strings.HasPrefix(*input, "gs://") {
+		cfg, loadErr := config.Load(*configPath)
+		if loadErr != nil {
+			fail("load config: %v", loadErr)
+		}
+		bucket, prefix, parseErr := parseGCSURI(*input)
+		if parseErr != nil {
+			fail("parse gcs input: %v", parseErr)
+		}
+		if !cfg.Storage.GCS.Enabled {
+			fail("gcs input requested but storage.gcs.enabled is false")
+		}
+		cases, err = loadGCSCases(ctx, cfg.Storage.GCS, bucket, prefix, opts)
+	} else if strings.HasPrefix(*input, "s3://") {
 		cfg, loadErr := config.Load(*configPath)
 		if loadErr != nil {
 			fail("load config: %v", loadErr)
@@ -181,6 +201,12 @@ func main() {
 			SecretAccessKey: strings.TrimSpace(*publishSecret),
 			SessionToken:    strings.TrimSpace(*publishSessionToken),
 			UsePathStyle:    *publishUsePathStyle,
+		},
+		GCS: config.GCSConfig{
+			Enabled:         strings.TrimSpace(*publishGCSBucket) != "",
+			Bucket:          strings.TrimSpace(*publishGCSBucket),
+			Prefix:          strings.TrimSpace(*publishGCSPrefix),
+			CredentialsFile: strings.TrimSpace(*publishGCSCredentialsFile),
 		},
 		PublicBaseURL: strings.TrimSpace(*publishPublicBaseURL),
 	}
@@ -347,9 +373,36 @@ func writeJSONFile(path string, site SiteData) error {
 }
 
 func parseS3URI(input string) (bucket string, prefix string, err error) {
-	trimmed := strings.TrimPrefix(input, "s3://")
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "s3://") {
+		return "", "", fmt.Errorf("missing s3 scheme")
+	}
+	trimmed = trimmed[len("s3://"):]
 	if trimmed == "" {
 		return "", "", fmt.Errorf("missing s3 bucket")
+	}
+	parts := strings.SplitN(trimmed, "/", 2)
+	bucket = parts[0]
+	prefix = ""
+	if len(parts) == 2 {
+		prefix = strings.TrimPrefix(parts[1], "/")
+		if prefix != "" && !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+	}
+	return bucket, prefix, nil
+}
+
+func parseGCSURI(input string) (bucket string, prefix string, err error) {
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "gs://") {
+		return "", "", fmt.Errorf("missing gcs scheme")
+	}
+	trimmed = trimmed[len("gs://"):]
+	if trimmed == "" {
+		return "", "", fmt.Errorf("missing gcs bucket")
 	}
 	parts := strings.SplitN(trimmed, "/", 2)
 	bucket = parts[0]
@@ -526,6 +579,173 @@ func readObjectLimited(ctx context.Context, client *s3.Client, bucket, key strin
 	return string(data), truncated, nil
 }
 
+func loadGCSCases(ctx context.Context, cfg config.GCSConfig, bucket, prefix string, opts loadOptions) ([]CaseEntry, error) {
+	client, err := gcsClientFromConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			util.Warnf("gcs client close failed: %v", err)
+		}
+	}()
+	keys, objectSet, err := listGCSKeys(ctx, client, bucket, prefix)
+	if err != nil {
+		return nil, err
+	}
+	cases := make([]CaseEntry, 0, len(keys))
+	for _, key := range keys {
+		dir := strings.TrimSuffix(key, "/summary.json")
+		entry, err := readCaseFromGCS(ctx, client, bucket, dir, opts, objectSet)
+		if err != nil {
+			continue
+		}
+		entry.Dir = "gs://" + bucket + "/" + dir
+		if strings.TrimSpace(entry.ID) == "" {
+			entry.ID = filepath.Base(dir)
+		}
+		cases = append(cases, entry)
+	}
+	return cases, nil
+}
+
+func listGCSKeys(ctx context.Context, client *storage.Client, bucket, prefix string) ([]string, map[string]struct{}, error) {
+	var keys []string
+	objectSet := make(map[string]struct{})
+	it := client.Bucket(bucket).Objects(ctx, &storage.Query{Prefix: prefix})
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		key := attrs.Name
+		objectSet[key] = struct{}{}
+		if strings.HasSuffix(key, "/summary.json") {
+			keys = append(keys, key)
+		}
+	}
+	return keys, objectSet, nil
+}
+
+func readCaseFromGCS(ctx context.Context, client *storage.Client, bucket, dir string, opts loadOptions, objectSet map[string]struct{}) (CaseEntry, error) {
+	summaryKey := dir + "/summary.json"
+	summaryData, _, err := readGCSObjectLimited(ctx, client, bucket, summaryKey, opts.MaxBytes)
+	if err != nil {
+		return CaseEntry{}, err
+	}
+	var summary report.Summary
+	if err := json.Unmarshal([]byte(summaryData), &summary); err != nil {
+		return CaseEntry{}, err
+	}
+	files := map[string]FileContent{}
+	files["case.sql"] = readGCSObjectFile(ctx, client, bucket, dir+"/case.sql", opts.MaxBytes)
+	files["schema.sql"] = readGCSObjectFile(ctx, client, bucket, dir+"/schema.sql", opts.MaxBytes)
+	files["inserts.sql"] = readGCSObjectFile(ctx, client, bucket, dir+"/inserts.sql", opts.MaxBytes)
+	files["data.tsv"] = readGCSObjectFile(ctx, client, bucket, dir+"/data.tsv", opts.MaxBytes)
+	files["report.json"] = readGCSObjectFile(ctx, client, bucket, dir+"/report.json", opts.MaxBytes)
+	if _, ok := objectSet[dir+"/plan_replayer.zip"]; ok {
+		files["plan_replayer.zip"] = FileContent{Name: "plan_replayer.zip", Content: "(binary)", Truncated: true}
+	}
+	archiveKey := dir + "/" + report.CaseArchiveName
+	if _, ok := objectSet[archiveKey]; ok {
+		files[report.CaseArchiveName] = FileContent{Name: report.CaseArchiveName, Content: "(binary)", Truncated: true}
+	}
+	commit := extractCommit(summary.TiDBVersion)
+	if commit == "" {
+		commit = extractCommitFromPlanReplayerGCS(ctx, client, bucket, dir+"/plan_replayer.zip", opts.MaxZipBytes)
+	}
+	caseID := caseIDFromSummary(summary, filepath.Base(dir))
+	caseDir := caseDirFromSummary(summary, caseID)
+	reportURL, archiveURL := deriveObjectURLs(summary.UploadLocation, summary.ArchiveName, opts.ArtifactPublicBaseURL)
+	return CaseEntry{
+		ID:                           caseID,
+		Oracle:                       summary.Oracle,
+		Timestamp:                    summary.Timestamp,
+		TiDBVersion:                  summary.TiDBVersion,
+		TiDBCommit:                   commit,
+		ErrorReason:                  summaryErrorReason(summary),
+		PlanSignature:                summary.PlanSignature,
+		PlanSigFormat:                summary.PlanSigFormat,
+		Expected:                     summary.Expected,
+		Actual:                       summary.Actual,
+		Error:                        summary.Error,
+		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		Flaky:                        summary.Flaky,
+		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
+		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
+		NoRECPredicate:               summary.NoRECPredicate,
+		CaseID:                       caseID,
+		CaseDir:                      caseDir,
+		ArchiveName:                  summary.ArchiveName,
+		ArchiveCodec:                 summary.ArchiveCodec,
+		ArchiveURL:                   archiveURL,
+		ReportURL:                    reportURL,
+		SQL:                          summary.SQL,
+		PlanReplay:                   summary.PlanReplay,
+		UploadLocation:               summary.UploadLocation,
+		Details:                      summary.Details,
+		Files:                        files,
+	}, nil
+}
+
+func readGCSObjectFile(ctx context.Context, client *storage.Client, bucket, key string, maxBytes int) FileContent {
+	content, truncated, err := readGCSObjectLimited(ctx, client, bucket, key, maxBytes)
+	if err != nil {
+		return FileContent{Name: filepath.Base(key)}
+	}
+	return FileContent{Name: filepath.Base(key), Content: content, Truncated: truncated}
+}
+
+func readGCSObjectBytesLimited(ctx context.Context, client *storage.Client, bucket, key string, maxBytes int) ([]byte, bool, error) {
+	rc, err := client.Bucket(bucket).Object(key).NewReader(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer util.CloseWithErr(rc, "gcs response body")
+	limit := int64(maxBytes) + 1
+	data, err := io.ReadAll(io.LimitReader(rc, limit))
+	if err != nil {
+		return nil, false, err
+	}
+	truncated := len(data) > maxBytes
+	if truncated {
+		data = data[:maxBytes]
+	}
+	return data, truncated, nil
+}
+
+func readGCSObjectLimited(ctx context.Context, client *storage.Client, bucket, key string, maxBytes int) (string, bool, error) {
+	rc, err := client.Bucket(bucket).Object(key).NewReader(ctx)
+	if err != nil {
+		if errors.Is(err, storage.ErrObjectNotExist) {
+			return "", false, fmt.Errorf("missing object %s", key)
+		}
+		return "", false, err
+	}
+	defer util.CloseWithErr(rc, "gcs response body")
+	limit := int64(maxBytes) + 1
+	data, err := io.ReadAll(io.LimitReader(rc, limit))
+	if err != nil {
+		return "", false, err
+	}
+	truncated := len(data) > maxBytes
+	if truncated {
+		data = data[:maxBytes]
+	}
+	return string(data), truncated, nil
+}
+
+func gcsClientFromConfig(ctx context.Context, cfg config.GCSConfig) (*storage.Client, error) {
+	opts := []option.ClientOption{}
+	if strings.TrimSpace(cfg.CredentialsFile) != "" {
+		opts = append(opts, option.WithCredentialsFile(strings.TrimSpace(cfg.CredentialsFile)))
+	}
+	return storage.NewClient(ctx, opts...)
+}
+
 func s3ClientFromConfig(ctx context.Context, cfg config.S3Config) (*s3.Client, error) {
 	opts := []func(*awsconfig.LoadOptions) error{}
 	if cfg.Region != "" {
@@ -599,27 +819,28 @@ func deriveUploadObjectURL(uploadLocation, name, artifactPublicBaseURL string) s
 	if isHTTPURL(trimmedUpload) {
 		return objectURL(trimmedUpload, trimmedName)
 	}
-	if !strings.HasPrefix(strings.ToLower(trimmedUpload), "s3://") {
-		return ""
+	if isS3URL(trimmedUpload) {
+		return deriveCloudObjectURL(trimmedUpload, trimmedName, artifactPublicBaseURL, parseS3URI)
 	}
-	publicBase := strings.TrimSpace(artifactPublicBaseURL)
-	if publicBase == "" {
-		return ""
+	if isGCSURL(trimmedUpload) {
+		return deriveCloudObjectURL(trimmedUpload, trimmedName, artifactPublicBaseURL, parseGCSURI)
 	}
-	_, prefix, err := parseS3URI(trimmedUpload)
-	if err != nil {
-		return ""
-	}
-	key := objectKey(prefix, trimmedName)
-	if strings.TrimSpace(key) == "" {
-		return ""
-	}
-	return objectURL(publicBase, key)
+	return ""
 }
 
 func isHTTPURL(url string) bool {
 	lower := strings.ToLower(strings.TrimSpace(url))
 	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+func isS3URL(url string) bool {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	return strings.HasPrefix(lower, "s3://")
+}
+
+func isGCSURL(url string) bool {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	return strings.HasPrefix(lower, "gs://")
 }
 
 func objectURL(base, name string) string {
@@ -629,6 +850,22 @@ func objectURL(base, name string) string {
 		return ""
 	}
 	return trimmedBase + "/" + trimmedName
+}
+
+func deriveCloudObjectURL(uploadLocation, name, artifactPublicBaseURL string, parse func(string) (string, string, error)) string {
+	publicBase := strings.TrimSpace(artifactPublicBaseURL)
+	if publicBase == "" {
+		return ""
+	}
+	_, prefix, err := parse(uploadLocation)
+	if err != nil {
+		return ""
+	}
+	key := objectKey(prefix, name)
+	if strings.TrimSpace(key) == "" {
+		return ""
+	}
+	return objectURL(publicBase, key)
 }
 
 func summaryErrorReason(summary report.Summary) string {
@@ -650,11 +887,46 @@ func summaryErrorReason(summary report.Summary) string {
 }
 
 func publishReports(ctx context.Context, opts publishOptions, output string) (string, error) {
-	if !opts.S3.Enabled {
+	gcsEnabled := opts.GCS.Enabled && strings.TrimSpace(opts.GCS.Bucket) != ""
+	s3Enabled := opts.S3.Enabled && strings.TrimSpace(opts.S3.Bucket) != ""
+	if !gcsEnabled && !s3Enabled {
 		return "", nil
 	}
-	if strings.TrimSpace(opts.S3.Bucket) == "" {
-		return "", fmt.Errorf("publish bucket is required when publish is enabled")
+	if gcsEnabled {
+		if s3Enabled {
+			util.Warnf("publish targets include both gcs and s3; using gcs")
+		}
+		client, err := gcsClientFromConfig(ctx, opts.GCS)
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			if err := client.Close(); err != nil {
+				util.Warnf("gcs client close failed: %v", err)
+			}
+		}()
+		for _, name := range []string{"report.json", "reports.json"} {
+			data, err := os.ReadFile(filepath.Join(output, name))
+			if err != nil {
+				return "", err
+			}
+			key := objectKey(opts.GCS.Prefix, name)
+			writer := client.Bucket(opts.GCS.Bucket).Object(key).NewWriter(ctx)
+			writer.ContentType = "application/json"
+			_, copyErr := io.Copy(writer, bytes.NewReader(data))
+			closeErr := writer.Close()
+			if copyErr != nil {
+				return "", copyErr
+			}
+			if closeErr != nil {
+				return "", closeErr
+			}
+		}
+		reportKey := objectKey(opts.GCS.Prefix, "reports.json")
+		if strings.TrimSpace(opts.PublicBaseURL) != "" {
+			return objectURL(opts.PublicBaseURL, reportKey), nil
+		}
+		return fmt.Sprintf("gs://%s/%s", opts.GCS.Bucket, reportKey), nil
 	}
 	client, err := s3ClientFromConfig(ctx, opts.S3)
 	if err != nil {
@@ -790,6 +1062,14 @@ func extractCommitFromPlanReplayer(zipPath string, maxBytes int) string {
 
 func extractCommitFromPlanReplayerS3(ctx context.Context, client *s3.Client, bucket, key string, maxBytes int) string {
 	data, truncated, err := readObjectBytesLimited(ctx, client, bucket, key, maxBytes)
+	if err != nil || truncated {
+		return ""
+	}
+	return extractCommitFromPlanReplayerData(data)
+}
+
+func extractCommitFromPlanReplayerGCS(ctx context.Context, client *storage.Client, bucket, key string, maxBytes int) string {
+	data, truncated, err := readGCSObjectBytesLimited(ctx, client, bucket, key, maxBytes)
 	if err != nil || truncated {
 		return ""
 	}

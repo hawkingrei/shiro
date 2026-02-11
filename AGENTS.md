@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
 - Added a Cloudflare Worker assets stub plus wrangler config to satisfy Git-integrated deploy requirements (2026-02-10).
 - Added a repo-root `wrangler.jsonc` so `wrangler versions upload` can find the worker entrypoint and assets (2026-02-10).
 - Added PQS v2/v3 support: join-aware `JOIN ON` predicates with rectification metadata, subquery predicates (`EXISTS`/`IN`/`ANY`/`ALL`), derived-table wrapping, and tests plus updated PQS docs/TODOs (2026-02-09).

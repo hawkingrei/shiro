@@ -29,6 +29,7 @@ plan_replayer:
 
 storage:
   s3:
+    # Legacy S3-compatible uploads (for example MinIO). Prefer GCS below.
     enabled: false
     endpoint: ""
     region: ""
@@ -38,6 +39,12 @@ storage:
     secret_access_key: ""
     session_token: ""
     use_path_style: false
+  gcs:
+    enabled: false
+    bucket: ""
+    prefix: ""
+    # Optional path to a service account JSON; leave empty to use ADC.
+    credentials_file: ""
 
 features:
   joins: true

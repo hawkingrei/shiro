@@ -150,7 +150,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 	summary.CaseID = caseData.ID
 	summary.CaseDir = filepath.Base(caseData.Dir)
-	if r.cfg.Storage.S3.Enabled {
+	if r.cfg.Storage.CloudEnabled() {
 		summary.CaseDir = caseData.ID
 		summary.ArchiveName = report.CaseArchiveName
 		summary.ArchiveCodec = report.CaseArchiveCodec
@@ -241,7 +241,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 
 	_ = r.reporter.WriteSummary(caseData, summary)
-	if r.cfg.Storage.S3.Enabled {
+	if r.cfg.Storage.CloudEnabled() {
 		_ = r.reporter.WriteReport(caseData, summary)
 		if _, _, archiveErr := r.reporter.WriteCaseArchive(caseData); archiveErr != nil {
 			util.Warnf("case archive failed dir=%s err=%v", caseData.Dir, archiveErr)
@@ -257,7 +257,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		if err == nil {
 			summary.UploadLocation = location
 			_ = r.reporter.WriteSummary(caseData, summary)
-			if r.cfg.Storage.S3.Enabled {
+			if r.cfg.Storage.CloudEnabled() {
 				_ = r.reporter.WriteReport(caseData, summary)
 			}
 		}

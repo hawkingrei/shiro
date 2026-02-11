@@ -146,15 +146,27 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 	state := &schema.State{}
 	gen := generator.New(cfg, state, cfg.Seed)
 	caseReporter := report.New(cfg.PlanReplayer.OutputDir, cfg.MaxDataDumpRows)
-	// Use UUID-based report directory layout when S3 storage is enabled.
-	caseReporter.UseUUIDPath = cfg.Storage.S3.Enabled
-	cloudUploader, err := uploader.NewS3(cfg.Storage.S3)
-	if err != nil {
-		cloudUploader = nil
+	// Use UUID-based report directory layout when cloud storage is enabled.
+	caseReporter.UseUUIDPath = cfg.Storage.CloudEnabled()
+	if cfg.Storage.GCS.Enabled && cfg.Storage.S3.Enabled {
+		util.Warnf("both storage.gcs and storage.s3 are enabled; using gcs")
 	}
 	var up uploader.Uploader = uploader.NoopUploader{}
-	if cloudUploader != nil && cloudUploader.Enabled() {
-		up = cloudUploader
+	if cfg.Storage.GCS.Enabled {
+		gcsUploader, err := uploader.NewGCS(cfg.Storage.GCS)
+		if err != nil {
+			util.Warnf("gcs uploader init failed: %v", err)
+		} else if gcsUploader != nil && gcsUploader.Enabled() {
+			up = gcsUploader
+		}
+	}
+	if !up.Enabled() && cfg.Storage.S3.Enabled {
+		s3Uploader, err := uploader.NewS3(cfg.Storage.S3)
+		if err != nil {
+			util.Warnf("s3 uploader init failed: %v", err)
+		} else if s3Uploader != nil && s3Uploader.Enabled() {
+			up = s3Uploader
+		}
 	}
 	r := &Runner{
 		cfg:                     cfg,

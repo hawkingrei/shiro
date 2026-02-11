@@ -893,12 +893,37 @@ function isS3URL(value: string): boolean {
   return clean(value).toLowerCase().startsWith("s3://");
 }
 
+function isGCSURL(value: string): boolean {
+  return clean(value).toLowerCase().startsWith("gs://");
+}
+
 function parseS3URI(uri: string): { bucket: string; key: string } | null {
   const normalized = clean(uri);
   if (!isS3URL(normalized)) {
     return null;
   }
   const withoutScheme = normalized.slice("s3://".length).replace(/^\/+/, "");
+  if (!withoutScheme) {
+    return null;
+  }
+  const idx = withoutScheme.indexOf("/");
+  if (idx < 0) {
+    return { bucket: withoutScheme, key: "" };
+  }
+  const bucket = withoutScheme.slice(0, idx).trim();
+  const key = withoutScheme.slice(idx + 1).replace(/^\/+|\/+$/g, "");
+  if (!bucket) {
+    return null;
+  }
+  return { bucket, key };
+}
+
+function parseGCSURI(uri: string): { bucket: string; key: string } | null {
+  const normalized = clean(uri);
+  if (!isGCSURL(normalized)) {
+    return null;
+  }
+  const withoutScheme = normalized.slice("gs://".length).replace(/^\/+/, "");
   if (!withoutScheme) {
     return null;
   }
@@ -922,6 +947,14 @@ function s3URLToPublic(publicBaseURL: string, s3URL: string): string {
   return joinObjectURL(publicBaseURL, parsed.key);
 }
 
+function gsURLToPublic(publicBaseURL: string, gsURL: string): string {
+  const parsed = parseGCSURI(gsURL);
+  if (!parsed || !parsed.key) {
+    return "";
+  }
+  return joinObjectURL(publicBaseURL, parsed.key);
+}
+
 function uploadObjectURL(env: Env, uploadLocation: string, objectName: string): string {
   const location = clean(uploadLocation);
   const fileName = clean(objectName);
@@ -931,14 +964,16 @@ function uploadObjectURL(env: Env, uploadLocation: string, objectName: string): 
   if (isHTTPURL(location)) {
     return joinObjectURL(location, fileName);
   }
-  if (!isS3URL(location)) {
-    return "";
-  }
   const publicBaseURL = clean(env.ARTIFACT_PUBLIC_BASE_URL);
   if (!publicBaseURL) {
     return "";
   }
-  const parsed = parseS3URI(location);
+  let parsed: { bucket: string; key: string } | null = null;
+  if (isS3URL(location)) {
+    parsed = parseS3URI(location);
+  } else if (isGCSURL(location)) {
+    parsed = parseGCSURI(location);
+  }
   if (!parsed) {
     return "";
   }
@@ -955,6 +990,12 @@ function resolveArtifactURL(env: Env, explicitURL: string, uploadLocation: strin
     const publicBaseURL = clean(env.ARTIFACT_PUBLIC_BASE_URL);
     if (publicBaseURL) {
       return s3URLToPublic(publicBaseURL, explicit);
+    }
+  }
+  if (explicit && isGCSURL(explicit)) {
+    const publicBaseURL = clean(env.ARTIFACT_PUBLIC_BASE_URL);
+    if (publicBaseURL) {
+      return gsURLToPublic(publicBaseURL, explicit);
     }
   }
   return uploadObjectURL(env, uploadLocation, objectName);

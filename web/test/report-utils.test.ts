@@ -46,6 +46,7 @@ test("isHTTPURL validates link scheme", () => {
   assert.equal(isHTTPURL("https://example.com/a"), true);
   assert.equal(isHTTPURL("http://example.com/a"), true);
   assert.equal(isHTTPURL("s3://bucket/a"), false);
+  assert.equal(isHTTPURL("gs://bucket/a"), false);
   assert.equal(isHTTPURL(""), false);
 });
 
