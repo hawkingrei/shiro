@@ -14,7 +14,7 @@ import (
 
 // TestGeneratorQueryConstraints validates generator invariants to prevent known execution errors.
 func TestGeneratorQueryConstraints(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestGeneratorQueryConstraints(t *testing.T) {
 }
 
 func TestCreateTablePartitionedSQL(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestGroupByOrdinalExprBuild(t *testing.T) {
 }
 
 func TestGenerateGroupByMultipleColumns(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestGenerateGroupByMultipleColumns(t *testing.T) {
 }
 
 func TestEnsureOrderByDistinctColumns(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestEnsureOrderByDistinctColumns(t *testing.T) {
 }
 
 func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -324,7 +324,7 @@ func assertPanic(t *testing.T, fn func()) {
 }
 
 func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

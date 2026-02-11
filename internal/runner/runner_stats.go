@@ -133,6 +133,15 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	if features.HasWindow {
 		r.genSQLWindow++
 	}
+	if features.HasNaturalJoin {
+		r.genSQLNaturalJoin++
+	}
+	if features.HasFullJoinEmulation {
+		r.genSQLFullJoinEmulation++
+	}
+	if features.HasRecursiveCTE {
+		r.genSQLRecursiveCTE++
+	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
 	}
@@ -472,6 +481,9 @@ func (r *Runner) startStatsLogger() func() {
 		var lastGenInSubquery int64
 		var lastGenNotInSubquery int64
 		var lastGenWindow int64
+		var lastGenNaturalJoin int64
+		var lastGenFullJoinEmulation int64
+		var lastGenRecursiveCTE int64
 		var lastInSubqueryVariant int64
 		var lastNotInSubqueryVariant int64
 		var lastImpoTotal int64
@@ -540,6 +552,9 @@ func (r *Runner) startStatsLogger() func() {
 				genInSubquery := r.genSQLInSubquery
 				genNotInSubquery := r.genSQLNotInSubquery
 				genWindow := r.genSQLWindow
+				genNaturalJoin := r.genSQLNaturalJoin
+				genFullJoinEmulation := r.genSQLFullJoinEmulation
+				genRecursiveCTE := r.genSQLRecursiveCTE
 				inSubqueryVariant := r.sqlInSubqueryVariant
 				notInSubqueryVariant := r.sqlNotInSubqueryVariant
 				impoTotal := r.impoTotal
@@ -687,6 +702,9 @@ func (r *Runner) startStatsLogger() func() {
 				deltaGenInSubquery := genInSubquery - lastGenInSubquery
 				deltaGenNotInSubquery := genNotInSubquery - lastGenNotInSubquery
 				deltaGenWindow := genWindow - lastGenWindow
+				deltaGenNaturalJoin := genNaturalJoin - lastGenNaturalJoin
+				deltaGenFullJoinEmulation := genFullJoinEmulation - lastGenFullJoinEmulation
+				deltaGenRecursiveCTE := genRecursiveCTE - lastGenRecursiveCTE
 				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
 				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
 				deltaImpoTotal := impoTotal - lastImpoTotal
@@ -777,6 +795,9 @@ func (r *Runner) startStatsLogger() func() {
 				lastGenInSubquery = genInSubquery
 				lastGenNotInSubquery = genNotInSubquery
 				lastGenWindow = genWindow
+				lastGenNaturalJoin = genNaturalJoin
+				lastGenFullJoinEmulation = genFullJoinEmulation
+				lastGenRecursiveCTE = genRecursiveCTE
 				lastInSubqueryVariant = inSubqueryVariant
 				lastNotInSubqueryVariant = notInSubqueryVariant
 				lastImpoTotal = impoTotal
@@ -833,8 +854,12 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					if deltaGenTotal > 0 {
+						const genSQLLogFormat = "gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d " +
+							"in_subquery=%d not_in_subquery=%d window=%d natural_join=%d full_join_emulation=%d recursive_cte=%d"
+						const genSQLRatioLogFormat = "gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f " +
+							"in_subquery=%.3f not_in_subquery=%.3f natural_join=%.3f full_join_emulation=%.3f recursive_cte=%.3f"
 						util.Infof(
-							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d window=%d",
+							genSQLLogFormat,
 							deltaGenTotal,
 							deltaGenExists,
 							deltaGenNotEx,
@@ -843,13 +868,19 @@ func (r *Runner) startStatsLogger() func() {
 							deltaGenInSubquery,
 							deltaGenNotInSubquery,
 							deltaGenWindow,
+							deltaGenNaturalJoin,
+							deltaGenFullJoinEmulation,
+							deltaGenRecursiveCTE,
 						)
 						util.Infof(
-							"gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f",
+							genSQLRatioLogFormat,
 							ratio(deltaGenExists, deltaGenTotal),
 							ratio(deltaGenNotEx, deltaGenTotal),
 							ratio(deltaGenInSubquery, deltaGenTotal),
 							ratio(deltaGenNotInSubquery, deltaGenTotal),
+							ratio(deltaGenNaturalJoin, deltaGenTotal),
+							ratio(deltaGenFullJoinEmulation, deltaGenTotal),
+							ratio(deltaGenRecursiveCTE, deltaGenTotal),
 						)
 					}
 					var impoInvalidRatio float64

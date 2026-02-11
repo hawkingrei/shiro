@@ -21,37 +21,40 @@ import (
 
 // Runner orchestrates fuzzing, execution, and reporting.
 type Runner struct {
-	cfg                  config.Config
-	exec                 *db.DB
-	gen                  *generator.Generator
-	state                *schema.State
-	baseDB               string
-	validator            *validator.Validator
-	reporter             *report.Reporter
-	replayer             *replayer.Replayer
-	uploader             uploader.Uploader
-	oracles              []oracle.Oracle
-	insertLog            []string
-	statsMu              sync.Mutex
-	genMu                sync.Mutex
-	qpgMu                sync.Mutex
-	kqeMu                sync.Mutex
-	sqlTotal             int64
-	sqlValid             int64
-	sqlExists            int64
-	sqlNotEx             int64
-	sqlIn                int64
-	sqlNotIn             int64
-	sqlParseCalls        int64
-	sqlParseVariantCalls int64
-	genSQLTotal          int64
-	genSQLExists         int64
-	genSQLNotEx          int64
-	genSQLIn             int64
-	genSQLNotIn          int64
-	genSQLInSubquery     int64
-	genSQLNotInSubquery  int64
-	genSQLWindow         int64
+	cfg                     config.Config
+	exec                    *db.DB
+	gen                     *generator.Generator
+	state                   *schema.State
+	baseDB                  string
+	validator               *validator.Validator
+	reporter                *report.Reporter
+	replayer                *replayer.Replayer
+	uploader                uploader.Uploader
+	oracles                 []oracle.Oracle
+	insertLog               []string
+	statsMu                 sync.Mutex
+	genMu                   sync.Mutex
+	qpgMu                   sync.Mutex
+	kqeMu                   sync.Mutex
+	sqlTotal                int64
+	sqlValid                int64
+	sqlExists               int64
+	sqlNotEx                int64
+	sqlIn                   int64
+	sqlNotIn                int64
+	sqlParseCalls           int64
+	sqlParseVariantCalls    int64
+	genSQLTotal             int64
+	genSQLExists            int64
+	genSQLNotEx             int64
+	genSQLIn                int64
+	genSQLNotIn             int64
+	genSQLInSubquery        int64
+	genSQLNotInSubquery     int64
+	genSQLWindow            int64
+	genSQLNaturalJoin       int64
+	genSQLFullJoinEmulation int64
+	genSQLRecursiveCTE      int64
 	// sqlInSubquery tracks IN(subquery) occurrences aggregated from plan-cache SQL parsing.
 	sqlInSubquery int64
 	// sqlNotInSubquery tracks NOT IN(subquery) occurrences aggregated from plan-cache SQL parsing.

@@ -811,6 +811,7 @@ func (g *Generator) applyFullJoinEmulation(query *SelectQuery) bool {
 		All:   true,
 		Query: right,
 	}}
+	query.FullJoinEmulation = true
 	clearSetOperationOrderLimit(query)
 	return true
 }

@@ -74,6 +74,7 @@ type SelectItem struct {
 type SelectQuery struct {
 	With              []CTE
 	WithRecursive     bool
+	FullJoinEmulation bool
 	SetOps            []SetOperation
 	Distinct          bool
 	Items             []SelectItem

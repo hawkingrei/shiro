@@ -23,6 +23,10 @@ func TestBuildWithRecursiveCTE(t *testing.T) {
 	if !strings.HasPrefix(sql, "WITH RECURSIVE c AS") {
 		t.Fatalf("expected WITH RECURSIVE prefix, got %s", sql)
 	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasRecursiveCTE {
+		t.Fatalf("expected recursive CTE feature flag")
+	}
 }
 
 func TestBuildNaturalJoin(t *testing.T) {
@@ -44,6 +48,10 @@ func TestBuildNaturalJoin(t *testing.T) {
 	}
 	if strings.Contains(sql, "USING (") || strings.Contains(sql, " ON ") {
 		t.Fatalf("natural join should not emit USING/ON: %s", sql)
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasNaturalJoin {
+		t.Fatalf("expected natural join feature flag")
 	}
 }
 
@@ -145,6 +153,10 @@ func TestApplyFullJoinEmulation(t *testing.T) {
 	}
 	if ok := gen.applyFullJoinEmulation(query); !ok {
 		t.Fatalf("expected full join emulation to apply")
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasFullJoinEmulation {
+		t.Fatalf("expected full join emulation feature flag")
 	}
 	if query.From.Joins[0].Type != JoinLeft {
 		t.Fatalf("expected left branch join type LEFT JOIN, got %s", query.From.Joins[0].Type)

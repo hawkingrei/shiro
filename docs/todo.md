@@ -1,6 +1,9 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: clarified recursive CTE feature semantics and refactored generator interval log format strings (2026-02-11).
+Latest sync: switched tests to load `config.example.yaml` and added the example config file (2026-02-11).
+Latest sync: added generator feature counters for natural joins, full join emulation, and recursive CTEs with tests (2026-02-11).
 Latest sync: added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
 Latest sync: completed PQS v2/v3 (join-aware JOIN ON, subquery predicates, derived tables) and refreshed PQS TODOs (2026-02-09).
 Latest sync: added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
@@ -67,7 +70,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles. (done)
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
 10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
-11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
+11. Add per-feature observability counters for `window_frame` and `interval_arith` (natural join, full join emulation, recursive CTE counters are done).
 
 ## PQS (Rigger OSDI20)
 
