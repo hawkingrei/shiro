@@ -968,7 +968,12 @@ function uploadObjectURL(env: Env, uploadLocation: string, objectName: string): 
   if (!publicBaseURL) {
     return "";
   }
-  const parsed = isS3URL(location) ? parseS3URI(location) : parseGCSURI(location);
+  let parsed: { bucket: string; key: string } | null = null;
+  if (isS3URL(location)) {
+    parsed = parseS3URI(location);
+  } else if (isGCSURL(location)) {
+    parsed = parseGCSURI(location);
+  }
   if (!parsed) {
     return "";
   }

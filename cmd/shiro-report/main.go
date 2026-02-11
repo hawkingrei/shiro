@@ -913,12 +913,13 @@ func publishReports(ctx context.Context, opts publishOptions, output string) (st
 			key := objectKey(opts.GCS.Prefix, name)
 			writer := client.Bucket(opts.GCS.Bucket).Object(key).NewWriter(ctx)
 			writer.ContentType = "application/json"
-			if _, err := io.Copy(writer, bytes.NewReader(data)); err != nil {
-				_ = writer.Close()
-				return "", err
+			_, copyErr := io.Copy(writer, bytes.NewReader(data))
+			closeErr := writer.Close()
+			if copyErr != nil {
+				return "", copyErr
 			}
-			if err := writer.Close(); err != nil {
-				return "", err
+			if closeErr != nil {
+				return "", closeErr
 			}
 		}
 		reportKey := objectKey(opts.GCS.Prefix, "reports.json")
