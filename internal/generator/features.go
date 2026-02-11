@@ -31,20 +31,21 @@ type QueryAnalysis struct {
 
 // QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
-	JoinCount              int
-	JoinTypeSeq            string
-	JoinGraphSig           string
-	HasSubquery            bool
-	HasInSubquery          bool
-	HasNotInSubquery       bool
-	HasExistsSubquery      bool
-	HasNotExistsSubquery   bool
-	HasInList              bool
-	HasNotInList           bool
-	HasAggregate           bool
-	HasWindow              bool
-	HasNaturalJoin         bool
-	HasFullJoinEmulation   bool
+	JoinCount            int
+	JoinTypeSeq          string
+	JoinGraphSig         string
+	HasSubquery          bool
+	HasInSubquery        bool
+	HasNotInSubquery     bool
+	HasExistsSubquery    bool
+	HasNotExistsSubquery bool
+	HasInList            bool
+	HasNotInList         bool
+	HasAggregate         bool
+	HasWindow            bool
+	HasNaturalJoin       bool
+	HasFullJoinEmulation bool
+	// HasRecursiveCTE is true when the query owns a WITH RECURSIVE clause.
 	HasRecursiveCTE        bool
 	ViewCount              int
 	PredicatePairsTotal    int64

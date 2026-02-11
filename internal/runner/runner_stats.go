@@ -854,8 +854,12 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					if deltaGenTotal > 0 {
+						const genSQLLogFormat = "gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d " +
+							"in_subquery=%d not_in_subquery=%d window=%d natural_join=%d full_join_emulation=%d recursive_cte=%d"
+						const genSQLRatioLogFormat = "gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f " +
+							"in_subquery=%.3f not_in_subquery=%.3f natural_join=%.3f full_join_emulation=%.3f recursive_cte=%.3f"
 						util.Infof(
-							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d window=%d natural_join=%d full_join_emulation=%d recursive_cte=%d",
+							genSQLLogFormat,
 							deltaGenTotal,
 							deltaGenExists,
 							deltaGenNotEx,
@@ -869,7 +873,7 @@ func (r *Runner) startStatsLogger() func() {
 							deltaGenRecursiveCTE,
 						)
 						util.Infof(
-							"gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f natural_join=%.3f full_join_emulation=%.3f recursive_cte=%.3f",
+							genSQLRatioLogFormat,
 							ratio(deltaGenExists, deltaGenTotal),
 							ratio(deltaGenNotEx, deltaGenTotal),
 							ratio(deltaGenInSubquery, deltaGenTotal),

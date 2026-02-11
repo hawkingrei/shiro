@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Clarified recursive CTE feature semantics and refactored generator interval log format strings for readability (2026-02-11).
 - Added `config.example.yaml` and switched tests to load it instead of `config.yaml` to avoid local-only config dependencies (2026-02-11).
 - Added generator feature counters and interval logs for natural joins, full join emulation, and recursive CTEs, plus regression coverage (2026-02-11).
 - Added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
