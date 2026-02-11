@@ -6,7 +6,6 @@ import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
   caseArchiveURL,
   caseID,
-  caseReportURL,
   isHTTPURL,
   similarCasesURL,
   workerDownloadURL,
@@ -85,6 +84,15 @@ const detailBool = (details: Record<string, unknown> | null, key: string): boole
   if (typeof value === "string") return value.toLowerCase() === "true";
   return false;
 };
+
+const reservedFileKeys = new Set([
+  "case.sql",
+  "inserts.sql",
+  "plan_replayer.zip",
+  "data.tsv",
+  "schema.sql",
+  "report.json",
+]);
 
 const caseHasTruncation = (c: CaseEntry): boolean => {
   return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
@@ -492,7 +500,7 @@ export default function Page() {
           const archiveURL = caseArchiveURL(c);
           const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
           const downloadURL = workerArchiveURL || archiveURL;
-          const reportURL = caseReportURL(c);
+          const archiveName = (c.archive_name || "").trim();
           const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;
           const similarList = similarPayload?.matches || [];
@@ -517,16 +525,22 @@ export default function Page() {
             expectedExplain && actualExplain ? { oldValue: expectedExplain, newValue: actualExplain } : null;
           const optimizedDiff =
             optimizedExplain && unoptimizedExplain ? { oldValue: unoptimizedExplain, newValue: optimizedExplain } : null;
-          const expectedBlock: CaseBlock = {
-            label: "Expected",
-            content: <pre>{c.expected || ""}</pre>,
-            copyText: c.expected || "",
-          };
-          const actualBlock: CaseBlock = {
-            label: "Actual",
-            content: <pre>{c.actual || ""}</pre>,
-            copyText: c.actual || "",
-          };
+          const expectedText = c.expected || "";
+          const actualText = c.actual || "";
+          const expectedBlock: CaseBlock | null = expectedText
+            ? {
+                label: "Expected",
+                content: <pre>{expectedText}</pre>,
+                copyText: expectedText,
+              }
+            : null;
+          const actualBlock: CaseBlock | null = actualText
+            ? {
+                label: "Actual",
+                content: <pre>{actualText}</pre>,
+                copyText: actualText,
+              }
+            : null;
           const expectedSQLBlock: CaseBlock | null = expectedSQL
             ? {
                 label: "Expected SQL",
@@ -645,16 +659,11 @@ export default function Page() {
                 {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
               </summary>
               <div className="case__grid">
-                {(downloadURL || reportURL || similarURL) && (
+                {(downloadURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
-                      <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer">
-                        Download archive
-                      </a>
-                    )}
-                    {reportURL && (
-                      <a className="action-link" href={reportURL} target="_blank" rel="noreferrer">
-                        Open report.json
+                      <a className="action-link" href={downloadURL} rel="noreferrer" download>
+                        Download case
                       </a>
                     )}
                     {similarURL && (
@@ -739,12 +748,6 @@ export default function Page() {
                       <pre>{norecPredicate}</pre>
                     </>
                   )}
-                  {!expectedSQL && !actualSQL && c.files?.["case.sql"]?.content && (
-                    <>
-                      <LabelRow label="case.sql" onCopy={() => copyText("case.sql", c.files["case.sql"].content || "")} />
-                      <pre>{formatSQL(c.files["case.sql"].content)}</pre>
-                    </>
-                  )}
                   {(() => {
                     const schemaFile = c.files?.["schema.sql"];
                     if (schemaFile?.content) {
@@ -796,14 +799,45 @@ export default function Page() {
                     }
                     return null;
                   })()}
+                  {(() => {
+                    const files = c.files || {};
+                    const reportFile = files["report.json"];
+                    if (reportFile?.content) {
+                      const baseName = reportFile.name || "report.json";
+                      const label = reportFile.truncated ? `${baseName} (truncated)` : baseName;
+                      return (
+                        <details className="fold" key="report.json" open={false}>
+                          <summary>
+                            <div className="fold__summary">
+                              <span className="fold__icon" aria-hidden="true" />
+                              <LabelRow label={label} onCopy={() => copyText(label, reportFile.content || "")} />
+                            </div>
+                          </summary>
+                          <pre>{reportFile.content || ""}</pre>
+                        </details>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {(() => {
+                    const caseFile = c.files?.["case.sql"];
+                    if (caseFile?.content) {
+                      return (
+                        <>
+                          <LabelRow label="case.sql" onCopy={() => copyText("case.sql", caseFile.content || "")} />
+                          <pre>{formatSQL(caseFile.content)}</pre>
+                        </>
+                      );
+                    }
+                    return null;
+                  })()}
                   {Object.keys(c.files || {}).map((key) => {
-                    if (key === "case.sql") return null;
-                    if (key === "inserts.sql") return null;
-                    if (key === "plan_replayer.zip") return null;
-                    if (key === "data.tsv") return null;
-                    if (key === "schema.sql") return null;
+                    if (reservedFileKeys.has(key)) return null;
                     const f = c.files[key];
                     if (!f?.content) return null;
+                    const fileName = (f.name || key).trim();
+                    if (fileName === "case.tar.zst" || key === "case.tar.zst") return null;
+                    if (archiveName && (key === archiveName || fileName === archiveName)) return null;
                     const label = f.truncated ? `${f.name} (truncated)` : f.name;
                     return (
                       <div key={key}>

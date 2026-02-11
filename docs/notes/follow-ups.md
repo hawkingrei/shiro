@@ -1,7 +1,7 @@
 # Follow-ups
 
 This list mirrors `docs/todo.md` and is kept in sync to avoid stale plans.
-Last sync: 2026-02-09.
+Last sync: 2026-02-11.
 
 ## Generator / Oracles
 
