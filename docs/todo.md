@@ -2,7 +2,8 @@
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
 Latest sync: report UI orders case detail sections as error, schema.sql, data.tsv, then case.sql (2026-02-11).
-Latest sync: report UI hides empty Expected/Actual blocks when both are blank (2026-02-11).
+Latest sync: report UI hides Expected/Actual blocks independently when their text is empty (2026-02-11).
+Latest sync: report UI removes the Open report.json action from the toolbar (2026-02-11).
 Latest sync: report UI maps `gs://` artifact locations to public GCS URLs for downloads (2026-02-11).
 Latest sync: report UI hides `case.tar.zst` content and uses a single download-case action per bug (2026-02-11).
 Latest sync: simplified USING ambiguity checks to reuse a single left-side column scan (2026-02-11).

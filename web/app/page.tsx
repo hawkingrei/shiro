@@ -6,7 +6,6 @@ import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
   caseArchiveURL,
   caseID,
-  caseReportURL,
   isHTTPURL,
   similarCasesURL,
   workerDownloadURL,
@@ -517,6 +516,14 @@ export default function Page() {
             expectedExplain && actualExplain ? { oldValue: expectedExplain, newValue: actualExplain } : null;
           const optimizedDiff =
             optimizedExplain && unoptimizedExplain ? { oldValue: unoptimizedExplain, newValue: optimizedExplain } : null;
+          const reservedFileKeys = new Set([
+            "case.sql",
+            "inserts.sql",
+            "plan_replayer.zip",
+            "data.tsv",
+            "schema.sql",
+            "report.json",
+          ]);
           const expectedText = c.expected || "";
           const actualText = c.actual || "";
           const expectedBlock: CaseBlock | null = expectedText
@@ -654,7 +661,7 @@ export default function Page() {
                 {(downloadURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
-                      <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer" download>
+                      <a className="action-link" href={downloadURL} rel="noreferrer" download>
                         Download case
                       </a>
                     )}
@@ -825,16 +832,12 @@ export default function Page() {
                     return null;
                   })()}
                   {Object.keys(c.files || {}).map((key) => {
-                    if (key === "case.sql") return null;
-                    if (key === "inserts.sql") return null;
-                    if (key === "plan_replayer.zip") return null;
-                    if (key === "data.tsv") return null;
-                    if (key === "schema.sql") return null;
-                    if (key === "report.json") return null;
-                    if (key === "case.tar.zst") return null;
+                    if (reservedFileKeys.has(key)) return null;
                     const f = c.files[key];
                     if (!f?.content) return null;
-                    if (archiveName && (key === archiveName || f.name === archiveName)) return null;
+                    const fileName = (f.name || key).trim();
+                    if (fileName === "case.tar.zst" || key === "case.tar.zst") return null;
+                    if (archiveName && (key === archiveName || fileName === archiveName)) return null;
                     const label = f.truncated ? `${f.name} (truncated)` : f.name;
                     return (
                       <div key={key}>
