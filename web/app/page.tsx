@@ -493,7 +493,6 @@ export default function Page() {
           const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
           const downloadURL = workerArchiveURL || archiveURL;
           const archiveName = (c.archive_name || "").trim();
-          const reportURL = caseReportURL(c);
           const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;
           const similarList = similarPayload?.matches || [];
@@ -518,16 +517,22 @@ export default function Page() {
             expectedExplain && actualExplain ? { oldValue: expectedExplain, newValue: actualExplain } : null;
           const optimizedDiff =
             optimizedExplain && unoptimizedExplain ? { oldValue: unoptimizedExplain, newValue: optimizedExplain } : null;
-          const expectedBlock: CaseBlock = {
-            label: "Expected",
-            content: <pre>{c.expected || ""}</pre>,
-            copyText: c.expected || "",
-          };
-          const actualBlock: CaseBlock = {
-            label: "Actual",
-            content: <pre>{c.actual || ""}</pre>,
-            copyText: c.actual || "",
-          };
+          const expectedText = c.expected || "";
+          const actualText = c.actual || "";
+          const expectedBlock: CaseBlock | null = expectedText
+            ? {
+                label: "Expected",
+                content: <pre>{expectedText}</pre>,
+                copyText: expectedText,
+              }
+            : null;
+          const actualBlock: CaseBlock | null = actualText
+            ? {
+                label: "Actual",
+                content: <pre>{actualText}</pre>,
+                copyText: actualText,
+              }
+            : null;
           const expectedSQLBlock: CaseBlock | null = expectedSQL
             ? {
                 label: "Expected SQL",
@@ -646,16 +651,11 @@ export default function Page() {
                 {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
               </summary>
               <div className="case__grid">
-                {(downloadURL || reportURL || similarURL) && (
+                {(downloadURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
                       <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer" download>
                         Download case
-                      </a>
-                    )}
-                    {reportURL && (
-                      <a className="action-link" href={reportURL} target="_blank" rel="noreferrer">
-                        Open report.json
                       </a>
                     )}
                     {similarURL && (
@@ -797,12 +797,34 @@ export default function Page() {
                     }
                     return null;
                   })()}
+                  {(() => {
+                    const files = c.files || {};
+                    const reportFile = files["report.json"];
+                    if (reportFile?.content) {
+                      const label = reportFile.truncated
+                        ? `${reportFile.name} (truncated)`
+                        : reportFile.name || "report.json";
+                      return (
+                        <details className="fold" key="report.json" open={false}>
+                          <summary>
+                            <div className="fold__summary">
+                              <span className="fold__icon" aria-hidden="true" />
+                              <LabelRow label={label} onCopy={() => copyText(label, reportFile.content || "")} />
+                            </div>
+                          </summary>
+                          <pre>{reportFile.content || ""}</pre>
+                        </details>
+                      );
+                    }
+                    return null;
+                  })()}
                   {Object.keys(c.files || {}).map((key) => {
                     if (key === "case.sql") return null;
                     if (key === "inserts.sql") return null;
                     if (key === "plan_replayer.zip") return null;
                     if (key === "data.tsv") return null;
                     if (key === "schema.sql") return null;
+                    if (key === "report.json") return null;
                     if (key === "case.tar.zst") return null;
                     const f = c.files[key];
                     if (!f?.content) return null;

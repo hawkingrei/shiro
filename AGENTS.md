@@ -22,6 +22,8 @@ Links:
 
 ## Recent updates
 
+- Report UI now hides empty Expected/Actual blocks when both are blank (2026-02-11).
+- Report UI hides the Open report.json action and keeps report.json folded by default (2026-02-11).
 - Report UI now maps `gs://` artifact locations to public GCS URLs for downloads (2026-02-11).
 - Report UI hides `case.tar.zst` content and presents a single download-case action per bug (2026-02-11).
 - Simplified USING ambiguity checks to reuse a single left-side column collection pass (2026-02-11).
