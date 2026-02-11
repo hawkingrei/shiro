@@ -373,7 +373,12 @@ func writeJSONFile(path string, site SiteData) error {
 }
 
 func parseS3URI(input string) (bucket string, prefix string, err error) {
-	trimmed := strings.TrimPrefix(input, "s3://")
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "s3://") {
+		return "", "", fmt.Errorf("missing s3 scheme")
+	}
+	trimmed = trimmed[len("s3://"):]
 	if trimmed == "" {
 		return "", "", fmt.Errorf("missing s3 bucket")
 	}
@@ -390,7 +395,12 @@ func parseS3URI(input string) (bucket string, prefix string, err error) {
 }
 
 func parseGCSURI(input string) (bucket string, prefix string, err error) {
-	trimmed := strings.TrimPrefix(input, "gs://")
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	if !strings.HasPrefix(lower, "gs://") {
+		return "", "", fmt.Errorf("missing gcs scheme")
+	}
+	trimmed = trimmed[len("gs://"):]
 	if trimmed == "" {
 		return "", "", fmt.Errorf("missing gcs bucket")
 	}
@@ -574,6 +584,11 @@ func loadGCSCases(ctx context.Context, cfg config.GCSConfig, bucket, prefix stri
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			util.Warnf("gcs client close failed: %v", err)
+		}
+	}()
 	keys, objectSet, err := listGCSKeys(ctx, client, bucket, prefix)
 	if err != nil {
 		return nil, err
@@ -885,6 +900,11 @@ func publishReports(ctx context.Context, opts publishOptions, output string) (st
 		if err != nil {
 			return "", err
 		}
+		defer func() {
+			if err := client.Close(); err != nil {
+				util.Warnf("gcs client close failed: %v", err)
+			}
+		}()
 		for _, name := range []string{"report.json", "reports.json"} {
 			data, err := os.ReadFile(filepath.Join(output, name))
 			if err != nil {
