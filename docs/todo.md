@@ -1,6 +1,8 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: simplified USING ambiguity checks to reuse a single left-side column scan (2026-02-11).
+Latest sync: guarded USING joins against ambiguous left-side columns and added generator regression coverage (2026-02-11).
 Latest sync: fixed PQS USING-id select qualification, added richer case log fields, and stabilized QPG delta logging (2026-02-11).
 Latest sync: clarified recursive CTE feature semantics and refactored generator interval log format strings (2026-02-11).
 Latest sync: switched tests to load `config.example.yaml` and added the example config file (2026-02-11).
