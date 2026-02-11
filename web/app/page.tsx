@@ -740,12 +740,6 @@ export default function Page() {
                       <pre>{norecPredicate}</pre>
                     </>
                   )}
-                  {!expectedSQL && !actualSQL && c.files?.["case.sql"]?.content && (
-                    <>
-                      <LabelRow label="case.sql" onCopy={() => copyText("case.sql", c.files["case.sql"].content || "")} />
-                      <pre>{formatSQL(c.files["case.sql"].content)}</pre>
-                    </>
-                  )}
                   {(() => {
                     const schemaFile = c.files?.["schema.sql"];
                     if (schemaFile?.content) {
@@ -814,6 +808,18 @@ export default function Page() {
                           </summary>
                           <pre>{reportFile.content || ""}</pre>
                         </details>
+                      );
+                    }
+                    return null;
+                  })()}
+                  {(() => {
+                    const caseFile = c.files?.["case.sql"];
+                    if (caseFile?.content) {
+                      return (
+                        <>
+                          <LabelRow label="case.sql" onCopy={() => copyText("case.sql", caseFile.content || "")} />
+                          <pre>{formatSQL(caseFile.content)}</pre>
+                        </>
                       );
                     }
                     return null;
