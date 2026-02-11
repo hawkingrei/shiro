@@ -611,20 +611,25 @@ export default function Page() {
               <input type="checkbox" checked={showExplainSame} onChange={(e) => setShowExplainSame(e.target.checked)} />
               Show EXPLAIN unchanged
             </label>
-            {workerBaseURL && (
-              <input
-                type="password"
-                placeholder="Worker write token (stored locally)"
-                value={workerToken}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setWorkerToken(next);
-                  window.localStorage.setItem(workerTokenStorageKey, next);
-                }}
-              />
-            )}
           </div>
           <div className="stats">Total: {cases.length} | Showing: {filtered.length}</div>
+          {workerBaseURL && (
+            <>
+              <div className="panel__title">Settings</div>
+              <div className="filters">
+                <input
+                  type="password"
+                  placeholder="Worker write token (stored locally)"
+                  value={workerToken}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setWorkerToken(next);
+                    window.localStorage.setItem(workerTokenStorageKey, next);
+                  }}
+                />
+              </div>
+            </>
+          )}
         </div>
       </header>
 
