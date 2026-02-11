@@ -503,7 +503,7 @@ func TestPQSLiteralValueBool(t *testing.T) {
 
 func newPQSTestGenerator(t *testing.T, seed int64) *generator.Generator {
 	t.Helper()
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

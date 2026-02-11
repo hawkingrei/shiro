@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: switched tests to load `config.example.yaml` and added the example config file (2026-02-11).
 Latest sync: added generator feature counters for natural joins, full join emulation, and recursive CTEs with tests (2026-02-11).
 Latest sync: added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
 Latest sync: completed PQS v2/v3 (join-aware JOIN ON, subquery predicates, derived tables) and refreshed PQS TODOs (2026-02-09).

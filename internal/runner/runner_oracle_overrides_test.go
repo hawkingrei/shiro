@@ -9,7 +9,7 @@ import (
 )
 
 func TestApplyOracleOverridesGroundTruth(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestApplyOracleOverridesGroundTruth(t *testing.T) {
 }
 
 func TestApplyOracleOverridesCODDTest(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestApplyOracleOverridesCODDTest(t *testing.T) {
 }
 
 func TestApplyOracleOverridesPQS(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 }
 
 func TestApplyOracleOverridesAllowSubquery(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestApplyOracleOverridesAllowSubquery(t *testing.T) {
 }
 
 func TestApplyOracleOverridesJoinUsingProbMin(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

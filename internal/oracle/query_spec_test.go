@@ -73,7 +73,7 @@ func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 
 func newProfileTestGenerator(t *testing.T) *generator.Generator {
 	t.Helper()
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
