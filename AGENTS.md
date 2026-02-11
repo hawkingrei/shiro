@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Added generator feature counters and interval logs for natural joins, full join emulation, and recursive CTEs, plus regression coverage (2026-02-11).
 - Added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
 - Added a Cloudflare Worker assets stub plus wrangler config to satisfy Git-integrated deploy requirements (2026-02-10).
 - Added a repo-root `wrangler.jsonc` so `wrangler versions upload` can find the worker entrypoint and assets (2026-02-10).

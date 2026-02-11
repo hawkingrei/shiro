@@ -43,6 +43,9 @@ type QueryFeatures struct {
 	HasNotInList           bool
 	HasAggregate           bool
 	HasWindow              bool
+	HasNaturalJoin         bool
+	HasFullJoinEmulation   bool
+	HasRecursiveCTE        bool
 	ViewCount              int
 	PredicatePairsTotal    int64
 	PredicatePairsJoin     int64
@@ -113,9 +116,11 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		return QueryFeatures{}
 	}
 	features := QueryFeatures{
-		JoinCount:    len(query.From.Joins),
-		JoinTypeSeq:  joinTypeSequence(query),
-		JoinGraphSig: joinGraphSignature(query),
+		JoinCount:            len(query.From.Joins),
+		JoinTypeSeq:          joinTypeSequence(query),
+		JoinGraphSig:         joinGraphSignature(query),
+		HasRecursiveCTE:      query.WithRecursive,
+		HasFullJoinEmulation: query.FullJoinEmulation,
 	}
 	for _, op := range query.SetOps {
 		if op.Query == nil {
@@ -216,6 +221,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, join := range query.From.Joins {
+		if join.Natural {
+			features.HasNaturalJoin = true
+		}
 		if join.TableQuery != nil {
 			features.HasSubquery = true
 			mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(join.TableQuery))
@@ -237,6 +245,9 @@ func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {
 	dst.HasNotInList = dst.HasNotInList || src.HasNotInList
 	dst.HasAggregate = dst.HasAggregate || src.HasAggregate
 	dst.HasWindow = dst.HasWindow || src.HasWindow
+	dst.HasNaturalJoin = dst.HasNaturalJoin || src.HasNaturalJoin
+	dst.HasFullJoinEmulation = dst.HasFullJoinEmulation || src.HasFullJoinEmulation
+	dst.HasRecursiveCTE = dst.HasRecursiveCTE || src.HasRecursiveCTE
 }
 
 func joinTypeSequence(query *SelectQuery) string {
