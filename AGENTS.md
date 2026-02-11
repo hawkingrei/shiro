@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Cloudflare Worker now exposes per-case metadata and report UI supports tagging/issue linking via token-authenticated PATCH (2026-02-11).
 - Report UI orders case detail sections as error, schema.sql, data.tsv, then case.sql (2026-02-11).
 - Report UI now hides Expected/Actual blocks independently when their text is empty (2026-02-11).
 - Report UI hides the Open report.json action and keeps report.json folded by default (2026-02-11).

@@ -170,12 +170,21 @@ const worker = {
       return jsonResponse(env, 200, result);
     }
 
-    const patchMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
-    if (patchMatch && request.method === "PATCH") {
+    const caseMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
+    if (caseMatch && request.method === "GET") {
+      const caseID = decodeURIComponent(caseMatch[1]);
+      const entry = await getCaseByID(env, caseID);
+      if (!entry) {
+        return jsonResponse(env, 404, { error: "case not found" });
+      }
+      return jsonResponse(env, 200, entry);
+    }
+
+    if (caseMatch && request.method === "PATCH") {
       if (!isAuthorized(request, env)) {
         return jsonResponse(env, 401, { error: "unauthorized" });
       }
-      const caseID = decodeURIComponent(patchMatch[1]);
+      const caseID = decodeURIComponent(caseMatch[1]);
       const parsed = await parseJSON<PatchPayload>(request, MAX_PATCH_BODY_BYTES);
       if (!parsed.ok) {
         return jsonResponse(env, parsed.status, { error: parsed.error });
@@ -468,6 +477,33 @@ async function listCases(env: Env, params: URLSearchParams): Promise<{ total: nu
     total: Number(countRow?.count || 0),
     cases,
   };
+}
+
+async function getCaseByID(env: Env, caseID: string): Promise<Record<string, unknown> | null> {
+  const row = await env.DB.prepare(`
+    SELECT
+      case_id,
+      oracle,
+      timestamp,
+      error_reason,
+      error_type,
+      error_text,
+      false_positive,
+      linked_issue,
+      labels_json,
+      upload_location,
+      report_url,
+      archive_url,
+      manifest_url,
+      created_at,
+      updated_at
+    FROM cases
+    WHERE case_id = ?
+  `).bind(clean(caseID)).first<CaseRow>();
+  if (!row) {
+    return null;
+  }
+  return normalizeCaseRow(row);
 }
 
 async function updateCaseMeta(env: Env, caseID: string, payload: PatchPayload): Promise<PatchResult> {

@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: worker metadata GET and UI tagging/issue linking via token-authenticated PATCH (2026-02-11).
 Latest sync: report UI orders case detail sections as error, schema.sql, data.tsv, then case.sql (2026-02-11).
 Latest sync: report UI hides Expected/Actual blocks independently when their text is empty (2026-02-11).
 Latest sync: report UI removes the Open report.json action from the toolbar (2026-02-11).

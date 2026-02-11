@@ -48,6 +48,17 @@ type CaseEntry = {
   files: Record<string, FileContent>;
 };
 
+type CaseMetaState = {
+  labels: string[];
+  linkedIssue: string;
+  draftLabels: string;
+  draftIssue: string;
+  loading: boolean;
+  saving: boolean;
+  loaded: boolean;
+  error: string;
+};
+
 type ReportPayload = {
   generated_at: string;
   source: string;
@@ -85,6 +96,50 @@ const detailBool = (details: Record<string, unknown> | null, key: string): boole
   return false;
 };
 
+const normalizeLabels = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const dedup = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const label = item.trim();
+    if (label) {
+      dedup.add(label);
+    }
+  }
+  return Array.from(dedup.values());
+};
+
+const parseLabelInput = (value: string): string[] => {
+  const dedup = new Set<string>();
+  for (const part of value.split(",")) {
+    const label = part.trim();
+    if (label) {
+      dedup.add(label);
+    }
+  }
+  return Array.from(dedup.values());
+};
+
+const emptyCaseMeta = (): CaseMetaState => ({
+  labels: [],
+  linkedIssue: "",
+  draftLabels: "",
+  draftIssue: "",
+  loading: false,
+  saving: false,
+  loaded: false,
+  error: "",
+});
+
+const caseHasTruncation = (c: CaseEntry): boolean => {
+  return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
+};
+
+const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
+const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
+const workerTokenStorageKey = "shiro_worker_write_token";
 const reservedFileKeys = new Set([
   "case.sql",
   "inserts.sql",
@@ -93,13 +148,6 @@ const reservedFileKeys = new Set([
   "schema.sql",
   "report.json",
 ]);
-
-const caseHasTruncation = (c: CaseEntry): boolean => {
-  return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
-};
-
-const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
-const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
 
 const copyText = async (label: string, text: string) => {
   if (!text) return;
@@ -220,6 +268,15 @@ export default function Page() {
   const [viewMode, setViewMode] = useState<"list" | "waterfall">("list");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [workerToken, setWorkerToken] = useState("");
+  const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(workerTokenStorageKey) || "";
+    if (stored) {
+      setWorkerToken(stored);
+    }
+  }, []);
 
   useEffect(() => {
     let canceled = false;
@@ -255,6 +312,117 @@ export default function Page() {
       canceled = true;
     };
   }, []);
+
+  const updateCaseMetaState = (caseID: string, updater: (current: CaseMetaState) => CaseMetaState) => {
+    setCaseMetaByID((prev) => {
+      const current = prev[caseID] || emptyCaseMeta();
+      const next = updater(current);
+      return { ...prev, [caseID]: next };
+    });
+  };
+
+  const ensureCaseMeta = async (caseID: string) => {
+    if (!workerBaseURL || !caseID) {
+      return;
+    }
+    const current = caseMetaByID[caseID];
+    if (current?.loaded || current?.loading) {
+      return;
+    }
+    updateCaseMetaState(caseID, (state) => ({ ...state, loading: true, error: "" }));
+    try {
+      const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`);
+      if (resp.status === 404) {
+        updateCaseMetaState(caseID, (state) => ({
+          ...state,
+          loading: false,
+          loaded: true,
+          error: "metadata not found",
+        }));
+        return;
+      }
+      if (!resp.ok) {
+        updateCaseMetaState(caseID, (state) => ({
+          ...state,
+          loading: false,
+          loaded: true,
+          error: `load failed (${resp.status})`,
+        }));
+        return;
+      }
+      const payload = (await resp.json()) as Record<string, unknown>;
+      const labels = normalizeLabels(payload.labels);
+      const linkedIssue = typeof payload.linked_issue === "string" ? payload.linked_issue.trim() : "";
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        labels,
+        linkedIssue,
+        draftLabels: labels.join(", "),
+        draftIssue: linkedIssue,
+        loading: false,
+        loaded: true,
+        error: "",
+      }));
+    } catch {
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        loading: false,
+        loaded: true,
+        error: "load failed",
+      }));
+    }
+  };
+
+  const saveCaseMeta = async (caseID: string) => {
+    if (!workerBaseURL || !caseID) {
+      return;
+    }
+    if (!workerToken.trim()) {
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        error: "write token required",
+      }));
+      return;
+    }
+    const current = caseMetaByID[caseID] || emptyCaseMeta();
+    const labels = parseLabelInput(current.draftLabels);
+    const linkedIssue = current.draftIssue.trim();
+    updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
+    try {
+      const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${workerToken}`,
+        },
+        body: JSON.stringify({ labels, linked_issue: linkedIssue }),
+      });
+      if (!resp.ok) {
+        updateCaseMetaState(caseID, (state) => ({
+          ...state,
+          saving: false,
+          error: `save failed (${resp.status})`,
+        }));
+        return;
+      }
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        labels,
+        linkedIssue,
+        draftLabels: labels.join(", "),
+        draftIssue: linkedIssue,
+        saving: false,
+        loaded: true,
+        error: "",
+      }));
+    } catch {
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        saving: false,
+        error: "save failed",
+      }));
+    }
+  };
 
   const cases = useMemo(() => payload?.cases ?? [], [payload]);
   const q = query.trim().toLowerCase();
@@ -443,6 +611,18 @@ export default function Page() {
               <input type="checkbox" checked={showExplainSame} onChange={(e) => setShowExplainSame(e.target.checked)} />
               Show EXPLAIN unchanged
             </label>
+            {workerBaseURL && (
+              <input
+                type="password"
+                placeholder="Worker write token (stored locally)"
+                value={workerToken}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setWorkerToken(next);
+                  window.localStorage.setItem(workerTokenStorageKey, next);
+                }}
+              />
+            )}
           </div>
           <div className="stats">Total: {cases.length} | Showing: {filtered.length}</div>
         </div>
@@ -635,7 +815,15 @@ export default function Page() {
             diffBlocks.push(optimizedDiffBlock);
           }
           return (
-            <details className="case" key={c.id || cid || idx}>
+            <details
+              className="case"
+              key={c.id || cid || idx}
+              onToggle={(event) => {
+                if ((event.currentTarget as HTMLDetailsElement).open && cid) {
+                  void ensureCaseMeta(cid);
+                }
+              }}
+            >
               <summary>
                 <span className="case__title">
                   {c.timestamp} {c.oracle}
@@ -736,6 +924,57 @@ export default function Page() {
                   </div>
                 )}
                 <div className="case__meta">
+                  {workerBaseURL && cid && (() => {
+                    const meta = caseMetaByID[cid] || emptyCaseMeta();
+                    return (
+                      <div className="case__meta-block">
+                        <LabelRow label="Tags & Issue" />
+                        {meta.loading && <div className="hint">Loading metadata...</div>}
+                        {meta.error && <div className="error">{meta.error}</div>}
+                        {meta.labels.length > 0 && (
+                          <div className="pill-row">
+                            {meta.labels.map((label) => (
+                              <span className="pill" key={`${cid}-${label}`}>{label}</span>
+                            ))}
+                          </div>
+                        )}
+                        {meta.linkedIssue && (
+                          <div className="linked-issue">
+                            <span className="pill">issue</span>
+                            <span>{meta.linkedIssue}</span>
+                          </div>
+                        )}
+                        <div className="case__meta-inputs">
+                          <input
+                            type="text"
+                            placeholder="labels (comma separated)"
+                            value={meta.draftLabels}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              updateCaseMetaState(cid, (state) => ({ ...state, draftLabels: value }));
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="linked issue (URL or ID)"
+                            value={meta.draftIssue}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              updateCaseMetaState(cid, (state) => ({ ...state, draftIssue: value }));
+                            }}
+                          />
+                          <button
+                            className="copy-btn"
+                            type="button"
+                            onClick={() => void saveCaseMeta(cid)}
+                            disabled={meta.saving}
+                          >
+                            {meta.saving ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {c.error && (
                     <>
                       <LabelRow label="Error" onCopy={() => copyText("error", c.error || "")} />
