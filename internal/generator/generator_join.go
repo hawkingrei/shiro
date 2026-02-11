@@ -439,10 +439,10 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
 	leftAllCounts := map[string]int{}
+	for _, col := range g.collectColumns(left) {
+		leftAllCounts[col.Name]++
+	}
 	for _, ltbl := range left {
-		for _, col := range g.collectColumns([]schema.Table{ltbl}) {
-			leftAllCounts[col.Name]++
-		}
 		for _, lcol := range g.collectJoinColumns(ltbl, useIndexPrefix) {
 			leftCounts[lcol.Name]++
 			if _, ok := leftTypes[lcol.Name]; !ok {
