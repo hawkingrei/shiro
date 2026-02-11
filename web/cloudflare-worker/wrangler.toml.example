@@ -1,6 +1,9 @@
 name = "shiro-report-worker"
 main = "src/index.ts"
-compatibility_date = "2026-02-06"
+compatibility_date = "2026-02-10"
+
+[assets]
+directory = "./assets"
 
 [vars]
 ALLOW_ORIGIN = "*"

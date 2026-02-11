@@ -1,0 +1,8 @@
+{
+  "name": "shiro-report-worker",
+  "main": "./web/cloudflare-worker/src/index.ts",
+  "compatibility_date": "2026-02-10",
+  "assets": {
+    "directory": "./web/cloudflare-worker/assets"
+  }
+}
