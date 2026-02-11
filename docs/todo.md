@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: fixed PQS USING-id select qualification, added richer case log fields, and stabilized QPG delta logging (2026-02-11).
 Latest sync: clarified recursive CTE feature semantics and refactored generator interval log format strings (2026-02-11).
 Latest sync: switched tests to load `config.example.yaml` and added the example config file (2026-02-11).
 Latest sync: added generator feature counters for natural joins, full join emulation, and recursive CTEs with tests (2026-02-11).

@@ -82,7 +82,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if err != nil {
 		return
 	}
-	util.Warnf("case allocated oracle=%s dir=%s", result.Oracle, caseData.Dir)
+	util.Warnf("case allocated oracle=%s case_id=%s dir=%s", result.Oracle, caseData.ID, caseData.Dir)
 	planPath := ""
 	planSignature := ""
 	planSigFormat := ""
@@ -263,16 +263,59 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		}
 	}
 
+	minimizeReason := ""
+	if details != nil {
+		if reason, ok := details["minimize_reason"].(string); ok {
+			minimizeReason = reason
+		}
+	}
 	if result.Err != nil {
-		util.Errorf("case captured oracle=%s dir=%s err=%v", result.Oracle, caseData.Dir, result.Err)
+		util.Errorf(
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s err=%v",
+			result.Oracle,
+			caseData.ID,
+			caseData.Dir,
+			errorReason,
+			summary.MinimizeStatus,
+			minimizeReason,
+			result.Err,
+		)
 	} else if result.Expected != "" || result.Actual != "" {
 		if flaky {
-			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s flaky=true", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+			util.Warnf(
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s flaky=true",
+				result.Oracle,
+				caseData.ID,
+				caseData.Dir,
+				errorReason,
+				summary.MinimizeStatus,
+				minimizeReason,
+				result.Expected,
+				result.Actual,
+			)
 		} else {
-			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+			util.Warnf(
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s",
+				result.Oracle,
+				caseData.ID,
+				caseData.Dir,
+				errorReason,
+				summary.MinimizeStatus,
+				minimizeReason,
+				result.Expected,
+				result.Actual,
+			)
 		}
 	} else {
-		util.Warnf("case captured oracle=%s dir=%s", result.Oracle, caseData.Dir)
+		util.Warnf(
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s",
+			result.Oracle,
+			caseData.ID,
+			caseData.Dir,
+			errorReason,
+			summary.MinimizeStatus,
+			minimizeReason,
+		)
 	}
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
 		util.Errorf("rotate database after bug failed: %v", err)
