@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: added GCS artifact storage support with gs:// URL mapping while keeping R2 publish flow and legacy S3 compatibility (2026-02-10).
 Latest sync: completed PQS v2/v3 (join-aware JOIN ON, subquery predicates, derived tables) and refreshed PQS TODOs (2026-02-09).
 Latest sync: added DQP SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern (2026-02-09).
 Latest sync: addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status) (2026-02-09).

@@ -82,10 +82,10 @@ go run ./cmd/shiro-report -input reports -output web/public
 
 `cmd/shiro-report` now defaults to reading `.report`; pass `-input` when your run output directory is different (for example the default runner output `reports/`).
 
-For S3 inputs, provide a config with `storage.s3` enabled:
+For GCS inputs, provide a config with `storage.gcs` enabled (legacy `s3://` inputs still work with `storage.s3`):
 
 ```bash
-go run ./cmd/shiro-report -input s3://my-bucket/shiro-reports/ -config config.yaml -output web/public
+go run ./cmd/shiro-report -input gs://my-bucket/shiro-reports/ -config config.yaml -output web/public
 ```
 
 ### Next.js frontend
@@ -101,6 +101,7 @@ make report-web
 ```
 
 Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `reports.json` (fallback `report.json`) at runtime, so you only need to update the JSON to refresh the view.
+Set `NEXT_PUBLIC_REPORTS_BASE_URL` to point the frontend at a public bucket or CDN when hosting JSON outside the app bundle.
 
 The report JSON now includes `plan_signature` (QPG EXPLAIN hash) and `plan_signature_format` (plain/json); the UI can filter by both.
 Each case entry also includes `case_id`, `archive_name`, `archive_codec`, `archive_url`, and `report_url`.
@@ -126,6 +127,8 @@ go run ./cmd/shiro-report \
 
 When publish/sync flags are omitted, `cmd/shiro-report` keeps existing local behavior.
 When `-artifact-public-base-url` is not provided, per-case `report_url` and `archive_url` are only emitted when the source upload location is already HTTP(S).
+For GCS, `-artifact-public-base-url` should be the public HTTP base that serves your bucket (for example `https://storage.googleapis.com/<bucket>` or a CDN domain).
+To publish manifests to GCS, set `-publish-gcs-bucket` (and optionally `-publish-gcs-prefix`), and ensure `GOOGLE_APPLICATION_CREDENTIALS` is available for ADC.
 Cloudflare metadata/search worker code is under `web/cloudflare-worker/`.
 
 ## Dynamic state dump
@@ -147,7 +150,9 @@ At each report interval, Shiro writes `dynamic_state.json` in the working direct
 | Constant Optimization Driven Database System Testing (CODDTest) | CODDTest | Uses constant folding/propagation to transform predicates and compares results to detect logic bugs in DBMSs. |
 | Testing Database Engines via Query Plan Guidance (QPG) | QPG | Guides test-case generation toward diverse query plans by mutating database state to trigger previously unseen plans. |
 
-## S3 upload
-Configure `storage.s3` in `config.yaml`. When enabled, each case is uploaded under UUID path (`s3://<bucket>/<prefix>/<case_id>/...`), and the summary includes `upload_location`.
+## GCS upload
+Configure `storage.gcs` in `config.yaml`. When enabled, each case is uploaded under UUID path (`gs://<bucket>/<prefix>/<case_id>/...`), and the summary includes `upload_location`.
 
-When `storage.s3.enabled=false`, Shiro keeps legacy local report layout (`case_XXXX_uuid` directories) and summary-only artifact flow.
+Legacy S3-compatible uploads remain available through `storage.s3`, but new deployments should use GCS.
+
+When neither `storage.gcs.enabled` nor `storage.s3.enabled` is true, Shiro keeps legacy local report layout (`case_XXXX_uuid` directories) and summary-only artifact flow.

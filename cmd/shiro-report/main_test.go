@@ -93,6 +93,22 @@ func TestDeriveObjectURLs(t *testing.T) {
 		t.Fatalf("unexpected archive url with public base: %q", archiveURL)
 	}
 
+	reportURL, archiveURL = deriveObjectURLs("gs://bucket/abc/", "case.tar.zst", "https://cdn.example.com")
+	if reportURL != "https://cdn.example.com/abc/report.json" {
+		t.Fatalf("unexpected report url with gcs public base: %q", reportURL)
+	}
+	if archiveURL != "https://cdn.example.com/abc/case.tar.zst" {
+		t.Fatalf("unexpected archive url with gcs public base: %q", archiveURL)
+	}
+
+	reportURL, archiveURL = deriveObjectURLs("GS://bucket/abc/", "case.tar.zst", "https://cdn.example.com")
+	if reportURL != "https://cdn.example.com/abc/report.json" {
+		t.Fatalf("unexpected report url with gcs uppercase scheme: %q", reportURL)
+	}
+	if archiveURL != "https://cdn.example.com/abc/case.tar.zst" {
+		t.Fatalf("unexpected archive url with gcs uppercase scheme: %q", archiveURL)
+	}
+
 	reportURL, archiveURL = deriveObjectURLs("https://cdn.example.com/abc/", "case.tar.zst", "")
 	if reportURL != "https://cdn.example.com/abc/report.json" {
 		t.Fatalf("unexpected report url from https upload location: %q", reportURL)

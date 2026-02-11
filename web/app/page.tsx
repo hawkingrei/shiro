@@ -91,6 +91,7 @@ const caseHasTruncation = (c: CaseEntry): boolean => {
 };
 
 const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
+const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
 
 const copyText = async (label: string, text: string) => {
   if (!text) return;
@@ -216,7 +217,12 @@ export default function Page() {
     let canceled = false;
     const load = async () => {
       let lastErr: Error | null = null;
-      for (const url of ["./reports.json", "./report.json"]) {
+      const urls: string[] = [];
+      if (reportsBaseURL) {
+        urls.push(`${reportsBaseURL}/reports.json`, `${reportsBaseURL}/report.json`);
+      }
+      urls.push("./reports.json", "./report.json");
+      for (const url of urls) {
         try {
           const res = await fetch(url, { cache: "no-cache" });
           if (!res.ok) {
@@ -361,7 +367,7 @@ export default function Page() {
           <div className="hero__kicker">Shiro Fuzzing</div>
           <h1>Case Report Index</h1>
           <p className="hero__sub">
-            Static frontend reading <code>reports.json</code> with fallback to <code>report.json</code>. Deploy to GitHub Pages or Vercel and update the JSON to refresh.
+            Static frontend reading <code>reports.json</code> with fallback to <code>report.json</code>. Deploy to GitHub Pages or Vercel and update the JSON to refresh. Set <code>NEXT_PUBLIC_REPORTS_BASE_URL</code> to load JSON from a public bucket or CDN.
           </p>
           <div className="hero__meta">
             <span>Generated: {payload?.generated_at ?? "-"}</span>
