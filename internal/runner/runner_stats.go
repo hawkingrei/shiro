@@ -1444,6 +1444,16 @@ func (r *Runner) startStatsLogger() func() {
 						deltaJoinOrders := joinOrders - lastJoinOrders
 						deltaOpSigs := opSigs - lastOpSigs
 						deltaSeenSQLAdded := seenSQLAdded - lastSeenSQLAdded
+						qpgReset := deltaPlans < 0 || deltaShapes < 0 || deltaOps < 0 || deltaJoins < 0 || deltaJoinOrders < 0 || deltaOpSigs < 0 || deltaSeenSQLAdded < 0
+						if qpgReset {
+							deltaPlans = plans
+							deltaShapes = shapes
+							deltaOps = ops
+							deltaJoins = joins
+							deltaJoinOrders = joinOrders
+							deltaOpSigs = opSigs
+							deltaSeenSQLAdded = seenSQLAdded
+						}
 						lastPlans = plans
 						lastShapes = shapes
 						lastOps = ops
@@ -1452,7 +1462,7 @@ func (r *Runner) startStatsLogger() func() {
 						lastOpSigs = opSigs
 						lastSeenSQLAdded = seenSQLAdded
 						util.Detailf(
-							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d added=%d(+%d)",
+							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d added=%d(+%d) reset=%t",
 							plans,
 							deltaPlans,
 							shapes,
@@ -1468,6 +1478,7 @@ func (r *Runner) startStatsLogger() func() {
 							seenSQL,
 							seenSQLAdded,
 							deltaSeenSQLAdded,
+							qpgReset,
 						)
 						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
 							util.Detailf("qpg override=%s", r.qpgState.lastOverride)

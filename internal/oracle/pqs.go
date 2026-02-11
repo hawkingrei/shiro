@@ -91,6 +91,9 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			joinOn = false
 		}
 	}
+	if !joinOn {
+		pqsNormalizeUsingIDColumns(query.Items)
+	}
 	basePredicate, predMeta := pqsBuildPredicate(gen, pivot)
 	subqueryPredicate, subqueryMeta := pqsMaybeBuildSubqueryPredicate(gen, pivot)
 	predicate := pqsCombinePredicates(basePredicate, subqueryPredicate)
@@ -814,6 +817,24 @@ func pqsMatchExpr(pivot *pqsPivotRow, aliases []pqsAliasColumn) generator.Expr {
 		}
 	}
 	return expr
+}
+
+func pqsNormalizeUsingIDColumns(items []generator.SelectItem) {
+	if len(items) == 0 {
+		return
+	}
+	for i, item := range items {
+		col, ok := item.Expr.(generator.ColumnExpr)
+		if !ok {
+			continue
+		}
+		if !strings.EqualFold(col.Ref.Name, pqsPivotIDColumn) {
+			continue
+		}
+		col.Ref.Table = ""
+		item.Expr = col
+		items[i] = item
+	}
 }
 
 func pqsPredicateExprForValue(ref generator.ColumnRef, val pqsPivotValue) generator.Expr {
