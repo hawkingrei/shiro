@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Report UI now maps `gs://` artifact locations to public GCS URLs for downloads (2026-02-11).
 - Report UI hides `case.tar.zst` content and presents a single download-case action per bug (2026-02-11).
 - Simplified USING ambiguity checks to reuse a single left-side column collection pass (2026-02-11).
 - Guarded USING joins against ambiguous left-side columns by considering all left-table columns, with generator regression coverage (2026-02-11).
