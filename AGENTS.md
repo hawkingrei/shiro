@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Report UI hides `case.tar.zst` content and presents a single download-case action per bug (2026-02-11).
 - Simplified USING ambiguity checks to reuse a single left-side column collection pass (2026-02-11).
 - Guarded USING joins against ambiguous left-side columns by considering all left-table columns, with generator regression coverage (2026-02-11).
 - Fixed PQS USING-id select qualification, enriched case logs with case_id/error_reason/minimize fields, and stabilized QPG delta logging with reset flags (2026-02-11).

@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: report UI hides `case.tar.zst` content and uses a single download-case action per bug (2026-02-11).
 Latest sync: simplified USING ambiguity checks to reuse a single left-side column scan (2026-02-11).
 Latest sync: guarded USING joins against ambiguous left-side columns and added generator regression coverage (2026-02-11).
 Latest sync: fixed PQS USING-id select qualification, added richer case log fields, and stabilized QPG delta logging (2026-02-11).

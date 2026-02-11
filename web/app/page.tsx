@@ -492,6 +492,7 @@ export default function Page() {
           const archiveURL = caseArchiveURL(c);
           const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
           const downloadURL = workerArchiveURL || archiveURL;
+          const archiveName = (c.archive_name || "").trim();
           const reportURL = caseReportURL(c);
           const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;
@@ -648,8 +649,8 @@ export default function Page() {
                 {(downloadURL || reportURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
-                      <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer">
-                        Download archive
+                      <a className="action-link" href={downloadURL} target="_blank" rel="noreferrer" download>
+                        Download case
                       </a>
                     )}
                     {reportURL && (
@@ -802,8 +803,10 @@ export default function Page() {
                     if (key === "plan_replayer.zip") return null;
                     if (key === "data.tsv") return null;
                     if (key === "schema.sql") return null;
+                    if (key === "case.tar.zst") return null;
                     const f = c.files[key];
                     if (!f?.content) return null;
+                    if (archiveName && (key === archiveName || f.name === archiveName)) return null;
                     const label = f.truncated ? `${f.name} (truncated)` : f.name;
                     return (
                       <div key={key}>
