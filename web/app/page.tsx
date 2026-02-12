@@ -325,6 +325,21 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    if (!activeMetaID) {
+      return;
+    }
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveMetaID(null);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    };
+  }, [activeMetaID]);
+
+  useEffect(() => {
     let canceled = false;
     const load = async () => {
       let lastErr: Error | null = null;
@@ -1250,8 +1265,13 @@ export default function Page() {
         const labelList = parseLabelInput(meta.draftLabels);
         const issueLink = meta.draftIssue ? issueLinkFrom(meta.draftIssue) : null;
         return (
-          <div className="modal__backdrop" role="dialog" aria-modal="true">
-            <div className="modal">
+          <div
+            className="modal__backdrop"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setActiveMetaID(null)}
+          >
+            <div className="modal" onClick={(event) => event.stopPropagation()}>
               <div className="modal__header">
                 <div>
                   <div className="modal__title">Edit Tags & Issue</div>

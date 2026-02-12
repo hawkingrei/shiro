@@ -27,6 +27,7 @@ Links:
 - Added tag/issue toggles with issue-link rendering in the report UI (2026-02-12).
 - Added preset label chips plus label-based filtering support in the report UI (2026-02-12).
 - Switched tag/issue editing to a modal with add/remove presets and issue linking (2026-02-12).
+- Enabled modal dismissal via Escape key and backdrop click (2026-02-12).
 - Ignored local Cloudflare worker dev artifacts, plus added wrangler devDependency for worker tooling (2026-02-12).
 - Synced web package-lock for wrangler devDependency to keep npm ci green (2026-02-12).
 - Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).
