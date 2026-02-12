@@ -101,7 +101,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 9. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
 10. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
 11. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
-12. Frontend UX: waterfall/list switch, direct archive/report links, and Worker download API integration are done; next step is adding native UI controls for label/edit patch APIs.
+12. Frontend UX: waterfall/list switch, direct archive/report links, Worker download API integration, and native label/issue editing controls are done. (done)
 13. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
 14. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 

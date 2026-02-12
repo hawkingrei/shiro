@@ -198,6 +198,14 @@ code {
   background: #ffd166;
   color: #5b3b00;
 }
+.pill--meta {
+  background: #1e3a8a;
+  color: #fff;
+}
+.pill--issue {
+  background: #0f766e;
+  color: #fff;
+}
 
 .case__grid {
   display: grid;

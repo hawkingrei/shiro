@@ -700,6 +700,12 @@ export default function Page() {
       <main className="cases">
         {filtered.map((c, idx) => {
           const cid = caseID(c);
+          const meta = cid ? (caseMetaByID[cid] || emptyCaseMeta()) : null;
+          const metaLabels = meta?.loaded ? meta.labels : [];
+          const metaLabelPreview = metaLabels.slice(0, 3);
+          const metaLabelExtra = metaLabels.length - metaLabelPreview.length;
+          const metaIssue = meta?.loaded ? meta.linkedIssue : "";
+          const metaIssueDisplay = metaIssue.length > 32 ? `${metaIssue.slice(0, 32)}...` : metaIssue;
           const archiveURL = caseArchiveURL(c);
           const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
           const downloadURL = workerArchiveURL || archiveURL;
@@ -868,6 +874,21 @@ export default function Page() {
                 {c.tidb_version && <span className="pill">{c.tidb_version.split("\n")[0]}</span>}
                 {c.plan_signature && <span className="pill">plan {c.plan_signature.slice(0, 10)}</span>}
                 {c.plan_signature_format && <span className="pill">{c.plan_signature_format}</span>}
+                {metaLabelPreview.map((label) => (
+                  <span className="pill pill--meta" key={`${cid || "case"}-label-${label}`}>
+                    tag {label}
+                  </span>
+                ))}
+                {metaLabelExtra > 0 && (
+                  <span className="pill pill--meta" key={`${cid || "case"}-label-more`}>
+                    +{metaLabelExtra}
+                  </span>
+                )}
+                {metaIssue && (
+                  <span className="pill pill--issue" key={`${cid || "case"}-issue`}>
+                    issue {metaIssueDisplay}
+                  </span>
+                )}
               </summary>
               <div className="case__grid">
                 {(downloadURL || similarURL) && (
@@ -948,7 +969,6 @@ export default function Page() {
                 )}
                 <div className="case__meta">
                   {workerBaseURL && cid && (() => {
-                    const meta = caseMetaByID[cid] || emptyCaseMeta();
                     return (
                       <div className="case__meta-block">
                         <LabelRow label="Tags & Issue" />
