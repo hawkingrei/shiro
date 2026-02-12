@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Embedded the report UI into the Worker assets pipeline with a build:worker export flow and same-origin fallback (2026-02-12).
 - Ignored local Cloudflare worker dev artifacts, plus added wrangler devDependency for worker tooling (2026-02-12).
 - Synced web package-lock for wrangler devDependency to keep npm ci green (2026-02-12).
 - Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).

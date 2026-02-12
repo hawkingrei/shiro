@@ -137,7 +137,7 @@ const caseHasTruncation = (c: CaseEntry): boolean => {
   return detailBool(c.details, "expected_rows_truncated") || detailBool(c.details, "actual_rows_truncated");
 };
 
-const workerBaseURL = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
+const workerBaseURLEnv = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
 const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
 const workerTokenStorageKey = "shiro_worker_write_token";
 const reservedFileKeys = new Set([
@@ -267,6 +267,7 @@ export default function Page() {
   const [showExplainSame, setShowExplainSame] = useState(false);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
   const [workerToken, setWorkerToken] = useState("");
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
 
@@ -275,6 +276,14 @@ export default function Page() {
     if (stored) {
       setWorkerToken(stored);
     }
+  }, []);
+
+  useEffect(() => {
+    if (workerBaseURLEnv) {
+      return;
+    }
+    const origin = window.location.origin.replace(/\/+$/, "");
+    setWorkerBaseURL(origin);
   }, []);
 
   useEffect(() => {
