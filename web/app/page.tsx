@@ -467,10 +467,10 @@ export default function Page() {
       return;
     }
     const current = caseMetaByID[caseID] || emptyCaseMeta();
-    if (current.loading || !current.loaded) {
+    if (current.loading) {
       updateCaseMetaState(caseID, (state) => ({
         ...state,
-        error: "metadata not loaded",
+        error: "metadata loading",
       }));
       return;
     }
@@ -1376,7 +1376,7 @@ export default function Page() {
                   className="action-link action-link--button"
                   type="button"
                   onClick={() => void saveCaseMeta(activeMetaID)}
-                  disabled={meta.saving || meta.loading || !meta.loaded}
+                  disabled={meta.saving || meta.loading}
                 >
                   {meta.saving ? "Saving..." : "Save"}
                 </button>

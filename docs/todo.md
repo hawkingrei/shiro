@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: allow tag/issue saves even when metadata is not preloaded (2026-02-12).
 Latest sync: treat metadata 404 as empty meta in the UI (2026-02-12).
 Latest sync: secured worker list/search/similar behind read auth, documented metadata-only similarity/search, and enabled observability flag (2026-02-12).
 Latest sync: trimmed Worker D1 schema to case_id/labels/linked_issue, removed download endpoint, and UI uses archive URLs for downloads (2026-02-12).
