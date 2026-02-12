@@ -182,13 +182,13 @@ const issueLinkFrom = (value: string): { href: string; label: string } | null =>
   if (isHTTPURL(trimmed)) {
     return { href: trimmed, label: trimmed };
   }
-  const repoMatch = trimmed.match(/^([\\w.-]+\\/[\\w.-]+)#(\\d+)$/);
+  const repoMatch = trimmed.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/);
   if (repoMatch) {
     const repo = repoMatch[1];
     const num = repoMatch[2];
     return { href: `https://github.com/${repo}/issues/${num}`, label: `${repo}#${num}` };
   }
-  const numMatch = trimmed.match(/^#?(\\d+)$/);
+  const numMatch = trimmed.match(/^#?(\d+)$/);
   if (numMatch && issueBaseURLEnv) {
     const num = numMatch[1];
     return { href: `${issueBaseURLEnv}/${num}`, label: `#${num}` };
