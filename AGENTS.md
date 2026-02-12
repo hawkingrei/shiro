@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Treat metadata 404 as empty meta in the UI so empty queries do not surface errors (2026-02-12).
 - Secured worker list/search/similar endpoints behind read auth and documented metadata-only similarity/search behavior (2026-02-12).
 - Enabled top-level worker observability flag to match nested log settings (2026-02-12).
 - Slimmed the Worker D1 schema to store only case_id/labels/linked_issue and simplified sync/list/similar logic to metadata-only (2026-02-12).

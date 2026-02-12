@@ -410,7 +410,7 @@ export default function Page() {
           ...state,
           loading: false,
           loaded: true,
-          error: "metadata not found",
+          error: "",
         }));
         return;
       }
