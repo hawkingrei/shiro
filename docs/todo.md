@@ -1,6 +1,11 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: added Worker 500 logging with request_id for debugging (2026-02-12).
+Latest sync: allow tag/issue saves even when metadata is not preloaded (2026-02-12).
+Latest sync: treat metadata 404 as empty meta in the UI (2026-02-12).
+Latest sync: secured worker list/search/similar behind read auth, documented metadata-only similarity/search, and enabled observability flag (2026-02-12).
+Latest sync: trimmed Worker D1 schema to case_id/labels/linked_issue, removed download endpoint, and UI uses archive URLs for downloads (2026-02-12).
 Latest sync: secured metadata GET with auth when API token is set, narrowed payloads, and store tokens in session storage (2026-02-12).
 Latest sync: removed the waterfall view selector from the report UI (2026-02-11).
 Latest sync: moved worker write-token input to a Settings panel in the report UI (2026-02-11).
@@ -105,6 +110,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 13. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
 14. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 15. Serve the report UI directly from Worker assets for single-domain deployment. (done)
+16. Configure Worker observability settings in wrangler.jsonc. (done)
 
 ## Coverage / Guidance
 

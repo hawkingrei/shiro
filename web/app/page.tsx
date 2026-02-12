@@ -8,7 +8,6 @@ import {
   caseID,
   isHTTPURL,
   similarCasesURL,
-  workerDownloadURL,
 } from "../lib/report-utils";
 
 type FileContent = {
@@ -411,7 +410,7 @@ export default function Page() {
           ...state,
           loading: false,
           loaded: true,
-          error: "metadata not found",
+          error: "",
         }));
         return;
       }
@@ -468,10 +467,10 @@ export default function Page() {
       return;
     }
     const current = caseMetaByID[caseID] || emptyCaseMeta();
-    if (current.loading || !current.loaded) {
+    if (current.loading) {
       updateCaseMetaState(caseID, (state) => ({
         ...state,
-        error: "metadata not loaded",
+        error: "metadata loading",
       }));
       return;
     }
@@ -811,8 +810,7 @@ export default function Page() {
           const metaIssue = meta?.loaded ? meta.linkedIssue : "";
           const metaIssueDisplay = metaIssue.length > 32 ? `${metaIssue.slice(0, 32)}...` : metaIssue;
           const archiveURL = caseArchiveURL(c);
-          const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
-          const downloadURL = workerArchiveURL || archiveURL;
+          const downloadURL = archiveURL;
           const archiveName = (c.archive_name || "").trim();
           const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;
@@ -1378,7 +1376,7 @@ export default function Page() {
                   className="action-link action-link--button"
                   type="button"
                   onClick={() => void saveCaseMeta(activeMetaID)}
-                  disabled={meta.saving || meta.loading || !meta.loaded}
+                  disabled={meta.saving || meta.loading}
                 >
                   {meta.saving ? "Saving..." : "Save"}
                 </button>

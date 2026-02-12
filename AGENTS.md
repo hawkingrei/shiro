@@ -22,12 +22,20 @@ Links:
 
 ## Recent updates
 
+- Added Worker-side 500 logging with request_id for easier troubleshooting (2026-02-12).
+- Allowed tag/issue saves even when metadata was not preloaded (2026-02-12).
+- Treat metadata 404 as empty meta in the UI so empty queries do not surface errors (2026-02-12).
+- Secured worker list/search/similar endpoints behind read auth and documented metadata-only similarity/search behavior (2026-02-12).
+- Enabled top-level worker observability flag to match nested log settings (2026-02-12).
+- Slimmed the Worker D1 schema to store only case_id/labels/linked_issue and simplified sync/list/similar logic to metadata-only (2026-02-12).
+- Dropped the Worker download endpoint and switched UI downloads to use report archive URLs directly (2026-02-12).
 - Embedded the report UI into the Worker assets pipeline with a build:worker export flow and same-origin fallback (2026-02-12).
 - Disabled Turbopack for build:worker to avoid font loader resolution failures in Worker builds (2026-02-12).
 - Added tag/issue toggles with issue-link rendering in the report UI (2026-02-12).
 - Added preset label chips plus label-based filtering support in the report UI (2026-02-12).
 - Switched tag/issue editing to a modal with add/remove presets and issue linking (2026-02-12).
 - Enabled modal dismissal via Escape key and backdrop click (2026-02-12).
+- Added Cloudflare Worker observability settings to wrangler.jsonc (2026-02-12).
 - Ignored local Cloudflare worker dev artifacts, plus added wrangler devDependency for worker tooling (2026-02-12).
 - Synced web package-lock for wrangler devDependency to keep npm ci green (2026-02-12).
 - Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).
