@@ -271,7 +271,7 @@ export default function Page() {
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(workerTokenStorageKey) || "";
+    const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
     if (stored) {
       setWorkerToken(stored);
     }
@@ -330,7 +330,14 @@ export default function Page() {
     }
     updateCaseMetaState(caseID, (state) => ({ ...state, loading: true, error: "" }));
     try {
-      const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`);
+      const headers: Record<string, string> = {};
+      if (workerToken.trim()) {
+        headers.Authorization = `Bearer ${workerToken.trim()}`;
+      }
+      const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
+        cache: "no-cache",
+        headers,
+      });
       if (resp.status === 404) {
         updateCaseMetaState(caseID, (state) => ({
           ...state,
@@ -340,11 +347,20 @@ export default function Page() {
         }));
         return;
       }
+      if (resp.status === 401) {
+        updateCaseMetaState(caseID, (state) => ({
+          ...state,
+          loading: false,
+          loaded: false,
+          error: "unauthorized",
+        }));
+        return;
+      }
       if (!resp.ok) {
         updateCaseMetaState(caseID, (state) => ({
           ...state,
           loading: false,
-          loaded: true,
+          loaded: false,
           error: `load failed (${resp.status})`,
         }));
         return;
@@ -366,7 +382,7 @@ export default function Page() {
       updateCaseMetaState(caseID, (state) => ({
         ...state,
         loading: false,
-        loaded: true,
+        loaded: false,
         error: "load failed",
       }));
     }
@@ -384,6 +400,13 @@ export default function Page() {
       return;
     }
     const current = caseMetaByID[caseID] || emptyCaseMeta();
+    if (current.loading || !current.loaded) {
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        error: "metadata not loaded",
+      }));
+      return;
+    }
     const labels = parseLabelInput(current.draftLabels);
     const linkedIssue = current.draftIssue.trim();
     updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
@@ -614,12 +637,12 @@ export default function Page() {
               <div className="filters">
                 <input
                   type="password"
-                  placeholder="Worker write token (stored locally)"
+                  placeholder="Worker write token (session only)"
                   value={workerToken}
                   onChange={(e) => {
                     const next = e.target.value;
                     setWorkerToken(next);
-                    window.localStorage.setItem(workerTokenStorageKey, next);
+                    window.sessionStorage.setItem(workerTokenStorageKey, next);
                   }}
                 />
               </div>
@@ -966,8 +989,13 @@ export default function Page() {
                           <button
                             className="copy-btn"
                             type="button"
-                            onClick={() => void saveCaseMeta(cid)}
-                            disabled={meta.saving}
+                            onClick={() => {
+                              if (meta.loading || !meta.loaded) {
+                                return;
+                              }
+                              void saveCaseMeta(cid);
+                            }}
+                            disabled={meta.saving || meta.loading || !meta.loaded}
                           >
                             {meta.saving ? "Saving..." : "Save"}
                           </button>

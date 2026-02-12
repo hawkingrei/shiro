@@ -14,12 +14,13 @@ Schema is in `schema.sql`.
 - `GET /api/v1/health`
 - `POST /api/v1/cases/sync`
 - `GET /api/v1/cases`
+- `GET /api/v1/cases/:case_id`
 - `GET /api/v1/cases/:case_id/similar`
 - `PATCH /api/v1/cases/:case_id`
 - `GET /api/v1/cases/:case_id/download`
 - `POST /api/v1/cases/search`
 
-`/api/v1/cases/sync` and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` by default.
+`/api/v1/cases/sync`, `GET /api/v1/cases/:case_id`, and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is set.
 If you really need local insecure mode, set `ALLOW_INSECURE_WRITES=1`.
 
 ## Similar-bug search

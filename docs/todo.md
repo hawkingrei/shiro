@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: secured metadata GET with auth when API token is set, narrowed payloads, and store tokens in session storage (2026-02-12).
 Latest sync: removed the waterfall view selector from the report UI (2026-02-11).
 Latest sync: moved worker write-token input to a Settings panel in the report UI (2026-02-11).
 Latest sync: worker metadata GET and UI tagging/issue linking via token-authenticated PATCH (2026-02-11).

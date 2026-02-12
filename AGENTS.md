@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).
 - Removed the waterfall view selector from the report UI (2026-02-11).
 - Moved worker write-token input from Filters to a Settings panel in the report UI (2026-02-11).
 - Cloudflare Worker now exposes per-case metadata and report UI supports tagging/issue linking via token-authenticated PATCH (2026-02-11).
