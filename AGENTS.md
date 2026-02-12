@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Removed the waterfall view selector from the report UI (2026-02-11).
 - Moved worker write-token input from Filters to a Settings panel in the report UI (2026-02-11).
 - Cloudflare Worker now exposes per-case metadata and report UI supports tagging/issue linking via token-authenticated PATCH (2026-02-11).
 - Report UI orders case detail sections as error, schema.sql, data.tsv, then case.sql (2026-02-11).

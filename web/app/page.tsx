@@ -265,7 +265,6 @@ export default function Page() {
   const [planSigFormat, setPlanSigFormat] = useState("");
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [showExplainSame, setShowExplainSame] = useState(false);
-  const [viewMode, setViewMode] = useState<"list" | "waterfall">("list");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [workerToken, setWorkerToken] = useState("");
@@ -599,10 +598,6 @@ export default function Page() {
                 </option>
               ))}
             </select>
-            <select value={viewMode} onChange={(e) => setViewMode(e.target.value as "list" | "waterfall")}>
-              <option value="list">List view</option>
-              <option value="waterfall">Waterfall view</option>
-            </select>
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
@@ -679,7 +674,7 @@ export default function Page() {
         </div>
       </section>
 
-      <main className={`cases ${viewMode === "waterfall" ? "cases--waterfall" : ""}`}>
+      <main className="cases">
         {filtered.map((c, idx) => {
           const cid = caseID(c);
           const archiveURL = caseArchiveURL(c);
