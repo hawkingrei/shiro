@@ -85,132 +85,143 @@ const STOP_WORDS = new Set([
 
 const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") {
-      return withCORS(env, new Response(null, { status: 204 }));
-    }
+    try {
+      if (request.method === "OPTIONS") {
+        return withCORS(env, new Response(null, { status: 204 }));
+      }
 
-    const url = new URL(request.url);
-    const pathname = normalizePath(url.pathname);
+      const url = new URL(request.url);
+      const pathname = normalizePath(url.pathname);
 
-    if (pathname === "/api/v1/health" && request.method === "GET") {
-      return jsonResponse(env, 200, { ok: true });
-    }
+      if (pathname === "/api/v1/health" && request.method === "GET") {
+        return jsonResponse(env, 200, { ok: true });
+      }
 
-    if (pathname === "/api/v1/cases/sync" && request.method === "POST") {
-      if (!isAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      if (pathname === "/api/v1/cases/sync" && request.method === "POST") {
+        if (!isAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const parsed = await parseJSON<SyncPayload>(request, MAX_SYNC_BODY_BYTES);
+        if (!parsed.ok) {
+          return jsonResponse(env, parsed.status, { error: parsed.error });
+        }
+        const payload = parsed.value;
+        if (!payload || !Array.isArray(payload.cases)) {
+          return jsonResponse(env, 400, { error: "invalid payload: cases[] is required" });
+        }
+        if (payload.cases.length > MAX_SYNC_CASES) {
+          return jsonResponse(env, 413, { error: `invalid payload: cases[] exceeds limit ${MAX_SYNC_CASES}` });
+        }
+        const upserted = await syncCases(env, payload);
+        return jsonResponse(env, 200, {
+          ok: true,
+          upserted,
+          manifest_url: clean(payload.manifest_url),
+        });
       }
-      const parsed = await parseJSON<SyncPayload>(request, MAX_SYNC_BODY_BYTES);
-      if (!parsed.ok) {
-        return jsonResponse(env, parsed.status, { error: parsed.error });
-      }
-      const payload = parsed.value;
-      if (!payload || !Array.isArray(payload.cases)) {
-        return jsonResponse(env, 400, { error: "invalid payload: cases[] is required" });
-      }
-      if (payload.cases.length > MAX_SYNC_CASES) {
-        return jsonResponse(env, 413, { error: `invalid payload: cases[] exceeds limit ${MAX_SYNC_CASES}` });
-      }
-      const upserted = await syncCases(env, payload);
-      return jsonResponse(env, 200, {
-        ok: true,
-        upserted,
-        manifest_url: clean(payload.manifest_url),
-      });
-    }
 
-    if (pathname === "/api/v1/cases" && request.method === "GET") {
-      if (!isReadAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      if (pathname === "/api/v1/cases" && request.method === "GET") {
+        if (!isReadAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const result = await listCases(env, url.searchParams);
+        return jsonResponse(env, 200, result);
       }
-      const result = await listCases(env, url.searchParams);
-      return jsonResponse(env, 200, result);
-    }
 
-    if (pathname === "/api/v1/cases/search" && request.method === "POST") {
-      if (!isReadAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      if (pathname === "/api/v1/cases/search" && request.method === "POST") {
+        if (!isReadAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const parsed = await parseJSON<SearchPayload>(request, MAX_SEARCH_BODY_BYTES);
+        if (!parsed.ok) {
+          return jsonResponse(env, parsed.status, { error: parsed.error });
+        }
+        const payload = parsed.value;
+        const query = clean(payload?.query);
+        if (!query) {
+          return jsonResponse(env, 400, { error: "query is required" });
+        }
+        const limit = clampLimit(payload?.limit);
+        const result = await searchCases(env, query, limit);
+        return jsonResponse(env, 200, result);
       }
-      const parsed = await parseJSON<SearchPayload>(request, MAX_SEARCH_BODY_BYTES);
-      if (!parsed.ok) {
-        return jsonResponse(env, parsed.status, { error: parsed.error });
-      }
-      const payload = parsed.value;
-      const query = clean(payload?.query);
-      if (!query) {
-        return jsonResponse(env, 400, { error: "query is required" });
-      }
-      const limit = clampLimit(payload?.limit);
-      const result = await searchCases(env, query, limit);
-      return jsonResponse(env, 200, result);
-    }
 
-    const similarMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)\/similar$/);
-    if (similarMatch && request.method === "GET") {
-      if (!isReadAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      const similarMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)\/similar$/);
+      if (similarMatch && request.method === "GET") {
+        if (!isReadAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const decoded = decodePathParam(similarMatch[1]);
+        if (!decoded.ok) {
+          return jsonResponse(env, 400, { error: decoded.error });
+        }
+        const caseID = decoded.value;
+        const limit = clampLimit(url.searchParams.get("limit"));
+        const withAI = stringsEqualFold(clean(url.searchParams.get("ai")), "true") || clean(url.searchParams.get("ai")) === "1";
+        const result = await findSimilarCases(env, caseID, limit, withAI);
+        if (!result) {
+          return jsonResponse(env, 404, { error: "case not found" });
+        }
+        return jsonResponse(env, 200, result);
       }
-      const decoded = decodePathParam(similarMatch[1]);
-      if (!decoded.ok) {
-        return jsonResponse(env, 400, { error: decoded.error });
-      }
-      const caseID = decoded.value;
-      const limit = clampLimit(url.searchParams.get("limit"));
-      const withAI = stringsEqualFold(clean(url.searchParams.get("ai")), "true") || clean(url.searchParams.get("ai")) === "1";
-      const result = await findSimilarCases(env, caseID, limit, withAI);
-      if (!result) {
-        return jsonResponse(env, 404, { error: "case not found" });
-      }
-      return jsonResponse(env, 200, result);
-    }
 
-    const caseMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
-    if (caseMatch && request.method === "GET") {
-      if (!isReadAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      const caseMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
+      if (caseMatch && request.method === "GET") {
+        if (!isReadAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const decoded = decodePathParam(caseMatch[1]);
+        if (!decoded.ok) {
+          return jsonResponse(env, 400, { error: decoded.error });
+        }
+        const caseID = decoded.value;
+        const entry = await getCaseMetadata(env, caseID);
+        if (!entry) {
+          return jsonResponse(env, 404, { error: "case not found" });
+        }
+        return jsonResponse(env, 200, entry);
       }
-      const decoded = decodePathParam(caseMatch[1]);
-      if (!decoded.ok) {
-        return jsonResponse(env, 400, { error: decoded.error });
-      }
-      const caseID = decoded.value;
-      const entry = await getCaseMetadata(env, caseID);
-      if (!entry) {
-        return jsonResponse(env, 404, { error: "case not found" });
-      }
-      return jsonResponse(env, 200, entry);
-    }
 
-    if (caseMatch && request.method === "PATCH") {
-      if (!isAuthorized(request, env)) {
-        return jsonResponse(env, 401, { error: "unauthorized" });
+      if (caseMatch && request.method === "PATCH") {
+        if (!isAuthorized(request, env)) {
+          return jsonResponse(env, 401, { error: "unauthorized" });
+        }
+        const decoded = decodePathParam(caseMatch[1]);
+        if (!decoded.ok) {
+          return jsonResponse(env, 400, { error: decoded.error });
+        }
+        const caseID = decoded.value;
+        const parsed = await parseJSON<PatchPayload>(request, MAX_PATCH_BODY_BYTES);
+        if (!parsed.ok) {
+          return jsonResponse(env, parsed.status, { error: parsed.error });
+        }
+        const updated = await updateCaseMeta(env, caseID, parsed.value || {});
+        if (updated === "invalid") {
+          return jsonResponse(env, 400, { error: "invalid payload: at least one field is required" });
+        }
+        return jsonResponse(env, 200, { ok: true, case_id: caseID });
       }
-      const decoded = decodePathParam(caseMatch[1]);
-      if (!decoded.ok) {
-        return jsonResponse(env, 400, { error: decoded.error });
-      }
-      const caseID = decoded.value;
-      const parsed = await parseJSON<PatchPayload>(request, MAX_PATCH_BODY_BYTES);
-      if (!parsed.ok) {
-        return jsonResponse(env, parsed.status, { error: parsed.error });
-      }
-      const updated = await updateCaseMeta(env, caseID, parsed.value || {});
-      if (updated === "invalid") {
-        return jsonResponse(env, 400, { error: "invalid payload: at least one field is required" });
-      }
-      return jsonResponse(env, 200, { ok: true, case_id: caseID });
-    }
 
-    if (pathname.startsWith("/api/")) {
+      if (pathname.startsWith("/api/")) {
+        return jsonResponse(env, 404, { error: "not found" });
+      }
+
+      const asset = await serveAsset(request, env);
+      if (asset) {
+        return asset;
+      }
+
       return jsonResponse(env, 404, { error: "not found" });
+    } catch (err) {
+      const requestID = crypto.randomUUID();
+      console.error("worker request failed", {
+        request_id: requestID,
+        method: request.method,
+        url: request.url,
+        error: err instanceof Error ? err.stack || err.message : String(err),
+      });
+      return jsonResponse(env, 500, { error: "internal error", request_id: requestID });
     }
-
-    const asset = await serveAsset(request, env);
-    if (asset) {
-      return asset;
-    }
-
-    return jsonResponse(env, 404, { error: "not found" });
   },
 };
 

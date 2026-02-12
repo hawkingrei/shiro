@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Added Worker-side 500 logging with request_id for easier troubleshooting (2026-02-12).
 - Allowed tag/issue saves even when metadata was not preloaded (2026-02-12).
 - Treat metadata 404 as empty meta in the UI so empty queries do not surface errors (2026-02-12).
 - Secured worker list/search/similar endpoints behind read auth and documented metadata-only similarity/search behavior (2026-02-12).
