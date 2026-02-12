@@ -53,8 +53,7 @@ type CaseMetaState = {
   linkedIssue: string;
   draftLabels: string;
   draftIssue: string;
-  enableLabels: boolean;
-  enableIssue: boolean;
+  newLabel: string;
   loading: boolean;
   saving: boolean;
   loaded: boolean;
@@ -129,8 +128,7 @@ const emptyCaseMeta = (): CaseMetaState => ({
   linkedIssue: "",
   draftLabels: "",
   draftIssue: "",
-  enableLabels: false,
-  enableIssue: false,
+  newLabel: "",
   loading: false,
   saving: false,
   loaded: false,
@@ -309,6 +307,7 @@ export default function Page() {
   const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
   const [workerToken, setWorkerToken] = useState("");
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
+  const [activeMetaID, setActiveMetaID] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
@@ -368,6 +367,12 @@ export default function Page() {
     });
   };
 
+  const openMetaEditor = (caseID: string) => {
+    if (!caseID) return;
+    void ensureCaseMeta(caseID);
+    setActiveMetaID(caseID);
+  };
+
   const ensureCaseMeta = async (caseID: string) => {
     if (!workerBaseURL || !caseID) {
       return;
@@ -422,8 +427,6 @@ export default function Page() {
         linkedIssue,
         draftLabels: labels.join(", "),
         draftIssue: linkedIssue,
-        enableLabels: labels.length > 0,
-        enableIssue: Boolean(linkedIssue),
         loading: false,
         loaded: true,
         error: "",
@@ -459,20 +462,10 @@ export default function Page() {
     }
     const labels = parseLabelInput(current.draftLabels);
     const linkedIssue = current.draftIssue.trim();
-    const payload: { labels?: string[]; linked_issue?: string } = {};
-    if (current.enableLabels) {
-      payload.labels = labels;
-    }
-    if (current.enableIssue) {
-      payload.linked_issue = linkedIssue;
-    }
-    if (!payload.labels && payload.linked_issue === undefined) {
-      updateCaseMetaState(caseID, (state) => ({
-        ...state,
-        error: "no changes enabled",
-      }));
-      return;
-    }
+    const payload = {
+      labels,
+      linked_issue: linkedIssue,
+    };
     updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
     try {
       const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
@@ -497,8 +490,6 @@ export default function Page() {
         linkedIssue,
         draftLabels: labels.join(", "),
         draftIssue: linkedIssue,
-        enableLabels: current.enableLabels,
-        enableIssue: current.enableIssue,
         saving: false,
         loaded: true,
         error: "",
@@ -1068,7 +1059,6 @@ export default function Page() {
                 <div className="case__meta">
                   {workerBaseURL && cid && (() => {
                     const issueLink = meta.linkedIssue ? issueLinkFrom(meta.linkedIssue) : null;
-                    const canSave = !meta.loading && meta.loaded && (meta.enableLabels || meta.enableIssue);
                     return (
                       <div className="case__meta-block">
                         <LabelRow label="Tags & Issue" />
@@ -1092,92 +1082,13 @@ export default function Page() {
                             <span>{meta.linkedIssue}</span>
                           </div>
                         )}
-                        <div className="case__meta-toggles">
-                          <label className="toggle">
-                            <input
-                              type="checkbox"
-                              checked={meta.enableLabels}
-                              onChange={(e) => {
-                                const next = e.target.checked;
-                                updateCaseMetaState(cid, (state) => ({ ...state, enableLabels: next }));
-                              }}
-                            />
-                            Add labels
-                          </label>
-                          <label className="toggle">
-                            <input
-                              type="checkbox"
-                              checked={meta.enableIssue}
-                              onChange={(e) => {
-                                const next = e.target.checked;
-                                updateCaseMetaState(cid, (state) => ({ ...state, enableIssue: next }));
-                              }}
-                            />
-                            Link issue
-                          </label>
-                        </div>
-                        <div className="case__meta-inputs">
-                          {meta.enableLabels && (
-                            <>
-                              <div className="label-preset">
-                                {presetLabels.map((label) => {
-                                  const active = meta.draftLabels
-                                    .split(",")
-                                    .map((item) => item.trim().toLowerCase())
-                                    .includes(label.toLowerCase());
-                                  return (
-                                    <button
-                                      key={`${cid}-preset-${label}`}
-                                      className={`label-chip${active ? " label-chip--active" : ""}`}
-                                      type="button"
-                                      onClick={() => {
-                                        updateCaseMetaState(cid, (state) => ({
-                                          ...state,
-                                          draftLabels: togglePresetLabel(state.draftLabels, label),
-                                        }));
-                                      }}
-                                    >
-                                      {label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <input
-                                type="text"
-                                placeholder="labels (comma separated)"
-                                value={meta.draftLabels}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  updateCaseMetaState(cid, (state) => ({ ...state, draftLabels: value }));
-                                }}
-                              />
-                            </>
-                          )}
-                          {meta.enableIssue && (
-                            <input
-                              type="text"
-                              placeholder="linked issue (URL or repo#id)"
-                              value={meta.draftIssue}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                updateCaseMetaState(cid, (state) => ({ ...state, draftIssue: value }));
-                              }}
-                            />
-                          )}
-                          <button
-                            className="copy-btn"
-                            type="button"
-                            onClick={() => {
-                              if (!canSave) {
-                                return;
-                              }
-                              void saveCaseMeta(cid);
-                            }}
-                            disabled={meta.saving || !canSave}
-                          >
-                            {meta.saving ? "Saving..." : "Save"}
-                          </button>
-                        </div>
+                        <button
+                          className="copy-btn"
+                          type="button"
+                          onClick={() => void openMetaEditor(cid)}
+                        >
+                          Edit tags & issue
+                        </button>
                       </div>
                     );
                   })()}
@@ -1334,6 +1245,128 @@ export default function Page() {
           );
         })}
       </main>
+      {workerBaseURL && activeMetaID && (() => {
+        const meta = caseMetaByID[activeMetaID] || emptyCaseMeta();
+        const labelList = parseLabelInput(meta.draftLabels);
+        const issueLink = meta.draftIssue ? issueLinkFrom(meta.draftIssue) : null;
+        return (
+          <div className="modal__backdrop" role="dialog" aria-modal="true">
+            <div className="modal">
+              <div className="modal__header">
+                <div>
+                  <div className="modal__title">Edit Tags & Issue</div>
+                  <div className="modal__subtitle">{activeMetaID}</div>
+                </div>
+                <button className="copy-btn" type="button" onClick={() => setActiveMetaID(null)}>
+                  Close
+                </button>
+              </div>
+              {meta.loading && <div className="hint">Loading metadata...</div>}
+              {meta.error && <div className="error">{meta.error}</div>}
+              <div className="modal__section">
+                <LabelRow label="Labels" />
+                <div className="label-preset">
+                  {presetLabels.map((label) => {
+                    const active = labelList.some((item) => item.toLowerCase() === label.toLowerCase());
+                    return (
+                      <button
+                        key={`preset-${label}`}
+                        className={`label-chip${active ? " label-chip--active" : ""}`}
+                        type="button"
+                        onClick={() => {
+                          updateCaseMetaState(activeMetaID, (state) => ({
+                            ...state,
+                            draftLabels: togglePresetLabel(state.draftLabels, label),
+                          }));
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {labelList.length > 0 && (
+                  <div className="label-list">
+                    {labelList.map((label) => (
+                      <span className="label-chip label-chip--active" key={`label-${label}`}>
+                        {label}
+                        <button
+                          type="button"
+                          className="label-chip__remove"
+                          onClick={() => {
+                            updateCaseMetaState(activeMetaID, (state) => ({
+                              ...state,
+                              draftLabels: togglePresetLabel(state.draftLabels, label),
+                            }));
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="label-add">
+                  <input
+                    type="text"
+                    placeholder="Add custom label"
+                    value={meta.newLabel}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      updateCaseMetaState(activeMetaID, (state) => ({ ...state, newLabel: value }));
+                    }}
+                  />
+                  <button
+                    className="action-link action-link--button"
+                    type="button"
+                    onClick={() => {
+                      const value = meta.newLabel.trim();
+                      if (!value) return;
+                      updateCaseMetaState(activeMetaID, (state) => ({
+                        ...state,
+                        draftLabels: togglePresetLabel(state.draftLabels, value),
+                        newLabel: "",
+                      }));
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+              <div className="modal__section">
+                <LabelRow label="Issue" />
+                <input
+                  type="text"
+                  placeholder="Issue URL, repo#id, or #id"
+                  value={meta.draftIssue}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    updateCaseMetaState(activeMetaID, (state) => ({ ...state, draftIssue: value }));
+                  }}
+                />
+                {issueLink && (
+                  <a className="action-link" href={issueLink.href} target="_blank" rel="noreferrer">
+                    Open {issueLink.label}
+                  </a>
+                )}
+              </div>
+              <div className="modal__actions">
+                <button className="copy-btn" type="button" onClick={() => setActiveMetaID(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="action-link action-link--button"
+                  type="button"
+                  onClick={() => void saveCaseMeta(activeMetaID)}
+                  disabled={meta.saving || meta.loading || !meta.loaded}
+                >
+                  {meta.saving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
