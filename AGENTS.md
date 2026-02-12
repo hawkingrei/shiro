@@ -23,6 +23,7 @@ Links:
 ## Recent updates
 
 - Ignored local Cloudflare worker dev artifacts, plus added wrangler devDependency for worker tooling (2026-02-12).
+- Synced web package-lock for wrangler devDependency to keep npm ci green (2026-02-12).
 - Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).
 - Removed the waterfall view selector from the report UI (2026-02-11).
 - Moved worker write-token input from Filters to a Settings panel in the report UI (2026-02-11).
