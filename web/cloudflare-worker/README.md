@@ -17,7 +17,7 @@ Schema is in `schema.sql`.
 - `PATCH /api/v1/cases/:case_id`
 - `POST /api/v1/cases/search`
 
-`/api/v1/cases/sync`, `GET /api/v1/cases/:case_id`, and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is set.
+`/api/v1/cases/sync`, `/api/v1/cases`, `/api/v1/cases/search`, `/api/v1/cases/:case_id`, `/api/v1/cases/:case_id/similar`, and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is set.
 If you really need local insecure mode, set `ALLOW_INSECURE_WRITES=1`.
 
 ## Similar-bug search
@@ -25,6 +25,10 @@ If you really need local insecure mode, set `ALLOW_INSECURE_WRITES=1`.
 - Uses one bug (`case_id`) as anchor and returns ranked similar bugs.
 - Ranking combines deterministic similarity (`labels`, `linked_issue`, token overlap).
 - `ai=1` adds AI explanation/rerank summary over top candidates.
+Note: similarity no longer considers oracle/error reason fields because they are not stored in D1.
+
+## Search behavior
+Search matches `case_id`, `labels`, and `linked_issue` only.
 
 ## Sync payload
 Only `case_id` is used for metadata registration; additional fields are ignored.
@@ -40,6 +44,24 @@ Only `case_id` is used for metadata registration; additional fields are ignored.
   ]
 }
 ```
+
+## Migration
+D1 does not support dropping columns in-place. To migrate existing data:
+```sql
+CREATE TABLE cases_new (
+  case_id TEXT PRIMARY KEY,
+  labels_json TEXT NOT NULL DEFAULT '[]',
+  linked_issue TEXT NOT NULL DEFAULT ''
+);
+
+INSERT INTO cases_new (case_id, labels_json, linked_issue)
+SELECT case_id, labels_json, linked_issue
+FROM cases;
+
+DROP TABLE cases;
+ALTER TABLE cases_new RENAME TO cases;
+```
+If you do not need to preserve metadata, create a new D1 database and apply `schema.sql` instead.
 
 ## Quick start
 1. Create D1 database and apply schema:

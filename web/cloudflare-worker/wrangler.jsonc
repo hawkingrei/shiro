@@ -1,8 +1,16 @@
 {
-  "name": "shiro-report-worker",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-02-10",
-  "assets": {
-    "directory": "./assets"
-  }
+	"name": "shiro-report-worker",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-02-10",
+	"assets": {
+		"directory": "./assets"
+	},
+	"d1_databases": [
+		{
+			"binding": "shiro_cases",
+			"database_name": "shiro_cases",
+			"database_id": "98465bae-a23b-4c21-9467-e4a79d6f40d0",
+			"remote": true
+		}
+	]
 }

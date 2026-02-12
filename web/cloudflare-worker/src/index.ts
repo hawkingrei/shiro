@@ -43,7 +43,7 @@ type ParseJSONResult<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; error: string };
 
-type PatchResult = "updated" | "not_found" | "invalid";
+type PatchResult = "updated" | "invalid";
 
 const DEFAULT_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 const MAX_LIMIT = 500;
@@ -120,11 +120,17 @@ const worker = {
     }
 
     if (pathname === "/api/v1/cases" && request.method === "GET") {
+      if (!isReadAuthorized(request, env)) {
+        return jsonResponse(env, 401, { error: "unauthorized" });
+      }
       const result = await listCases(env, url.searchParams);
       return jsonResponse(env, 200, result);
     }
 
     if (pathname === "/api/v1/cases/search" && request.method === "POST") {
+      if (!isReadAuthorized(request, env)) {
+        return jsonResponse(env, 401, { error: "unauthorized" });
+      }
       const parsed = await parseJSON<SearchPayload>(request, MAX_SEARCH_BODY_BYTES);
       if (!parsed.ok) {
         return jsonResponse(env, parsed.status, { error: parsed.error });
@@ -141,6 +147,9 @@ const worker = {
 
     const similarMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)\/similar$/);
     if (similarMatch && request.method === "GET") {
+      if (!isReadAuthorized(request, env)) {
+        return jsonResponse(env, 401, { error: "unauthorized" });
+      }
       const decoded = decodePathParam(similarMatch[1]);
       if (!decoded.ok) {
         return jsonResponse(env, 400, { error: decoded.error });
@@ -188,9 +197,6 @@ const worker = {
       const updated = await updateCaseMeta(env, caseID, parsed.value || {});
       if (updated === "invalid") {
         return jsonResponse(env, 400, { error: "invalid payload: at least one field is required" });
-      }
-      if (updated === "not_found") {
-        return jsonResponse(env, 404, { error: "case not found" });
       }
       return jsonResponse(env, 200, { ok: true, case_id: caseID });
     }
@@ -384,6 +390,7 @@ async function syncCases(env: Env, payload: SyncPayload): Promise<number> {
     if (!caseID) {
       continue;
     }
+    // Sync only registers case_id rows; labels/linked_issue are managed via PATCH.
     statements.push(
       env.DB.prepare(`
         INSERT INTO cases (case_id)
@@ -423,6 +430,7 @@ async function listCases(env: Env, params: URLSearchParams): Promise<{ total: nu
   const countStmt = env.DB.prepare(`SELECT COUNT(*) AS count FROM cases WHERE ${whereSQL}`).bind(...args);
   const countRow = await countStmt.first<{ count: number }>();
 
+  // NOTE: case_id is UUIDv7 time-ordered; DESC keeps newest-first ordering.
   const listStmt = env.DB.prepare(`
     SELECT
       case_id,
@@ -430,7 +438,7 @@ async function listCases(env: Env, params: URLSearchParams): Promise<{ total: nu
       labels_json
     FROM cases
     WHERE ${whereSQL}
-    ORDER BY case_id
+    ORDER BY case_id DESC
     LIMIT ? OFFSET ?
   `).bind(...args, limit, offset);
 
@@ -471,7 +479,7 @@ async function getCaseMetadata(env: Env, caseID: string): Promise<Record<string,
 async function updateCaseMeta(env: Env, caseID: string, payload: PatchPayload): Promise<PatchResult> {
   const id = clean(caseID);
   if (!id) {
-    return "not_found";
+    return "invalid";
   }
   if (!hasPatchFields(payload)) {
     return "invalid";
@@ -591,6 +599,7 @@ async function findSimilarCases(
     args.push(`"${label}"`);
   }
 
+  // When there are no label/issue signals, return all other cases for scoring.
   const baseWhere = where.length > 0 ? `AND (${where.join(" OR ")})` : "";
   const candidatesStmt = env.DB.prepare(`
     SELECT
