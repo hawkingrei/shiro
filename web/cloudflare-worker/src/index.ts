@@ -264,6 +264,7 @@ async function serveAsset(request: Request, env: Env): Promise<Response | null> 
     return null;
   }
 
+  const assetExtPattern = /\.(?:css|js|mjs|cjs|map|json|png|jpe?g|gif|svg|webp|ico|txt|woff2?|ttf|otf|eot|pdf|xml|webmanifest)$/i;
   const response = await env.ASSETS.fetch(request);
   if (response.status !== 404) {
     return response;
@@ -272,7 +273,7 @@ async function serveAsset(request: Request, env: Env): Promise<Response | null> 
   const url = new URL(request.url);
   if (url.pathname.endsWith("/")) {
     url.pathname = `${url.pathname}index.html`;
-  } else if (!url.pathname.includes(".")) {
+  } else if (!assetExtPattern.test(url.pathname)) {
     url.pathname = `${url.pathname}/index.html`;
   } else {
     return response;
