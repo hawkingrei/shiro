@@ -8,7 +8,6 @@ import {
   caseID,
   isHTTPURL,
   similarCasesURL,
-  workerDownloadURL,
 } from "../lib/report-utils";
 
 type FileContent = {
@@ -811,8 +810,7 @@ export default function Page() {
           const metaIssue = meta?.loaded ? meta.linkedIssue : "";
           const metaIssueDisplay = metaIssue.length > 32 ? `${metaIssue.slice(0, 32)}...` : metaIssue;
           const archiveURL = caseArchiveURL(c);
-          const workerArchiveURL = workerDownloadURL(workerBaseURL, c);
-          const downloadURL = workerArchiveURL || archiveURL;
+          const downloadURL = archiveURL;
           const archiveName = (c.archive_name || "").trim();
           const similarURL = similarCasesURL(workerBaseURL, c);
           const similarPayload = cid ? similarByCase[cid] : undefined;

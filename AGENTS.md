@@ -22,6 +22,8 @@ Links:
 
 ## Recent updates
 
+- Slimmed the Worker D1 schema to store only case_id/labels/linked_issue and simplified sync/list/similar logic to metadata-only (2026-02-12).
+- Dropped the Worker download endpoint and switched UI downloads to use report archive URLs directly (2026-02-12).
 - Embedded the report UI into the Worker assets pipeline with a build:worker export flow and same-origin fallback (2026-02-12).
 - Disabled Turbopack for build:worker to avoid font loader resolution failures in Worker builds (2026-02-12).
 - Added tag/issue toggles with issue-link rendering in the report UI (2026-02-12).

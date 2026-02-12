@@ -9,7 +9,6 @@ import {
   isHTTPURL,
   objectURL,
   similarCasesURL,
-  workerDownloadURL,
 } from "../lib/report-utils";
 
 test("objectURL trims slashes", () => {
@@ -78,15 +77,11 @@ test("isGCSURL validates gs scheme", () => {
   assert.equal(isGCSURL(""), false);
 });
 
-test("similar and worker download URL generation", () => {
+test("similar URL generation", () => {
   const workerBase = "https://worker.example.com/";
   const c = { case_id: "0194d4f8-b6ce-7d4e-b13d-3be7446954d4" };
   assert.equal(
     similarCasesURL(workerBase, c),
     "https://worker.example.com/api/v1/cases/0194d4f8-b6ce-7d4e-b13d-3be7446954d4/similar?limit=20&ai=1",
-  );
-  assert.equal(
-    workerDownloadURL(workerBase, c),
-    "https://worker.example.com/api/v1/cases/0194d4f8-b6ce-7d4e-b13d-3be7446954d4/download",
   );
 });

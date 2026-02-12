@@ -105,10 +105,3 @@ export const similarCasesURL = (workerBaseURL: string, c: CaseLike): string => {
   if (!base || !cid) return "";
   return `${base}/api/v1/cases/${encodeURIComponent(cid)}/similar?limit=20&ai=1`;
 };
-
-export const workerDownloadURL = (workerBaseURL: string, c: CaseLike): string => {
-  const cid = caseID(c);
-  const base = (workerBaseURL || "").trim().replace(/\/+$/, "");
-  if (!base || !cid) return "";
-  return `${base}/api/v1/cases/${encodeURIComponent(cid)}/download`;
-};
