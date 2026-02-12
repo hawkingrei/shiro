@@ -22,6 +22,12 @@ Links:
 
 ## Recent updates
 
+- Embedded the report UI into the Worker assets pipeline with a build:worker export flow and same-origin fallback (2026-02-12).
+- Disabled Turbopack for build:worker to avoid font loader resolution failures in Worker builds (2026-02-12).
+- Added tag/issue toggles with issue-link rendering in the report UI (2026-02-12).
+- Added preset label chips plus label-based filtering support in the report UI (2026-02-12).
+- Switched tag/issue editing to a modal with add/remove presets and issue linking (2026-02-12).
+- Enabled modal dismissal via Escape key and backdrop click (2026-02-12).
 - Ignored local Cloudflare worker dev artifacts, plus added wrangler devDependency for worker tooling (2026-02-12).
 - Synced web package-lock for wrangler devDependency to keep npm ci green (2026-02-12).
 - Secured case-metadata GET behind API token when configured, narrowed metadata payloads, and store write tokens in session storage (2026-02-12).

@@ -104,6 +104,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 12. Frontend UX: waterfall/list switch, direct archive/report links, Worker download API integration, and native label/issue editing controls are done. (done)
 13. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
 14. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
+15. Serve the report UI directly from Worker assets for single-domain deployment. (done)
 
 ## Coverage / Guidance
 

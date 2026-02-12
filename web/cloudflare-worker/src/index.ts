@@ -5,6 +5,9 @@ interface Env {
   ALLOW_ORIGIN?: string;
   ARTIFACT_PUBLIC_BASE_URL?: string;
   AI_MODEL?: string;
+  ASSETS?: {
+    fetch(request: Request): Promise<Response>;
+  };
   AI?: {
     run(model: string, input: unknown): Promise<unknown>;
   };
@@ -231,6 +234,15 @@ const worker = {
       );
     }
 
+    if (pathname.startsWith("/api/")) {
+      return jsonResponse(env, 404, { error: "not found" });
+    }
+
+    const asset = await serveAsset(request, env);
+    if (asset) {
+      return asset;
+    }
+
     return jsonResponse(env, 404, { error: "not found" });
   },
 };
@@ -242,6 +254,37 @@ function normalizePath(pathname: string): string {
     return "/";
   }
   return pathname.replace(/\/+$/, "") || "/";
+}
+
+async function serveAsset(request: Request, env: Env): Promise<Response | null> {
+  if (!env.ASSETS) {
+    return null;
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return null;
+  }
+
+  const assetExtPattern = /\.(?:css|js|mjs|cjs|map|json|png|jpe?g|gif|svg|webp|ico|txt|woff2?|ttf|otf|eot|pdf|xml|webmanifest)$/i;
+  const response = await env.ASSETS.fetch(request);
+  if (response.status !== 404) {
+    return response;
+  }
+
+  const url = new URL(request.url);
+  if (url.pathname.endsWith("/")) {
+    url.pathname = `${url.pathname}index.html`;
+  } else if (!assetExtPattern.test(url.pathname)) {
+    url.pathname = `${url.pathname}/index.html`;
+  } else {
+    return response;
+  }
+
+  const fallback = await env.ASSETS.fetch(new Request(url.toString(), request));
+  if (fallback.status !== 404) {
+    return fallback;
+  }
+
+  return response;
 }
 
 function clean(value: unknown): string {

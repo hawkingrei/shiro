@@ -287,6 +287,109 @@ code {
 .case__meta {
   grid-column: 1 / -1;
 }
+.label-preset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.label-chip {
+  border: 1px solid var(--border);
+  background: #f7eee4;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.label-chip--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.linked-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 8, 6, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 40;
+}
+.modal {
+  width: min(680px, 95vw);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modal__title {
+  font-weight: 600;
+  font-size: 16px;
+}
+.modal__subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.modal__section {
+  display: grid;
+  gap: 10px;
+}
+.modal__section input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.label-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.label-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.label-add input {
+  flex: 1;
+}
+.label-chip__remove {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+}
 .case__pair {
   display: grid;
   gap: 10px;
