@@ -1,13 +1,12 @@
 reports/
 logs/
 .cache/
-!.cache/.gitkeep
+config.yaml
 *.zip
 .DS_Store
 *.log
 *.tmp
 dynamic_state.json
-config.yaml
 /shiro
 bin/
 web/node_modules

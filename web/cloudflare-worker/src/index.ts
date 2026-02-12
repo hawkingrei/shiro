@@ -160,7 +160,11 @@ const worker = {
 
     const similarMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)\/similar$/);
     if (similarMatch && request.method === "GET") {
-      const caseID = decodeURIComponent(similarMatch[1]);
+      const decoded = decodePathParam(similarMatch[1]);
+      if (!decoded.ok) {
+        return jsonResponse(env, 400, { error: decoded.error });
+      }
+      const caseID = decoded.value;
       const limit = clampLimit(url.searchParams.get("limit"));
       const withAI = stringsEqualFold(clean(url.searchParams.get("ai")), "true") || clean(url.searchParams.get("ai")) === "1";
       const result = await findSimilarCases(env, caseID, limit, withAI);
@@ -170,12 +174,32 @@ const worker = {
       return jsonResponse(env, 200, result);
     }
 
-    const patchMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
-    if (patchMatch && request.method === "PATCH") {
+    const caseMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)$/);
+    if (caseMatch && request.method === "GET") {
+      if (!isReadAuthorized(request, env)) {
+        return jsonResponse(env, 401, { error: "unauthorized" });
+      }
+      const decoded = decodePathParam(caseMatch[1]);
+      if (!decoded.ok) {
+        return jsonResponse(env, 400, { error: decoded.error });
+      }
+      const caseID = decoded.value;
+      const entry = await getCaseMetadata(env, caseID);
+      if (!entry) {
+        return jsonResponse(env, 404, { error: "case not found" });
+      }
+      return jsonResponse(env, 200, entry);
+    }
+
+    if (caseMatch && request.method === "PATCH") {
       if (!isAuthorized(request, env)) {
         return jsonResponse(env, 401, { error: "unauthorized" });
       }
-      const caseID = decodeURIComponent(patchMatch[1]);
+      const decoded = decodePathParam(caseMatch[1]);
+      if (!decoded.ok) {
+        return jsonResponse(env, 400, { error: decoded.error });
+      }
+      const caseID = decoded.value;
       const parsed = await parseJSON<PatchPayload>(request, MAX_PATCH_BODY_BYTES);
       if (!parsed.ok) {
         return jsonResponse(env, parsed.status, { error: parsed.error });
@@ -192,7 +216,11 @@ const worker = {
 
     const downloadMatch = pathname.match(/^\/api\/v1\/cases\/([^/]+)\/download$/);
     if (downloadMatch && request.method === "GET") {
-      const caseID = decodeURIComponent(downloadMatch[1]);
+      const decoded = decodePathParam(downloadMatch[1]);
+      if (!decoded.ok) {
+        return jsonResponse(env, 400, { error: decoded.error });
+      }
+      const caseID = decoded.value;
       const target = await resolveDownloadURL(env, caseID);
       if (!target) {
         return jsonResponse(env, 404, { error: "archive URL not found" });
@@ -249,6 +277,14 @@ function parseLabels(raw: string): string[] {
   }
 }
 
+function decodePathParam(raw: string): { ok: true; value: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: decodeURIComponent(raw) };
+  } catch {
+    return { ok: false, error: "invalid path parameter" };
+  }
+}
+
 function isAuthorized(request: Request, env: Env): boolean {
   const token = clean(env.API_TOKEN);
   if (!token) {
@@ -256,6 +292,14 @@ function isAuthorized(request: Request, env: Env): boolean {
   }
   const auth = request.headers.get("authorization") || "";
   return auth === `Bearer ${token}`;
+}
+
+function isReadAuthorized(request: Request, env: Env): boolean {
+  const token = clean(env.API_TOKEN);
+  if (!token) {
+    return true;
+  }
+  return isAuthorized(request, env);
 }
 
 async function parseJSON<T>(request: Request, maxBytes: number): Promise<ParseJSONResult<T>> {
@@ -467,6 +511,37 @@ async function listCases(env: Env, params: URLSearchParams): Promise<{ total: nu
   return {
     total: Number(countRow?.count || 0),
     cases,
+  };
+}
+
+type CaseMetadataRow = {
+  case_id: string;
+  labels_json: string;
+  linked_issue: string;
+  false_positive: number;
+  error_type: string;
+};
+
+async function getCaseMetadata(env: Env, caseID: string): Promise<Record<string, unknown> | null> {
+  const row = await env.DB.prepare(`
+    SELECT
+      case_id,
+      labels_json,
+      linked_issue,
+      false_positive,
+      error_type
+    FROM cases
+    WHERE case_id = ?
+  `).bind(clean(caseID)).first<CaseMetadataRow>();
+  if (!row) {
+    return null;
+  }
+  return {
+    case_id: row.case_id,
+    labels: parseLabels(row.labels_json),
+    linked_issue: clean(row.linked_issue),
+    false_positive: row.false_positive === 1,
+    error_type: clean(row.error_type),
   };
 }
 
