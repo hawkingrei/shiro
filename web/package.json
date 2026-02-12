@@ -7,7 +7,7 @@
     "dev:webpack": "next dev --webpack -p 3001",
     "build": "node scripts/guard-build.js && next build",
     "build:release": "SHIRO_RELEASE=1 next build",
-    "build:worker": "SHIRO_RELEASE=1 npm run build && node scripts/export-worker-assets.js",
+    "build:worker": "SHIRO_RELEASE=1 NEXT_DISABLE_TURBOPACK=1 npm run build && node scripts/export-worker-assets.js",
     "start": "next start",
     "compile": "tsc --noEmit",
     "lint": "eslint .",
