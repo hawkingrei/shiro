@@ -287,6 +287,57 @@ code {
 .case__meta {
   grid-column: 1 / -1;
 }
+.case__meta-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 6px 0 8px;
+}
+.case__meta-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.case__meta-inputs input {
+  min-width: 220px;
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.label-preset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.label-chip {
+  border: 1px solid var(--border);
+  background: #f7eee4;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.label-chip--active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.linked-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
 .case__pair {
   display: grid;
   gap: 10px;

@@ -53,6 +53,8 @@ type CaseMetaState = {
   linkedIssue: string;
   draftLabels: string;
   draftIssue: string;
+  enableLabels: boolean;
+  enableIssue: boolean;
   loading: boolean;
   saving: boolean;
   loaded: boolean;
@@ -127,6 +129,8 @@ const emptyCaseMeta = (): CaseMetaState => ({
   linkedIssue: "",
   draftLabels: "",
   draftIssue: "",
+  enableLabels: false,
+  enableIssue: false,
   loading: false,
   saving: false,
   loaded: false,
@@ -139,6 +143,7 @@ const caseHasTruncation = (c: CaseEntry): boolean => {
 
 const workerBaseURLEnv = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().replace(/\/+$/, "");
 const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
+const issueBaseURLEnv = (process.env.NEXT_PUBLIC_ISSUE_BASE_URL || "").trim().replace(/\/+$/, "");
 const workerTokenStorageKey = "shiro_worker_write_token";
 const reservedFileKeys = new Set([
   "case.sql",
@@ -169,6 +174,39 @@ const copyText = async (label: string, text: string) => {
       document.body.removeChild(fallback);
     }
   }
+};
+
+const issueLinkFrom = (value: string): { href: string; label: string } | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isHTTPURL(trimmed)) {
+    return { href: trimmed, label: trimmed };
+  }
+  const repoMatch = trimmed.match(/^([\\w.-]+\\/[\\w.-]+)#(\\d+)$/);
+  if (repoMatch) {
+    const repo = repoMatch[1];
+    const num = repoMatch[2];
+    return { href: `https://github.com/${repo}/issues/${num}`, label: `${repo}#${num}` };
+  }
+  const numMatch = trimmed.match(/^#?(\\d+)$/);
+  if (numMatch && issueBaseURLEnv) {
+    const num = numMatch[1];
+    return { href: `${issueBaseURLEnv}/${num}`, label: `#${num}` };
+  }
+  return null;
+};
+
+const presetLabels = ["not bug", "critical", "major", "moderate", "minor", "Enhancement"];
+
+const togglePresetLabel = (current: string, label: string): string => {
+  const labels = parseLabelInput(current);
+  const idx = labels.findIndex((item) => item.toLowerCase() === label.toLowerCase());
+  if (idx >= 0) {
+    labels.splice(idx, 1);
+  } else {
+    labels.push(label);
+  }
+  return labels.join(", ");
 };
 
 const LabelRow = ({ label, onCopy }: { label: string; onCopy?: () => void }) => {
@@ -266,6 +304,7 @@ export default function Page() {
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [showExplainSame, setShowExplainSame] = useState(false);
   const [reason, setReason] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
   const [workerToken, setWorkerToken] = useState("");
@@ -383,6 +422,8 @@ export default function Page() {
         linkedIssue,
         draftLabels: labels.join(", "),
         draftIssue: linkedIssue,
+        enableLabels: labels.length > 0,
+        enableIssue: Boolean(linkedIssue),
         loading: false,
         loaded: true,
         error: "",
@@ -418,6 +459,20 @@ export default function Page() {
     }
     const labels = parseLabelInput(current.draftLabels);
     const linkedIssue = current.draftIssue.trim();
+    const payload: { labels?: string[]; linked_issue?: string } = {};
+    if (current.enableLabels) {
+      payload.labels = labels;
+    }
+    if (current.enableIssue) {
+      payload.linked_issue = linkedIssue;
+    }
+    if (!payload.labels && payload.linked_issue === undefined) {
+      updateCaseMetaState(caseID, (state) => ({
+        ...state,
+        error: "no changes enabled",
+      }));
+      return;
+    }
     updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
     try {
       const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
@@ -426,7 +481,7 @@ export default function Page() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${workerToken}`,
         },
-        body: JSON.stringify({ labels, linked_issue: linkedIssue }),
+        body: JSON.stringify(payload),
       });
       if (!resp.ok) {
         updateCaseMetaState(caseID, (state) => ({
@@ -442,6 +497,8 @@ export default function Page() {
         linkedIssue,
         draftLabels: labels.join(", "),
         draftIssue: linkedIssue,
+        enableLabels: current.enableLabels,
+        enableIssue: current.enableIssue,
         saving: false,
         loaded: true,
         error: "",
@@ -478,6 +535,20 @@ export default function Page() {
     return Array.from(new Set(cases.map((c) => reasonForCase(c)))).sort();
   }, [cases]);
 
+  const labelOptions = useMemo(() => {
+    const labels = new Set<string>();
+    cases.forEach((c) => {
+      const cid = caseID(c);
+      if (!cid) return;
+      const meta = caseMetaByID[cid];
+      if (!meta?.loaded) return;
+      meta.labels.forEach((label) => {
+        if (label) labels.add(label);
+      });
+    });
+    return Array.from(labels.values()).sort();
+  }, [cases, caseMetaByID]);
+
   const filtered = useMemo(() => {
     return cases.filter((c) => {
       if (oracle && c.oracle !== oracle) return false;
@@ -490,6 +561,14 @@ export default function Page() {
       if (planSigFormat && c.plan_signature_format !== planSigFormat) return false;
       if (onlyErrors && !c.error) return false;
       if (reason && reasonForCase(c) !== reason) return false;
+      if (labelFilter) {
+        const cid = caseID(c);
+        if (!cid) return false;
+        const meta = caseMetaByID[cid];
+        if (!meta?.loaded) return false;
+        const match = meta.labels.some((label) => label.toLowerCase() === labelFilter.toLowerCase());
+        if (!match) return false;
+      }
       if (!q) return true;
       const hay = [
         c.oracle,
@@ -630,6 +709,16 @@ export default function Page() {
                 </option>
               ))}
             </select>
+            {labelOptions.length > 0 && (
+              <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)}>
+                <option value="">All labels</option>
+                {labelOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            )}
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
@@ -978,6 +1067,8 @@ export default function Page() {
                 )}
                 <div className="case__meta">
                   {workerBaseURL && cid && (() => {
+                    const issueLink = meta.linkedIssue ? issueLinkFrom(meta.linkedIssue) : null;
+                    const canSave = !meta.loading && meta.loaded && (meta.enableLabels || meta.enableIssue);
                     return (
                       <div className="case__meta-block">
                         <LabelRow label="Tags & Issue" />
@@ -990,41 +1081,99 @@ export default function Page() {
                             ))}
                           </div>
                         )}
-                        {meta.linkedIssue && (
+                        {meta.linkedIssue && issueLink && (
+                          <a className="action-link" href={issueLink.href} target="_blank" rel="noreferrer">
+                            Issue {issueLink.label}
+                          </a>
+                        )}
+                        {meta.linkedIssue && !issueLink && (
                           <div className="linked-issue">
                             <span className="pill">issue</span>
                             <span>{meta.linkedIssue}</span>
                           </div>
                         )}
+                        <div className="case__meta-toggles">
+                          <label className="toggle">
+                            <input
+                              type="checkbox"
+                              checked={meta.enableLabels}
+                              onChange={(e) => {
+                                const next = e.target.checked;
+                                updateCaseMetaState(cid, (state) => ({ ...state, enableLabels: next }));
+                              }}
+                            />
+                            Add labels
+                          </label>
+                          <label className="toggle">
+                            <input
+                              type="checkbox"
+                              checked={meta.enableIssue}
+                              onChange={(e) => {
+                                const next = e.target.checked;
+                                updateCaseMetaState(cid, (state) => ({ ...state, enableIssue: next }));
+                              }}
+                            />
+                            Link issue
+                          </label>
+                        </div>
                         <div className="case__meta-inputs">
-                          <input
-                            type="text"
-                            placeholder="labels (comma separated)"
-                            value={meta.draftLabels}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              updateCaseMetaState(cid, (state) => ({ ...state, draftLabels: value }));
-                            }}
-                          />
-                          <input
-                            type="text"
-                            placeholder="linked issue (URL or ID)"
-                            value={meta.draftIssue}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              updateCaseMetaState(cid, (state) => ({ ...state, draftIssue: value }));
-                            }}
-                          />
+                          {meta.enableLabels && (
+                            <>
+                              <div className="label-preset">
+                                {presetLabels.map((label) => {
+                                  const active = meta.draftLabels
+                                    .split(",")
+                                    .map((item) => item.trim().toLowerCase())
+                                    .includes(label.toLowerCase());
+                                  return (
+                                    <button
+                                      key={`${cid}-preset-${label}`}
+                                      className={`label-chip${active ? " label-chip--active" : ""}`}
+                                      type="button"
+                                      onClick={() => {
+                                        updateCaseMetaState(cid, (state) => ({
+                                          ...state,
+                                          draftLabels: togglePresetLabel(state.draftLabels, label),
+                                        }));
+                                      }}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <input
+                                type="text"
+                                placeholder="labels (comma separated)"
+                                value={meta.draftLabels}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  updateCaseMetaState(cid, (state) => ({ ...state, draftLabels: value }));
+                                }}
+                              />
+                            </>
+                          )}
+                          {meta.enableIssue && (
+                            <input
+                              type="text"
+                              placeholder="linked issue (URL or repo#id)"
+                              value={meta.draftIssue}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                updateCaseMetaState(cid, (state) => ({ ...state, draftIssue: value }));
+                              }}
+                            />
+                          )}
                           <button
                             className="copy-btn"
                             type="button"
                             onClick={() => {
-                              if (meta.loading || !meta.loaded) {
+                              if (!canSave) {
                                 return;
                               }
                               void saveCaseMeta(cid);
                             }}
-                            disabled={meta.saving || meta.loading || !meta.loaded}
+                            disabled={meta.saving || !canSave}
                           >
                             {meta.saving ? "Saving..." : "Save"}
                           </button>
