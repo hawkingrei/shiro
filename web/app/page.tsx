@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
@@ -120,6 +120,14 @@ const parseLabelInput = (value: string): string[] => {
     }
   }
   return Array.from(dedup.values());
+};
+
+const workerAuthHeaders = (token: string): Record<string, string> => {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return {};
+  }
+  return { Authorization: `Bearer ${trimmed}` };
 };
 
 const emptyCaseMeta = (): CaseMetaState => ({
@@ -307,6 +315,7 @@ export default function Page() {
   const [workerToken, setWorkerToken] = useState("");
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
   const [activeMetaID, setActiveMetaID] = useState<string | null>(null);
+  const metaBootstrapInFlight = useRef(false);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
@@ -397,13 +406,9 @@ export default function Page() {
     }
     updateCaseMetaState(caseID, (state) => ({ ...state, loading: true, error: "" }));
     try {
-      const headers: Record<string, string> = {};
-      if (workerToken.trim()) {
-        headers.Authorization = `Bearer ${workerToken.trim()}`;
-      }
       const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
         cache: "no-cache",
-        headers,
+        headers: workerAuthHeaders(workerToken),
       });
       if (resp.status === 404) {
         updateCaseMetaState(caseID, (state) => ({
@@ -455,6 +460,124 @@ export default function Page() {
     }
   };
 
+  const cases = useMemo(() => payload?.cases ?? [], [payload]);
+
+  useEffect(() => {
+    if (!workerBaseURL || cases.length === 0 || metaBootstrapInFlight.current) {
+      return;
+    }
+    const caseIDs = Array.from(
+      new Set(
+        cases
+          .map((entry) => (caseID(entry) || "").trim())
+          .filter((id) => id.length > 0),
+      ),
+    );
+    if (caseIDs.length === 0) {
+      return;
+    }
+    const needBootstrap = caseIDs.some((cid) => {
+      const meta = caseMetaByID[cid];
+      return !meta || (!meta.loaded && !meta.loading);
+    });
+    if (!needBootstrap) {
+      return;
+    }
+
+    let canceled = false;
+    let loadedFromWorker = false;
+    metaBootstrapInFlight.current = true;
+
+    const loadAllMetadata = async () => {
+      const caseIDSet = new Set(caseIDs);
+      const collected = new Map<string, { labels: string[]; linkedIssue: string }>();
+      const limit = 500;
+      let offset = 0;
+
+      try {
+        for (;;) {
+          const resp = await fetch(`${workerBaseURL}/api/v1/cases?limit=${limit}&offset=${offset}`, {
+            cache: "no-cache",
+            headers: workerAuthHeaders(workerToken),
+          });
+          if (resp.status === 401 || !resp.ok) {
+            return;
+          }
+          loadedFromWorker = true;
+          const payload = (await resp.json()) as Record<string, unknown>;
+          const rows = Array.isArray(payload.cases) ? payload.cases : [];
+          for (const raw of rows) {
+            if (!raw || typeof raw !== "object") {
+              continue;
+            }
+            const row = raw as Record<string, unknown>;
+            const cid = typeof row.case_id === "string" ? row.case_id.trim() : "";
+            if (!cid || !caseIDSet.has(cid)) {
+              continue;
+            }
+            collected.set(cid, {
+              labels: normalizeLabels(row.labels),
+              linkedIssue: typeof row.linked_issue === "string" ? row.linked_issue.trim() : "",
+            });
+          }
+          const total = typeof payload.total === "number" ? payload.total : 0;
+          offset += rows.length;
+          if (rows.length === 0) {
+            break;
+          }
+          if (total > 0 && offset >= total) {
+            break;
+          }
+          if (collected.size >= caseIDs.length) {
+            break;
+          }
+          if (total === 0 && rows.length < limit) {
+            break;
+          }
+        }
+      } finally {
+        if (!canceled && loadedFromWorker) {
+          setCaseMetaByID((prev) => {
+            const next = { ...prev };
+            for (const cid of caseIDs) {
+              const current = next[cid] || emptyCaseMeta();
+              const loaded = collected.get(cid);
+              if (loaded) {
+                next[cid] = {
+                  ...current,
+                  labels: loaded.labels,
+                  linkedIssue: loaded.linkedIssue,
+                  draftLabels: loaded.labels.join(", "),
+                  draftIssue: loaded.linkedIssue,
+                  loaded: true,
+                  loading: false,
+                  error: "",
+                };
+                continue;
+              }
+              if (!current.loaded && !current.loading && !current.saving) {
+                next[cid] = {
+                  ...current,
+                  loaded: true,
+                  loading: false,
+                  error: "",
+                };
+              }
+            }
+            return next;
+          });
+        }
+        metaBootstrapInFlight.current = false;
+      }
+    };
+
+    void loadAllMetadata();
+    return () => {
+      canceled = true;
+      metaBootstrapInFlight.current = false;
+    };
+  }, [workerBaseURL, workerToken, cases, caseMetaByID]);
+
   const saveCaseMeta = async (caseID: string) => {
     if (!workerBaseURL || !caseID) {
       return;
@@ -480,13 +603,14 @@ export default function Page() {
       labels,
       linked_issue: linkedIssue,
     };
+    const token = workerToken.trim();
     updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
     try {
       const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${workerToken}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });
@@ -516,8 +640,6 @@ export default function Page() {
       }));
     }
   };
-
-  const cases = useMemo(() => payload?.cases ?? [], [payload]);
   const q = query.trim().toLowerCase();
 
   const oracleOptions = useMemo(() => {
@@ -595,7 +717,7 @@ export default function Page() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, q]);
+  }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, caseMetaByID, q]);
 
   const loadSimilarCases = async (cid: string) => {
     const caseIDValue = (cid || "").trim();
@@ -604,7 +726,10 @@ export default function Page() {
     setSimilarErrorByCase((prev) => ({ ...prev, [caseIDValue]: "" }));
     try {
       const url = `${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseIDValue)}/similar?limit=20&ai=1`;
-      const res = await fetch(url, { cache: "no-cache" });
+      const res = await fetch(url, {
+        cache: "no-cache",
+        headers: workerAuthHeaders(workerToken),
+      });
       if (!res.ok) {
         throw new Error(`failed to load similar cases: ${res.status}`);
       }
