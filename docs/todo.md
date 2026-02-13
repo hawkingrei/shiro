@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: reviewed fresh local logs/reports after oracle fixes (2026-02-14): DQP showed no `sql_error_1054` and stayed effective, EET `no_transform` skip dropped in the DQE interval, but GroundTruth remained skip-dominant (`dsg_key_mismatch_right_key`/`base_table`) with effective ratio 0 and captured cases still minimized as non-reproducible.
 Latest sync: completed follow-ups from the 2026-02-14 logs/reports review: GroundTruth now adds DSG prechecks + right-key availability checks with higher pick retries, EET now falls back across rewrite kinds to reduce `no_transform`, and DQP now skips invalid-scope queries (`dqp:scope_invalid`) with NATURAL RIGHT JOIN scope regression coverage (2026-02-14).
 Latest sync: reviewed local `logs/shiro.log` + `reports/case_*/summary.json` (2026-02-14): GroundTruth effective ratio repeatedly dropped to 0 due to `dsg_key_mismatch_right_key`/`empty_query`; EET skips were dominated by `eet:no_transform`; recent captured cases were mostly non-reproducible during minimize (`base_replay_not_reproducible`).
 Latest sync: addressed PR #109 review follow-ups in report UI (simplified case render key, cleaned search-blob construction, fixed disabled button hover behavior, and added pagination aria-labels) (2026-02-13).
