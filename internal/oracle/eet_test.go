@@ -140,6 +140,39 @@ func TestApplyEETTransformColumnIdentity(t *testing.T) {
 	}
 }
 
+func TestApplyEETTransformFallbackRewriteKind(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.EETRewrites = config.EETRewriteWeights{
+		NumericIdentity: 10,
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeVarchar},
+					{Name: "c1", Type: schema.TypeVarchar},
+				},
+			},
+		},
+	}
+	gen := generator.New(cfg, &state, 1)
+	sql := "SELECT t0.c0 AS c0 FROM t0 WHERE t0.c0 = t0.c1"
+	out, details, err := applyEETTransform(sql, gen)
+	if err != nil {
+		t.Fatalf("transform err: %v", err)
+	}
+	if out == "" || out == sql {
+		t.Fatalf("expected transformed sql via fallback kind, got: %s", out)
+	}
+	if details["rewrite"] == nil {
+		t.Fatalf("expected rewrite detail")
+	}
+}
+
 func TestOrderByAllConstant(t *testing.T) {
 	orderBy := []generator.OrderBy{
 		{Expr: generator.LiteralExpr{Value: 1}},

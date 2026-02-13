@@ -22,6 +22,8 @@ Links:
 
 ## Recent updates
 
+- Implemented logs/reports follow-ups: GroundTruth now performs DSG prechecks (base/join key safety) plus right-key availability validation and uses higher pick retries; EET now falls back across rewrite kinds to reduce `eet:no_transform`; DQP now skips invalid-scope queries with `dqp:scope_invalid`; added regression tests (including NATURAL RIGHT JOIN qualified-column scope) and ran `go test ./internal/...` (2026-02-14).
+- Reviewed local logs/reports sample (`logs/shiro.log` + 4 `reports/case_*/summary.json`): GroundTruth skips were dominated by `dsg_key_mismatch_right_key`/`empty_query`, EET skips were dominated by `eet:no_transform`, and 3/4 captured cases were `minimize_status=skipped` with `minimize_reason=base_replay_not_reproducible`; added targeted follow-up actions in `docs/todo.md` (2026-02-14).
 - Addressed PR #109 review follow-ups in report UI: simplified `caseRenderKey`, cleaned search-blob construction to avoid null-detail noise, fixed disabled button hover behavior, and added pagination `aria-label`s for accessibility (2026-02-13).
 - Improved report UI query efficiency (P0): added debounced + deferred keyword search, prebuilt per-case search blobs to avoid repeated string assembly during filtering, introduced client-side pagination (30 cases/page), and lazily rendered heavy case body blocks only after row expansion (2026-02-13).
 - Addressed PR #108 review follow-ups in report UI metadata bootstrap: handled bootstrap promise errors safely, avoided marking missing cases as loaded on incomplete paging, preserved in-progress modal drafts during bootstrap merges, narrowed bootstrap effect dependencies with refs, and aligned PATCH auth header construction with shared helper (2026-02-13).
