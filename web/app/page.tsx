@@ -342,7 +342,7 @@ const buildCaseSearchBlob = (c: CaseEntry): string => {
     c.case_dir,
     c.upload_location,
     ...(c.sql || []),
-    c.details ? JSON.stringify(c.details) : null,
+    c.details && Object.keys(c.details).length > 0 ? JSON.stringify(c.details) : null,
   ]
     .filter((value) => Boolean(value))
     .join(" ")
@@ -530,6 +530,10 @@ export default function Page() {
   const metaBootstrapRunID = useRef(0);
   const caseMetaByIDRef = useRef(caseMetaByID);
   const activeMetaIDRef = useRef(activeMetaID);
+  const pageMountedRef = useRef(true);
+  const caseDetailAbortByKeyRef = useRef<Record<string, AbortController>>({});
+  const caseDetailRunIDByKeyRef = useRef<Record<string, number>>({});
+  const caseDetailNextRunIDRef = useRef(1);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
@@ -560,6 +564,19 @@ export default function Page() {
       window.removeEventListener("keydown", handler);
     };
   }, [activeMetaID]);
+
+  useEffect(() => {
+    pageMountedRef.current = true;
+    return () => {
+      pageMountedRef.current = false;
+      const inFlight = caseDetailAbortByKeyRef.current;
+      for (const controller of Object.values(inFlight)) {
+        controller.abort();
+      }
+      caseDetailAbortByKeyRef.current = {};
+      caseDetailRunIDByKeyRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -651,27 +668,62 @@ export default function Page() {
     });
   };
 
+  const cancelCaseDetail = (caseKey: string) => {
+    const controller = caseDetailAbortByKeyRef.current[caseKey];
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    delete caseDetailAbortByKeyRef.current[caseKey];
+    delete caseDetailRunIDByKeyRef.current[caseKey];
+    if (pageMountedRef.current) {
+      setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: false }));
+    }
+  };
+
   const ensureCaseDetail = async (caseKey: string, entry: CaseEntry) => {
-    if (!caseKey || entry.detail_loaded || caseDetailLoadingByKey[caseKey]) {
+    if (!caseKey || entry.detail_loaded) {
+      return;
+    }
+    if (caseDetailAbortByKeyRef.current[caseKey]) {
       return;
     }
     const summaryURL = resolveSummaryURL(entry.summary_url || caseReportURL(entry), manifestBaseURL);
     if (!summaryURL) {
-      setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "detail URL missing" }));
+      if (pageMountedRef.current) {
+        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "detail URL missing" }));
+      }
       return;
     }
-    setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: true }));
-    setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "" }));
+    const controller = new AbortController();
+    const runID = caseDetailNextRunIDRef.current;
+    caseDetailNextRunIDRef.current += 1;
+    caseDetailAbortByKeyRef.current[caseKey] = controller;
+    caseDetailRunIDByKeyRef.current[caseKey] = runID;
+    if (pageMountedRef.current) {
+      setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: true }));
+      setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "" }));
+    }
+    const isCurrentRun = () => {
+      return pageMountedRef.current && caseDetailRunIDByKeyRef.current[caseKey] === runID;
+    };
     try {
-      const resp = await fetch(summaryURL, { cache: "no-cache" });
+      const resp = await fetch(summaryURL, { cache: "no-cache", signal: controller.signal });
       if (!resp.ok) {
-        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: `load failed (${resp.status})` }));
+        if (isCurrentRun()) {
+          setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: `load failed (${resp.status})` }));
+        }
         return;
       }
       const raw = await resp.json();
       const detail = normalizeCaseEntry(raw);
       if (!detail) {
-        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "invalid case summary payload" }));
+        if (isCurrentRun()) {
+          setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "invalid case summary payload" }));
+        }
+        return;
+      }
+      if (!isCurrentRun()) {
         return;
       }
       patchCaseEntry(caseKey, (current) => ({
@@ -682,10 +734,22 @@ export default function Page() {
         detail_loaded: true,
       }));
       setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "" }));
-    } catch {
-      setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "load failed" }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      if (isCurrentRun()) {
+        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "load failed" }));
+      }
     } finally {
-      setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: false }));
+      if (caseDetailRunIDByKeyRef.current[caseKey] !== runID) {
+        return;
+      }
+      delete caseDetailRunIDByKeyRef.current[caseKey];
+      delete caseDetailAbortByKeyRef.current[caseKey];
+      if (pageMountedRef.current) {
+        setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: false }));
+      }
     }
   };
 
@@ -1466,6 +1530,8 @@ export default function Page() {
                   void ensureCaseMeta(cid);
                 } else if (open) {
                   void ensureCaseDetail(caseKey, c);
+                } else {
+                  cancelCaseDetail(caseKey);
                 }
               }}
             >

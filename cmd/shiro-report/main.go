@@ -456,6 +456,7 @@ func buildSiteIndex(site SiteData) SiteIndexData {
 		if !isHTTPURL(summaryURL) {
 			summaryURL = caseSummaryRelPath(caseID)
 		}
+		detailLoaded := strings.TrimSpace(summaryURL) == ""
 		entries = append(entries, CaseIndexEntry{
 			ID:                           c.ID,
 			Dir:                          c.Dir,
@@ -481,7 +482,7 @@ func buildSiteIndex(site SiteData) SiteIndexData {
 			UploadLocation:               c.UploadLocation,
 			SummaryURL:                   summaryURL,
 			SearchBlob:                   buildSearchBlob(c),
-			DetailLoaded:                 false,
+			DetailLoaded:                 detailLoaded,
 		})
 	}
 	return SiteIndexData{

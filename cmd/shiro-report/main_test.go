@@ -226,10 +226,55 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 	if index.Cases[1].SummaryURL != "./cases/019c5744-b015-7ac5-8cf4-97b2ee3b0fed/summary.json" {
 		t.Fatalf("unexpected local summary url: %q", index.Cases[1].SummaryURL)
 	}
+	if index.Cases[0].DetailLoaded {
+		t.Fatalf("expected detail_loaded=false when summary url is available")
+	}
+	if index.Cases[1].DetailLoaded {
+		t.Fatalf("expected detail_loaded=false when summary url is available")
+	}
 
 	summaryPath := filepath.Join(output, "cases", "019c5744-b015-7ac5-8cf4-97b2ee3b0fed", "summary.json")
 	if _, err := os.Stat(summaryPath); err != nil {
 		t.Fatalf("missing per-case summary file: %v", err)
+	}
+}
+
+func TestBuildSiteIndexMarksMissingSummaryAsLoaded(t *testing.T) {
+	site := SiteData{
+		GeneratedAt: "2026-02-13T16:00:00Z",
+		Source:      "reports",
+		Cases: []CaseEntry{
+			{
+				ID:        "",
+				CaseID:    "",
+				Oracle:    "norec",
+				Timestamp: "2026-02-13T15:59:00Z",
+			},
+			{
+				ID:        "",
+				CaseID:    "",
+				Oracle:    "norec",
+				Timestamp: "2026-02-13T15:59:01Z",
+				ReportURL: "https://cdn.example.com/cases/legacy/report.json",
+			},
+		},
+	}
+
+	index := buildSiteIndex(site)
+	if len(index.Cases) != 2 {
+		t.Fatalf("unexpected index case count: %d", len(index.Cases))
+	}
+	if index.Cases[0].SummaryURL != "" {
+		t.Fatalf("expected empty summary url for missing case id: %q", index.Cases[0].SummaryURL)
+	}
+	if !index.Cases[0].DetailLoaded {
+		t.Fatalf("expected detail_loaded=true when summary url is unavailable")
+	}
+	if index.Cases[1].SummaryURL != "https://cdn.example.com/cases/legacy/report.json" {
+		t.Fatalf("unexpected summary url from report_url: %q", index.Cases[1].SummaryURL)
+	}
+	if index.Cases[1].DetailLoaded {
+		t.Fatalf("expected detail_loaded=false when report_url is available")
 	}
 }
 
