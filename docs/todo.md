@@ -1,6 +1,8 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: addressed PR #109 review follow-ups in report UI (simplified case render key, cleaned search-blob construction, fixed disabled button hover behavior, and added pagination aria-labels) (2026-02-13).
+Latest sync: improved report UI query efficiency (P0) with debounced+deferred keyword search, prebuilt per-case search blobs, pagination (30 cases/page), and lazy rendering of heavy case body sections only after row expansion (2026-02-13).
 Latest sync: addressed PR #108 review follow-ups for metadata bootstrap robustness (safe async error handling, complete-only missing-case loaded marking, draft-edit preservation during merge, narrowed effect dependencies via refs, and shared auth-header usage for PATCH) (2026-02-13).
 Latest sync: report UI now bootstraps case metadata on load from Worker `/api/v1/cases` (with token-auth headers) so saved tags/issues remain visible after refresh; similar-case in-page fetch now includes auth headers as well (2026-02-13).
 Latest sync: fixed Cloudflare Git deploy D1 binding drift by adding root `wrangler.jsonc` DB binding, aligning worker `wrangler.jsonc` binding name to `DB`, and documenting that root config must include runtime bindings to prevent post-deploy binding loss (2026-02-13).
