@@ -22,6 +22,8 @@ Links:
 
 ## Recent updates
 
+- Fixed Cloudflare Git deploy config drift: root `wrangler.jsonc` now includes the Worker `DB` D1 binding, worker-local `wrangler.jsonc` binding is aligned to `DB`, and README documents that root config must include runtime bindings to avoid deploy-time binding loss (2026-02-13).
+- Hardened logs/reports diagnostics: PQS now records pivot/containment error stages + SQL, deduplicates `USING(id)` projections to avoid ambiguous/missing-column failures, EET classifies runtime DISTINCT+ORDER BY (`3065`) as skip, and runner startup recovers stale `minimize_status=in_progress` summaries to `interrupted` with tests (2026-02-12).
 - Added Worker-side 500 logging with request_id for easier troubleshooting (2026-02-12).
 - Allowed tag/issue saves even when metadata was not preloaded (2026-02-12).
 - Treat metadata 404 as empty meta in the UI so empty queries do not surface errors (2026-02-12).

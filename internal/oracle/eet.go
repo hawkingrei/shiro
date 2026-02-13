@@ -118,6 +118,10 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
 	if err != nil {
+		if eetIsDistinctOrderByErr(err) {
+			details["skip_reason"] = "eet:distinct_order_by_runtime"
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Details: details}
+		}
 		reason, bugHint := eetSignatureErrorDetails(err, "base")
 		details["error_reason"] = reason
 		if bugHint != "" {
@@ -127,6 +131,10 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	transformedSig, err := exec.QuerySignature(ctx, signatureSQLFor(transformedSQL, query.ColumnAliases()))
 	if err != nil {
+		if eetIsDistinctOrderByErr(err) {
+			details["skip_reason"] = "eet:distinct_order_by_runtime"
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+		}
 		reason, bugHint := eetSignatureErrorDetails(err, "transform")
 		details["error_reason"] = reason
 		if bugHint != "" {
@@ -164,6 +172,9 @@ func eetSignatureErrorDetails(err error, stage string) (reason string, classific
 	if err == nil {
 		return fmt.Sprintf("eet:%s_signature_error", stage), ""
 	}
+	if eetIsDistinctOrderByErr(err) {
+		return "eet:distinct_order_by", ""
+	}
 	switch {
 	case IsPlanRefMissingErr(err):
 		return "eet:signature_plan_ref_missing", "tidb:plan_reference_missing"
@@ -171,6 +182,17 @@ func eetSignatureErrorDetails(err error, stage string) (reason string, classific
 		return "eet:signature_missing_column", "tidb:schema_column_missing"
 	}
 	return fmt.Sprintf("eet:%s_signature_error", stage), ""
+}
+
+func eetIsDistinctOrderByErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if code, ok := mysqlErrCode(err); ok && code == 3065 {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "expression #") && strings.Contains(msg, "order by clause") && strings.Contains(msg, "select list")
 }
 
 type eetRewriteKind string

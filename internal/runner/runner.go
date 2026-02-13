@@ -143,6 +143,7 @@ func (r *Runner) baseTables() []*schema.Table {
 }
 
 const viewDDLBoostProb = 70
+const minimizeReasonRunnerRecoveredInterrupted = "runner_recovered_interrupted"
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -252,6 +253,11 @@ func (r *Runner) Run(ctx context.Context) error {
 	r.applyRuntimeToggles()
 	r.initBandits()
 	util.Infof("runner start database=%s iterations=%d plan_cache_only=%t", r.cfg.Database, r.cfg.Iterations, r.cfg.PlanCacheOnly)
+	if recovered, err := r.reporter.RecoverInterruptedMinimizeCases(minimizeReasonRunnerRecoveredInterrupted); err != nil {
+		util.Warnf("recover interrupted minimize cases failed output_dir=%s err=%v", r.reporter.OutputDir, err)
+	} else if recovered > 0 {
+		util.Warnf("recovered interrupted minimize cases output_dir=%s count=%d", r.reporter.OutputDir, recovered)
+	}
 	if err := r.setupDatabase(ctx); err != nil {
 		return err
 	}
