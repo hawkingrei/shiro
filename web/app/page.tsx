@@ -130,6 +130,12 @@ const workerAuthHeaders = (token: string): Record<string, string> => {
   return { Authorization: `Bearer ${trimmed}` };
 };
 
+type BootstrapResult = {
+  ok: boolean;
+  complete: boolean;
+  collected: Map<string, { labels: string[]; linkedIssue: string }>;
+};
+
 const emptyCaseMeta = (): CaseMetaState => ({
   labels: [],
   linkedIssue: "",
@@ -316,6 +322,9 @@ export default function Page() {
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
   const [activeMetaID, setActiveMetaID] = useState<string | null>(null);
   const metaBootstrapInFlight = useRef(false);
+  const metaBootstrapRunID = useRef(0);
+  const caseMetaByIDRef = useRef(caseMetaByID);
+  const activeMetaIDRef = useRef(activeMetaID);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
@@ -345,6 +354,14 @@ export default function Page() {
     return () => {
       window.removeEventListener("keydown", handler);
     };
+  }, [activeMetaID]);
+
+  useEffect(() => {
+    caseMetaByIDRef.current = caseMetaByID;
+  }, [caseMetaByID]);
+
+  useEffect(() => {
+    activeMetaIDRef.current = activeMetaID;
   }, [activeMetaID]);
 
   useEffect(() => {
@@ -477,7 +494,7 @@ export default function Page() {
       return;
     }
     const needBootstrap = caseIDs.some((cid) => {
-      const meta = caseMetaByID[cid];
+      const meta = caseMetaByIDRef.current[cid];
       return !meta || (!meta.loaded && !meta.loading);
     });
     if (!needBootstrap) {
@@ -485,98 +502,117 @@ export default function Page() {
     }
 
     let canceled = false;
-    let loadedFromWorker = false;
+    const runID = metaBootstrapRunID.current + 1;
+    metaBootstrapRunID.current = runID;
     metaBootstrapInFlight.current = true;
 
-    const loadAllMetadata = async () => {
+    const loadAllMetadata = async (): Promise<BootstrapResult> => {
       const caseIDSet = new Set(caseIDs);
       const collected = new Map<string, { labels: string[]; linkedIssue: string }>();
       const limit = 500;
       let offset = 0;
+      let complete = false;
 
-      try {
-        for (;;) {
-          const resp = await fetch(`${workerBaseURL}/api/v1/cases?limit=${limit}&offset=${offset}`, {
-            cache: "no-cache",
-            headers: workerAuthHeaders(workerToken),
-          });
-          if (resp.status === 401 || !resp.ok) {
-            return;
-          }
-          loadedFromWorker = true;
-          const payload = (await resp.json()) as Record<string, unknown>;
-          const rows = Array.isArray(payload.cases) ? payload.cases : [];
-          for (const raw of rows) {
-            if (!raw || typeof raw !== "object") {
-              continue;
-            }
-            const row = raw as Record<string, unknown>;
-            const cid = typeof row.case_id === "string" ? row.case_id.trim() : "";
-            if (!cid || !caseIDSet.has(cid)) {
-              continue;
-            }
-            collected.set(cid, {
-              labels: normalizeLabels(row.labels),
-              linkedIssue: typeof row.linked_issue === "string" ? row.linked_issue.trim() : "",
-            });
-          }
-          const total = typeof payload.total === "number" ? payload.total : 0;
-          offset += rows.length;
-          if (rows.length === 0) {
-            break;
-          }
-          if (total > 0 && offset >= total) {
-            break;
-          }
-          if (collected.size >= caseIDs.length) {
-            break;
-          }
-          if (total === 0 && rows.length < limit) {
-            break;
-          }
+      for (;;) {
+        const resp = await fetch(`${workerBaseURL}/api/v1/cases?limit=${limit}&offset=${offset}`, {
+          cache: "no-cache",
+          headers: workerAuthHeaders(workerToken),
+        });
+        if (resp.status === 401 || !resp.ok) {
+          return { ok: false, complete: false, collected };
         }
-      } finally {
-        if (!canceled && loadedFromWorker) {
-          setCaseMetaByID((prev) => {
-            const next = { ...prev };
-            for (const cid of caseIDs) {
-              const current = next[cid] || emptyCaseMeta();
-              const loaded = collected.get(cid);
-              if (loaded) {
-                next[cid] = {
-                  ...current,
-                  labels: loaded.labels,
-                  linkedIssue: loaded.linkedIssue,
-                  draftLabels: loaded.labels.join(", "),
-                  draftIssue: loaded.linkedIssue,
-                  loaded: true,
-                  loading: false,
-                  error: "",
-                };
-                continue;
-              }
-              if (!current.loaded && !current.loading && !current.saving) {
-                next[cid] = {
-                  ...current,
-                  loaded: true,
-                  loading: false,
-                  error: "",
-                };
-              }
-            }
-            return next;
+        const payload = (await resp.json()) as Record<string, unknown>;
+        const rows = Array.isArray(payload.cases) ? payload.cases : [];
+        for (const raw of rows) {
+          if (!raw || typeof raw !== "object") {
+            continue;
+          }
+          const row = raw as Record<string, unknown>;
+          const cid = typeof row.case_id === "string" ? row.case_id.trim() : "";
+          if (!cid || !caseIDSet.has(cid)) {
+            continue;
+          }
+          collected.set(cid, {
+            labels: normalizeLabels(row.labels),
+            linkedIssue: typeof row.linked_issue === "string" ? row.linked_issue.trim() : "",
           });
         }
-        metaBootstrapInFlight.current = false;
+        const total = typeof payload.total === "number" ? payload.total : 0;
+        offset += rows.length;
+        if (rows.length === 0 || (total > 0 && offset >= total) || collected.size >= caseIDs.length || (total === 0 && rows.length < limit)) {
+          complete = true;
+          break;
+        }
       }
+
+      return { ok: true, complete, collected };
     };
 
-    void loadAllMetadata();
+    void loadAllMetadata()
+      .then((result) => {
+        if (canceled || !result.ok) {
+          return;
+        }
+        setCaseMetaByID((prev) => {
+          const next = { ...prev };
+          for (const cid of caseIDs) {
+            const current = next[cid] || emptyCaseMeta();
+            const loaded = result.collected.get(cid);
+            if (loaded) {
+              const loadedDraftLabels = loaded.labels.join(", ");
+              const loadedDraftIssue = loaded.linkedIssue;
+              const currentCanonicalLabels = current.labels.join(", ");
+              const currentCanonicalIssue = current.linkedIssue;
+              const currentDraftLabels = current.draftLabels || "";
+              const currentDraftIssue = current.draftIssue || "";
+              const shouldProtectDraft = current.loading || current.saving || activeMetaIDRef.current === cid;
+              const draftLabelsChanged =
+                currentDraftLabels.trim() !== "" &&
+                currentDraftLabels.trim() !== currentCanonicalLabels.trim();
+              const draftIssueChanged =
+                currentDraftIssue.trim() !== "" &&
+                currentDraftIssue.trim() !== currentCanonicalIssue.trim();
+              const keepDraftLabels = shouldProtectDraft || draftLabelsChanged;
+              const keepDraftIssue = shouldProtectDraft || draftIssueChanged;
+
+              next[cid] = {
+                ...current,
+                labels: loaded.labels,
+                linkedIssue: loaded.linkedIssue,
+                draftLabels: keepDraftLabels ? currentDraftLabels : loadedDraftLabels,
+                draftIssue: keepDraftIssue ? currentDraftIssue : loadedDraftIssue,
+                loaded: true,
+                loading: false,
+                error: "",
+              };
+              continue;
+            }
+            if (result.complete && !current.loaded && !current.loading && !current.saving) {
+              next[cid] = {
+                ...current,
+                loaded: true,
+                loading: false,
+                error: "",
+              };
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        // Ignore bootstrap failures and keep per-case lazy loading available.
+      })
+      .finally(() => {
+        if (metaBootstrapRunID.current === runID) {
+          metaBootstrapInFlight.current = false;
+        }
+      });
+
     return () => {
       canceled = true;
       metaBootstrapInFlight.current = false;
     };
-  }, [workerBaseURL, workerToken, cases, caseMetaByID]);
+  }, [workerBaseURL, workerToken, cases]);
 
   const saveCaseMeta = async (caseID: string) => {
     if (!workerBaseURL || !caseID) {
@@ -603,14 +639,13 @@ export default function Page() {
       labels,
       linked_issue: linkedIssue,
     };
-    const token = workerToken.trim();
     updateCaseMetaState(caseID, (state) => ({ ...state, saving: true, error: "" }));
     try {
       const resp = await fetch(`${workerBaseURL}/api/v1/cases/${encodeURIComponent(caseID)}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...workerAuthHeaders(workerToken),
         },
         body: JSON.stringify(payload),
       });

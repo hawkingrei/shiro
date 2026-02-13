@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Addressed PR #108 review follow-ups in report UI metadata bootstrap: handled bootstrap promise errors safely, avoided marking missing cases as loaded on incomplete paging, preserved in-progress modal drafts during bootstrap merges, narrowed bootstrap effect dependencies with refs, and aligned PATCH auth header construction with shared helper (2026-02-13).
 - Fixed report UI metadata persistence after refresh: page load now bootstraps case metadata from Worker `/api/v1/cases` (with auth header when token is set) so saved tags/issues remain visible after reload; similar-case API requests now also include the same auth header (2026-02-13).
 - Fixed Cloudflare Git deploy config drift: root `wrangler.jsonc` now includes the Worker `DB` D1 binding, worker-local `wrangler.jsonc` binding is aligned to `DB`, and README documents that root config must include runtime bindings to avoid deploy-time binding loss (2026-02-13).
 - Hardened logs/reports diagnostics: PQS now records pivot/containment error stages + SQL, deduplicates `USING(id)` projections to avoid ambiguous/missing-column failures, EET classifies runtime DISTINCT+ORDER BY (`3065`) as skip, and runner startup recovers stale `minimize_status=in_progress` summaries to `interrupted` with tests (2026-02-12).
