@@ -11,6 +11,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestRewritePredicateDoubleNot(t *testing.T) {
@@ -229,6 +231,30 @@ func TestEETDistinctOrderByCompatible(t *testing.T) {
 	}
 	if eetDistinctOrderByCompatible(query) {
 		t.Fatalf("expected non-selected DISTINCT ORDER BY expression to be incompatible")
+	}
+}
+
+func TestEETIsDistinctOrderByErr(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  3065,
+		Message: "Expression #1 of ORDER BY clause is not in SELECT list",
+	}
+	if !eetIsDistinctOrderByErr(err) {
+		t.Fatalf("expected distinct-order-by runtime error to be detected")
+	}
+}
+
+func TestEETSignatureErrorDetailsDistinctOrderBy(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  3065,
+		Message: "Expression #1 of ORDER BY clause is not in SELECT list",
+	}
+	reason, bugHint := eetSignatureErrorDetails(err, "base")
+	if reason != "eet:distinct_order_by" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if bugHint != "" {
+		t.Fatalf("unexpected bug hint: %s", bugHint)
 	}
 }
 

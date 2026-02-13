@@ -71,7 +71,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	pivot, details, err := pickPQSPivotRow(ctx, exec, gen, state)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: pqsErrorSQL(err), Err: err, Details: details}
 	}
 	if pivot == nil {
 		if details == nil {
@@ -92,7 +92,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	if !joinOn {
-		pqsNormalizeUsingIDColumns(query.Items)
+		aliases = pqsCompactUsingIDColumns(query, aliases)
 	}
 	basePredicate, predMeta := pqsBuildPredicate(gen, pivot)
 	subqueryPredicate, subqueryMeta := pqsMaybeBuildSubqueryPredicate(gen, pivot)
@@ -140,12 +140,18 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		reason, code := sqlErrorReason("pqs", err)
 		details := pqsAttachMeta(map[string]any{
 			"error_reason":            reason,
+			"pqs_error_stage":         "containment",
+			"pqs_query_sql":           querySQL,
+			"pqs_containment_sql":     containSQL,
 			"pqs_predicate":           predMeta.Rectified,
 			"pqs_predicate_original":  predMeta.Original,
 			"pqs_predicate_rectified": predMeta.Rectified,
 			"pqs_rectify_reason":      predMeta.Reason,
 			"pqs_rectify_fallback":    predMeta.Fallback,
 		}, subqueryMeta, joinMeta, joinOn, derivedTables)
+		if strings.HasSuffix(reason, ":timeout") {
+			details["pqs_timeout_stage"] = "containment"
+		}
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
@@ -193,7 +199,7 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 	if len(tables) >= 2 {
 		pivot, err := fetchPQSJoinPivotRow(ctx, exec, gen, tables)
 		if err != nil {
-			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
+			return nil, pqsPivotErrorDetails(err), err
 		}
 		if pivot != nil {
 			return pivot, nil, nil
@@ -203,7 +209,7 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 		tbl := tables[gen.Rand.Intn(len(tables))]
 		pivot, err := fetchPQSPivotRow(ctx, exec, gen, tbl)
 		if err != nil {
-			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
+			return nil, pqsPivotErrorDetails(err), err
 		}
 		if pivot == nil {
 			continue
@@ -238,7 +244,7 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 	query := fmt.Sprintf("SELECT %s FROM %s ORDER BY RAND() LIMIT 1", strings.Join(colNames, ", "), tbl.Name)
 	rows, err := exec.QueryContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand", query, err)
 	}
 	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
@@ -253,10 +259,10 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand_scan", query, err)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand_scan", query, err)
 	}
 	return pqsPivotRowFromRaw([]schema.Table{tbl}, cols, raw), nil
 }
@@ -819,22 +825,133 @@ func pqsMatchExpr(pivot *pqsPivotRow, aliases []pqsAliasColumn) generator.Expr {
 	return expr
 }
 
-func pqsNormalizeUsingIDColumns(items []generator.SelectItem) {
-	if len(items) == 0 {
-		return
+func pqsCompactUsingIDColumns(query *generator.SelectQuery, aliases []pqsAliasColumn) []pqsAliasColumn {
+	if query == nil || len(query.Items) == 0 || len(aliases) == 0 {
+		return aliases
 	}
-	for i, item := range items {
-		col, ok := item.Expr.(generator.ColumnExpr)
-		if !ok {
-			continue
-		}
-		if !strings.EqualFold(col.Ref.Name, pqsPivotIDColumn) {
-			continue
-		}
-		col.Ref.Table = ""
-		item.Expr = col
-		items[i] = item
+	if !pqsHasUsingIDJoin(query) {
+		return aliases
 	}
+	limit := len(query.Items)
+	if len(aliases) < limit {
+		limit = len(aliases)
+	}
+	newItems := make([]generator.SelectItem, 0, limit)
+	newAliases := make([]pqsAliasColumn, 0, limit)
+	seenID := false
+	for i := 0; i < limit; i++ {
+		item := query.Items[i]
+		alias := aliases[i]
+		if strings.EqualFold(alias.Column.Name, pqsPivotIDColumn) {
+			if seenID {
+				continue
+			}
+			seenID = true
+			if col, ok := item.Expr.(generator.ColumnExpr); ok {
+				col.Ref.Table = ""
+				item.Expr = col
+			}
+		}
+		newItems = append(newItems, item)
+		newAliases = append(newAliases, alias)
+	}
+	query.Items = newItems
+	return newAliases
+}
+
+func pqsHasUsingIDJoin(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, join := range query.From.Joins {
+		for _, col := range join.Using {
+			if strings.EqualFold(col, pqsPivotIDColumn) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type pqsErrorContext struct {
+	Stage string
+	SQL   string
+	Err   error
+}
+
+func (e *pqsErrorContext) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *pqsErrorContext) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func pqsWrapError(stage, sqlText string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &pqsErrorContext{
+		Stage: stage,
+		SQL:   strings.TrimSpace(sqlText),
+		Err:   err,
+	}
+}
+
+func pqsPivotErrorDetails(err error) map[string]any {
+	details := map[string]any{"skip_reason": "pqs:pivot_error"}
+	if err == nil {
+		return details
+	}
+	stage := pqsErrorStage(err)
+	if stage != "" {
+		details["pqs_error_stage"] = stage
+	}
+	if sqlText := pqsErrorSQLText(err); sqlText != "" {
+		details["pqs_error_sql"] = sqlText
+		details["pqs_query_sql"] = sqlText
+	}
+	reason, _ := sqlErrorReason("pqs", err)
+	if strings.HasSuffix(reason, ":timeout") && stage != "" {
+		details["pqs_timeout_stage"] = stage
+	}
+	return details
+}
+
+func pqsErrorStage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ctxErr *pqsErrorContext
+	if errors.As(err, &ctxErr) && ctxErr != nil {
+		return strings.TrimSpace(ctxErr.Stage)
+	}
+	return ""
+}
+
+func pqsErrorSQLText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ctxErr *pqsErrorContext
+	if errors.As(err, &ctxErr) && ctxErr != nil {
+		return strings.TrimSpace(ctxErr.SQL)
+	}
+	return ""
+}
+
+func pqsErrorSQL(err error) []string {
+	sqlText := pqsErrorSQLText(err)
+	if sqlText == "" {
+		return nil
+	}
+	return []string{sqlText}
 }
 
 func pqsPredicateExprForValue(ref generator.ColumnRef, val pqsPivotValue) generator.Expr {
@@ -989,7 +1106,7 @@ func fetchPQSTableIDRange(ctx context.Context, exec *db.DB, tbl schema.Table) (m
 	var minVal sql.NullInt64
 	var maxVal sql.NullInt64
 	if err = row.Scan(&minVal, &maxVal); err != nil {
-		return 0, 0, false, err
+		return 0, 0, false, pqsWrapError("pivot_id_range", query, err)
 	}
 	if !minVal.Valid || !maxVal.Valid {
 		return 0, 0, false, nil
@@ -1038,7 +1155,7 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 	query += " LIMIT 1"
 	rows, err := exec.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query", query, err)
 	}
 	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
@@ -1053,10 +1170,10 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query_scan", query, err)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query_scan", query, err)
 	}
 	return pqsPivotRowFromRaw(tables, cols, raw), nil
 }

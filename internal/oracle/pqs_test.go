@@ -307,6 +307,7 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 	if query == nil || len(aliases) != 2 {
 		t.Fatalf("expected aliases for join containment")
 	}
+	aliases = pqsCompactUsingIDColumns(query, aliases)
 	query.Where = pqsPredicateExprForValue(
 		generator.ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt},
 		pivot.Values["t0"]["c0"],
@@ -314,13 +315,54 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 	querySQL := query.SQLString()
 	matchSQL := buildExpr(pqsMatchExpr(pivot, aliases))
 	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
-	expectedQuery := "SELECT t0.id AS t0_id, t1.id AS t1_id FROM t0 JOIN t1 USING (id) WHERE (t0.c0 = 7)"
+	expectedQuery := "SELECT id AS t0_id FROM t0 JOIN t1 USING (id) WHERE (t0.c0 = 7)"
 	if querySQL != expectedQuery {
 		t.Fatalf("unexpected join query: %s", querySQL)
 	}
-	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE ((t0_id = 1) AND (t1_id = 1)) LIMIT 1"
+	expectedContain := "SELECT 1 FROM (" + expectedQuery + ") pqs WHERE (t0_id = 1) LIMIT 1"
 	if containSQL != expectedContain {
 		t.Fatalf("unexpected containment SQL: %s", containSQL)
+	}
+}
+
+func TestPQSCompactUsingIDColumns(t *testing.T) {
+	left := schema.Table{
+		Name: "t0",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c0", Type: schema.TypeInt},
+		},
+	}
+	right := schema.Table{
+		Name: "t1",
+		Columns: []schema.Column{
+			{Name: "id", Type: schema.TypeBigInt},
+			{Name: "c1", Type: schema.TypeInt},
+		},
+	}
+	pivot := &pqsPivotRow{
+		Tables: []schema.Table{left, right},
+		Values: map[string]map[string]pqsPivotValue{
+			"t0": {
+				"id": {Column: left.Columns[0], Raw: "1"},
+				"c0": {Column: left.Columns[1], Raw: "7"},
+			},
+			"t1": {
+				"id": {Column: right.Columns[0], Raw: "1"},
+				"c1": {Column: right.Columns[1], Raw: "9"},
+			},
+		},
+	}
+	query, aliases := buildPQSQuery(pivot)
+	aliases = pqsCompactUsingIDColumns(query, aliases)
+	if got := query.SQLString(); got != "SELECT id AS t0_id FROM t0 JOIN t1 USING (id)" {
+		t.Fatalf("unexpected compact query: %s", got)
+	}
+	if len(aliases) != 1 {
+		t.Fatalf("unexpected alias count: %d", len(aliases))
+	}
+	if got := buildExpr(pqsMatchExpr(pivot, aliases)); got != "(t0_id = 1)" {
+		t.Fatalf("unexpected compact match expr: %s", got)
 	}
 }
 

@@ -1,7 +1,9 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: fixed Cloudflare Git deploy D1 binding drift by adding root `wrangler.jsonc` DB binding, aligning worker `wrangler.jsonc` binding name to `DB`, and documenting that root config must include runtime bindings to prevent post-deploy binding loss (2026-02-13).
 Latest sync: added Worker 500 logging with request_id for debugging (2026-02-12).
+Latest sync: improved logs/reports diagnostics (PQS error stage/sql fields, USING-id projection dedup, EET runtime DISTINCT+ORDER BY skip classification, and startup recovery of stale minimize in_progress -> interrupted) with tests (2026-02-12).
 Latest sync: allow tag/issue saves even when metadata is not preloaded (2026-02-12).
 Latest sync: treat metadata 404 as empty meta in the UI (2026-02-12).
 Latest sync: secured worker list/search/similar behind read auth, documented metadata-only similarity/search, and enabled observability flag (2026-02-12).

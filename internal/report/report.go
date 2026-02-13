@@ -116,6 +116,69 @@ func (r *Reporter) WriteReport(c Case, summary Summary) error {
 	return r.writeSummaryFile(c, "report.json", summary)
 }
 
+// RecoverInterruptedMinimizeCases converts stale in-progress minimize states to interrupted.
+func (r *Reporter) RecoverInterruptedMinimizeCases(reason string) (int, error) {
+	if r == nil || strings.TrimSpace(r.OutputDir) == "" {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(r.OutputDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	updated := 0
+	reason = strings.TrimSpace(reason)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		caseDir := filepath.Join(r.OutputDir, entry.Name())
+		summaryPath := filepath.Join(caseDir, "summary.json")
+		data, err := os.ReadFile(summaryPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return updated, err
+		}
+		var summary Summary
+		if err := json.Unmarshal(data, &summary); err != nil {
+			continue
+		}
+		if summary.MinimizeStatus != "in_progress" {
+			continue
+		}
+		summary.MinimizeStatus = "interrupted"
+		if summary.Details == nil {
+			summary.Details = map[string]any{}
+		}
+		if reason != "" {
+			if _, ok := summary.Details["minimize_reason"]; !ok {
+				summary.Details["minimize_reason"] = reason
+			}
+		}
+		caseData := Case{
+			ID:  summary.CaseID,
+			Dir: caseDir,
+		}
+		if err := r.WriteSummary(caseData, summary); err != nil {
+			return updated, err
+		}
+		reportPath := filepath.Join(caseDir, "report.json")
+		if _, err := os.Stat(reportPath); err == nil {
+			if err := r.WriteReport(caseData, summary); err != nil {
+				return updated, err
+			}
+		} else if !os.IsNotExist(err) {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
+}
+
 func (r *Reporter) writeSummaryFile(c Case, name string, summary Summary) error {
 	f, err := os.Create(filepath.Join(c.Dir, name))
 	if err != nil {

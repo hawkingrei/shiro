@@ -83,7 +83,9 @@ wrangler deploy
 The Git-integrated deploy expects an assets directory. This repo provides an empty `assets/` by default.
 If you want to serve a static UI, build it and copy the output into `assets/` before deploying.
 Cloudflare's Git integration runs `wrangler versions upload` from the repo root, so the root
-`wrangler.jsonc` mirrors the worker entrypoint and assets directory.
+`wrangler.jsonc` must mirror the worker entrypoint, assets directory, and runtime bindings
+(for example `d1_databases` with `binding = "DB"`). If bindings are configured only in the
+Cloudflare dashboard but not in the root config, Git deploys can overwrite and remove them.
 
 ## Serve the report UI from the Worker
 To deploy a single Worker that serves the UI and APIs from the same domain:
