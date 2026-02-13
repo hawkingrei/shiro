@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Completed report index + on-demand detail loading (P1): `cmd/shiro-report` now emits `reports.index.json` plus per-case `cases/<case_id>/summary.json`, publish flow includes all summary JSON files, and the report UI now loads `reports.index.json` first with lazy `summary_url` fetch on case expand (fallback to `reports.json`/`report.json` preserved) (2026-02-13).
 - Addressed PR #109 review follow-ups in report UI: simplified `caseRenderKey`, cleaned search-blob construction to avoid null-detail noise, fixed disabled button hover behavior, and added pagination `aria-label`s for accessibility (2026-02-13).
 - Improved report UI query efficiency (P0): added debounced + deferred keyword search, prebuilt per-case search blobs to avoid repeated string assembly during filtering, introduced client-side pagination (30 cases/page), and lazily rendered heavy case body blocks only after row expansion (2026-02-13).
 - Addressed PR #108 review follow-ups in report UI metadata bootstrap: handled bootstrap promise errors safely, avoided marking missing cases as loaded on incomplete paging, preserved in-progress modal drafts during bootstrap merges, narrowed bootstrap effect dependencies with refs, and aligned PATCH auth header construction with shared helper (2026-02-13).

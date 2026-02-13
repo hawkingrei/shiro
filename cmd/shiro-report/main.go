@@ -77,6 +77,44 @@ type SiteData struct {
 	Cases       []CaseEntry `json:"cases"`
 }
 
+// SiteIndexData is a lightweight payload for on-demand case loading.
+type SiteIndexData struct {
+	GeneratedAt  string           `json:"generated_at"`
+	Source       string           `json:"source"`
+	IndexVersion int              `json:"index_version"`
+	CaseCount    int              `json:"case_count"`
+	Cases        []CaseIndexEntry `json:"cases"`
+}
+
+// CaseIndexEntry contains summary metadata and a detail URL for a case.
+type CaseIndexEntry struct {
+	ID                           string `json:"id"`
+	Dir                          string `json:"dir"`
+	Oracle                       string `json:"oracle"`
+	Timestamp                    string `json:"timestamp"`
+	TiDBVersion                  string `json:"tidb_version"`
+	TiDBCommit                   string `json:"tidb_commit"`
+	ErrorReason                  string `json:"error_reason"`
+	PlanSignature                string `json:"plan_signature"`
+	PlanSigFormat                string `json:"plan_signature_format"`
+	Expected                     string `json:"expected"`
+	Actual                       string `json:"actual"`
+	Error                        string `json:"error"`
+	GroundTruthDSGMismatchReason string `json:"groundtruth_dsg_mismatch_reason"`
+	Flaky                        bool   `json:"flaky"`
+	NoRECPredicate               string `json:"norec_predicate"`
+	CaseID                       string `json:"case_id"`
+	CaseDir                      string `json:"case_dir"`
+	ArchiveName                  string `json:"archive_name"`
+	ArchiveCodec                 string `json:"archive_codec"`
+	ArchiveURL                   string `json:"archive_url"`
+	ReportURL                    string `json:"report_url"`
+	UploadLocation               string `json:"upload_location"`
+	SummaryURL                   string `json:"summary_url"`
+	SearchBlob                   string `json:"search_blob"`
+	DetailLoaded                 bool   `json:"detail_loaded"`
+}
+
 type loadOptions struct {
 	MaxBytes              int
 	MaxZipBytes           int
@@ -111,6 +149,8 @@ type workerSyncCase struct {
 	ReportURL      string `json:"report_url"`
 	ArchiveURL     string `json:"archive_url"`
 }
+
+const reportIndexVersion = 1
 
 func main() {
 	input := flag.String("input", ".report", "input directory, gs://bucket/prefix, or legacy s3://bucket/prefix")
@@ -229,7 +269,12 @@ func main() {
 		fmt.Printf("synced %d cases to %s\n", len(site.Cases), syncCfg.Endpoint)
 	}
 
-	fmt.Printf("report json written to %s and %s\n", filepath.Join(*output, "report.json"), filepath.Join(*output, "reports.json"))
+	fmt.Printf(
+		"report json written to %s, %s, and %s\n",
+		filepath.Join(*output, "report.json"),
+		filepath.Join(*output, "reports.json"),
+		filepath.Join(*output, "reports.index.json"),
+	)
 }
 
 func fail(format string, args ...any) {
@@ -357,10 +402,17 @@ func writeJSON(output string, site SiteData) error {
 	if err := writeJSONFile(filepath.Join(output, "report.json"), site); err != nil {
 		return err
 	}
-	return writeJSONFile(filepath.Join(output, "reports.json"), site)
+	if err := writeJSONFile(filepath.Join(output, "reports.json"), site); err != nil {
+		return err
+	}
+	if err := writeCaseSummaryFiles(output, site.Cases); err != nil {
+		return err
+	}
+	index := buildSiteIndex(site)
+	return writeJSONFile(filepath.Join(output, "reports.index.json"), index)
 }
 
-func writeJSONFile(path string, site SiteData) error {
+func writeJSONFile(path string, payload any) error {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
@@ -369,7 +421,132 @@ func writeJSONFile(path string, site SiteData) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
-	return enc.Encode(site)
+	return enc.Encode(payload)
+}
+
+func writeCaseSummaryFiles(output string, cases []CaseEntry) error {
+	for _, c := range cases {
+		caseID := strings.TrimSpace(c.CaseID)
+		if caseID == "" {
+			caseID = strings.TrimSpace(c.ID)
+		}
+		relPath := caseSummaryRelPath(caseID)
+		if relPath == "" {
+			continue
+		}
+		target := filepath.Join(output, strings.TrimPrefix(relPath, "./"))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := writeJSONFile(target, c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildSiteIndex(site SiteData) SiteIndexData {
+	entries := make([]CaseIndexEntry, 0, len(site.Cases))
+	for _, c := range site.Cases {
+		caseID := strings.TrimSpace(c.CaseID)
+		if caseID == "" {
+			caseID = strings.TrimSpace(c.ID)
+		}
+		summaryURL := strings.TrimSpace(c.ReportURL)
+		if !isHTTPURL(summaryURL) {
+			summaryURL = caseSummaryRelPath(caseID)
+		}
+		entries = append(entries, CaseIndexEntry{
+			ID:                           c.ID,
+			Dir:                          c.Dir,
+			Oracle:                       c.Oracle,
+			Timestamp:                    c.Timestamp,
+			TiDBVersion:                  c.TiDBVersion,
+			TiDBCommit:                   c.TiDBCommit,
+			ErrorReason:                  c.ErrorReason,
+			PlanSignature:                c.PlanSignature,
+			PlanSigFormat:                c.PlanSigFormat,
+			Expected:                     c.Expected,
+			Actual:                       c.Actual,
+			Error:                        c.Error,
+			GroundTruthDSGMismatchReason: c.GroundTruthDSGMismatchReason,
+			Flaky:                        c.Flaky,
+			NoRECPredicate:               c.NoRECPredicate,
+			CaseID:                       c.CaseID,
+			CaseDir:                      c.CaseDir,
+			ArchiveName:                  c.ArchiveName,
+			ArchiveCodec:                 c.ArchiveCodec,
+			ArchiveURL:                   c.ArchiveURL,
+			ReportURL:                    c.ReportURL,
+			UploadLocation:               c.UploadLocation,
+			SummaryURL:                   summaryURL,
+			SearchBlob:                   buildSearchBlob(c),
+			DetailLoaded:                 false,
+		})
+	}
+	return SiteIndexData{
+		GeneratedAt:  site.GeneratedAt,
+		Source:       site.Source,
+		IndexVersion: reportIndexVersion,
+		CaseCount:    len(entries),
+		Cases:        entries,
+	}
+}
+
+func caseSummaryRelPath(caseID string) string {
+	component := casePathComponent(caseID)
+	if component == "" {
+		return ""
+	}
+	return "./cases/" + component + "/summary.json"
+}
+
+func casePathComponent(caseID string) string {
+	component := strings.TrimSpace(caseID)
+	if component == "" {
+		return ""
+	}
+	component = strings.ReplaceAll(component, "/", "_")
+	component = strings.ReplaceAll(component, "\\", "_")
+	return component
+}
+
+func buildSearchBlob(c CaseEntry) string {
+	parts := []string{
+		c.Oracle,
+		c.ErrorReason,
+		c.Error,
+		c.Expected,
+		c.Actual,
+		c.GroundTruthDSGMismatchReason,
+		c.NoRECOptimizedSQL,
+		c.NoRECUnoptimizedSQL,
+		c.NoRECPredicate,
+		c.TiDBVersion,
+		c.TiDBCommit,
+		c.PlanSignature,
+		c.PlanSigFormat,
+		c.CaseID,
+		c.CaseDir,
+		c.UploadLocation,
+	}
+	if len(c.SQL) > 0 {
+		parts = append(parts, strings.Join(c.SQL, " "))
+	}
+	if len(c.Details) > 0 {
+		if raw, err := json.Marshal(c.Details); err == nil {
+			parts = append(parts, string(raw))
+		}
+	}
+	clean := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		clean = append(clean, trimmed)
+	}
+	return strings.ToLower(strings.Join(clean, " "))
 }
 
 func parseS3URI(input string) (bucket string, prefix string, err error) {
@@ -886,11 +1063,56 @@ func summaryErrorReason(summary report.Summary) string {
 	return strings.TrimSpace(reason)
 }
 
+func collectPublishFiles(output string) ([]string, error) {
+	files := []string{"report.json", "reports.json", "reports.index.json"}
+	seen := map[string]struct{}{
+		"report.json":        {},
+		"reports.json":       {},
+		"reports.index.json": {},
+	}
+	summaryRoot := filepath.Join(output, "cases")
+	if _, err := os.Stat(summaryRoot); err != nil {
+		if os.IsNotExist(err) {
+			return files, nil
+		}
+		return nil, err
+	}
+	if err := filepath.Walk(summaryRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info == nil || info.IsDir() {
+			return nil
+		}
+		if !strings.EqualFold(filepath.Ext(path), ".json") {
+			return nil
+		}
+		rel, err := filepath.Rel(output, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if _, ok := seen[rel]; ok {
+			return nil
+		}
+		seen[rel] = struct{}{}
+		files = append(files, rel)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
 func publishReports(ctx context.Context, opts publishOptions, output string) (string, error) {
 	gcsEnabled := opts.GCS.Enabled && strings.TrimSpace(opts.GCS.Bucket) != ""
 	s3Enabled := opts.S3.Enabled && strings.TrimSpace(opts.S3.Bucket) != ""
 	if !gcsEnabled && !s3Enabled {
 		return "", nil
+	}
+	publishFiles, err := collectPublishFiles(output)
+	if err != nil {
+		return "", err
 	}
 	if gcsEnabled {
 		if s3Enabled {
@@ -905,8 +1127,8 @@ func publishReports(ctx context.Context, opts publishOptions, output string) (st
 				util.Warnf("gcs client close failed: %v", err)
 			}
 		}()
-		for _, name := range []string{"report.json", "reports.json"} {
-			data, err := os.ReadFile(filepath.Join(output, name))
+		for _, name := range publishFiles {
+			data, err := os.ReadFile(filepath.Join(output, filepath.FromSlash(name)))
 			if err != nil {
 				return "", err
 			}
@@ -932,8 +1154,8 @@ func publishReports(ctx context.Context, opts publishOptions, output string) (st
 	if err != nil {
 		return "", err
 	}
-	for _, name := range []string{"report.json", "reports.json"} {
-		data, err := os.ReadFile(filepath.Join(output, name))
+	for _, name := range publishFiles {
+		data, err := os.ReadFile(filepath.Join(output, filepath.FromSlash(name)))
 		if err != nil {
 			return "", err
 		}
