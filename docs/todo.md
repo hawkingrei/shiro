@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: addressed PR #110 review threads by aligning search-blob empty-details handling, adding abort/race safety for on-demand case detail fetches, and preventing unresolved-summary lazy-load attempts via `detail_loaded=true` fallback in index entries (2026-02-13).
 Latest sync: completed report index + on-demand detail loading (P1): shiro-report now writes `reports.index.json` and per-case `cases/<case_id>/summary.json`, publish uploads include index+case summaries, and UI loads index first with lazy `summary_url` fetch plus legacy manifest fallback (2026-02-13).
 Latest sync: addressed PR #109 review follow-ups in report UI (simplified case render key, cleaned search-blob construction, fixed disabled button hover behavior, and added pagination aria-labels) (2026-02-13).
 Latest sync: improved report UI query efficiency (P0) with debounced+deferred keyword search, prebuilt per-case search blobs, pagination (30 cases/page), and lazy rendering of heavy case body sections only after row expansion (2026-02-13).
