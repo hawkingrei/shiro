@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { format } from "sql-formatter";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
@@ -82,6 +82,14 @@ type SimilarPayload = {
   matches?: SimilarCase[];
 };
 
+type IndexedCase = {
+  entry: CaseEntry;
+  key: string;
+  caseIDValue: string;
+  reasonLabel: string;
+  searchBlob: string;
+};
+
 const detailString = (details: Record<string, unknown> | null, key: string): string => {
   if (!details) return "";
   const value = details[key];
@@ -156,6 +164,8 @@ const workerBaseURLEnv = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().
 const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
 const issueBaseURLEnv = (process.env.NEXT_PUBLIC_ISSUE_BASE_URL || "").trim().replace(/\/+$/, "");
 const workerTokenStorageKey = "shiro_worker_write_token";
+const searchDebounceMS = 180;
+const casesPerPage = 30;
 const reservedFileKeys = new Set([
   "case.sql",
   "inserts.sql",
@@ -302,12 +312,42 @@ const reasonForCase = (c: CaseEntry): string => {
   return "other";
 };
 
+const caseRenderKey = (c: CaseEntry, index: number): string => {
+  const id = (caseID(c) || c.id || "").trim();
+  if (id) {
+    return id;
+  }
+  return `case-${index}`;
+};
+
+const buildCaseSearchBlob = (c: CaseEntry): string => {
+  return [
+    c.oracle,
+    c.error,
+    c.expected,
+    c.actual,
+    c.groundtruth_dsg_mismatch_reason,
+    c.norec_optimized_sql,
+    c.norec_unoptimized_sql,
+    c.norec_predicate,
+    c.tidb_version,
+    c.tidb_commit,
+    c.plan_signature,
+    c.plan_signature_format,
+    ...(c.sql || []),
+    JSON.stringify(c.details || {}),
+  ]
+    .join(" ")
+    .toLowerCase();
+};
+
 export default function Page() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
   const [similarByCase, setSimilarByCase] = useState<Record<string, SimilarPayload>>({});
   const [similarLoadingByCase, setSimilarLoadingByCase] = useState<Record<string, boolean>>({});
   const [similarErrorByCase, setSimilarErrorByCase] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [oracle, setOracle] = useState("");
   const [commit, setCommit] = useState("");
   const [planSig, setPlanSig] = useState("");
@@ -316,11 +356,13 @@ export default function Page() {
   const [showExplainSame, setShowExplainSame] = useState(false);
   const [reason, setReason] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
   const [workerToken, setWorkerToken] = useState("");
   const [caseMetaByID, setCaseMetaByID] = useState<Record<string, CaseMetaState>>({});
   const [activeMetaID, setActiveMetaID] = useState<string | null>(null);
+  const [expandedCaseKeys, setExpandedCaseKeys] = useState<Record<string, boolean>>({});
   const metaBootstrapInFlight = useRef(false);
   const metaBootstrapRunID = useRef(0);
   const caseMetaByIDRef = useRef(caseMetaByID);
@@ -355,6 +397,15 @@ export default function Page() {
       window.removeEventListener("keydown", handler);
     };
   }, [activeMetaID]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQuery(query);
+    }, searchDebounceMS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [query]);
 
   useEffect(() => {
     caseMetaByIDRef.current = caseMetaByID;
@@ -675,7 +726,17 @@ export default function Page() {
       }));
     }
   };
-  const q = query.trim().toLowerCase();
+  const deferredQuery = useDeferredValue(debouncedQuery);
+  const q = deferredQuery.trim().toLowerCase();
+  const indexedCases = useMemo<IndexedCase[]>(() => {
+    return cases.map((entry, index) => ({
+      entry,
+      key: caseRenderKey(entry, index),
+      caseIDValue: (caseID(entry) || "").trim(),
+      reasonLabel: reasonForCase(entry),
+      searchBlob: buildCaseSearchBlob(entry),
+    }));
+  }, [cases]);
 
   const oracleOptions = useMemo(() => {
     return Array.from(new Set(cases.map((c) => c.oracle).filter(Boolean))).sort();
@@ -694,13 +755,13 @@ export default function Page() {
   }, [cases]);
 
   const reasonOptions = useMemo(() => {
-    return Array.from(new Set(cases.map((c) => reasonForCase(c)))).sort();
-  }, [cases]);
+    return Array.from(new Set(indexedCases.map((item) => item.reasonLabel))).sort();
+  }, [indexedCases]);
 
   const labelOptions = useMemo(() => {
     const labels = new Set<string>();
-    cases.forEach((c) => {
-      const cid = caseID(c);
+    indexedCases.forEach((item) => {
+      const cid = item.caseIDValue;
       if (!cid) return;
       const meta = caseMetaByID[cid];
       if (!meta?.loaded) return;
@@ -709,10 +770,11 @@ export default function Page() {
       });
     });
     return Array.from(labels.values()).sort();
-  }, [cases, caseMetaByID]);
+  }, [indexedCases, caseMetaByID]);
 
   const filtered = useMemo(() => {
-    return cases.filter((c) => {
+    return indexedCases.filter((item) => {
+      const c = item.entry;
       if (oracle && c.oracle !== oracle) return false;
       if (commit && c.tidb_commit !== commit) return false;
       if (planSig) {
@@ -722,9 +784,9 @@ export default function Page() {
       }
       if (planSigFormat && c.plan_signature_format !== planSigFormat) return false;
       if (onlyErrors && !c.error) return false;
-      if (reason && reasonForCase(c) !== reason) return false;
+      if (reason && item.reasonLabel !== reason) return false;
       if (labelFilter) {
-        const cid = caseID(c);
+        const cid = item.caseIDValue;
         if (!cid) return false;
         const meta = caseMetaByID[cid];
         if (!meta?.loaded) return false;
@@ -732,27 +794,28 @@ export default function Page() {
         if (!match) return false;
       }
       if (!q) return true;
-      const hay = [
-        c.oracle,
-        c.error,
-        c.expected,
-        c.actual,
-        c.groundtruth_dsg_mismatch_reason,
-        c.norec_optimized_sql,
-        c.norec_unoptimized_sql,
-        c.norec_predicate,
-        c.tidb_version,
-        c.tidb_commit,
-        c.plan_signature,
-        c.plan_signature_format,
-        ...(c.sql || []),
-        JSON.stringify(c.details || {}),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+      return item.searchBlob.includes(q);
     });
-  }, [cases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, caseMetaByID, q]);
+  }, [indexedCases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, caseMetaByID, q]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, q]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filtered.length / casesPerPage));
+  }, [filtered.length]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pagedCases = useMemo(() => {
+    const start = (page - 1) * casesPerPage;
+    return filtered.slice(start, start + casesPerPage);
+  }, [filtered, page]);
 
   const loadSimilarCases = async (cid: string) => {
     const caseIDValue = (cid || "").trim();
@@ -784,8 +847,9 @@ export default function Page() {
     let errorCount = 0;
     let flakyCount = 0;
     let truncCount = 0;
-    filtered.forEach((c) => {
-      const reasonLabel = reasonForCase(c);
+    filtered.forEach((item) => {
+      const c = item.entry;
+      const reasonLabel = item.reasonLabel;
       byReason.set(reasonLabel, (byReason.get(reasonLabel) || 0) + 1);
       if (c.oracle) {
         byOracle.set(c.oracle, (byOracle.get(c.oracle) || 0) + 1);
@@ -806,6 +870,7 @@ export default function Page() {
       oracles: sortCounts(byOracle),
     };
   }, [filtered]);
+  const searchPending = query.trim() !== debouncedQuery.trim();
 
   if (error) {
     return <div className="page"><div className="error">Failed to load reports.json/report.json: {error}</div></div>;
@@ -893,7 +958,10 @@ export default function Page() {
               Show EXPLAIN unchanged
             </label>
           </div>
-          <div className="stats">Total: {cases.length} | Showing: {filtered.length}</div>
+          <div className="stats">
+            Total: {cases.length} | Filtered: {filtered.length} | Page: {pagedCases.length}
+            {searchPending ? " | Searching..." : ""}
+          </div>
           {workerBaseURL && (
             <>
               <div className="panel__title">Settings</div>
@@ -960,38 +1028,68 @@ export default function Page() {
         </div>
       </section>
 
+      <section className="pager">
+        <button
+          className="copy-btn"
+          type="button"
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
+          disabled={page <= 1}
+        >
+          Prev
+        </button>
+        <span>
+          Page {page} / {totalPages}
+        </span>
+        <span>
+          {filtered.length === 0
+            ? "0 of 0"
+            : `${(page - 1) * casesPerPage + 1}-${Math.min(page * casesPerPage, filtered.length)} of ${filtered.length}`}
+        </span>
+        <button
+          className="copy-btn"
+          type="button"
+          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+          disabled={page >= totalPages}
+        >
+          Next
+        </button>
+      </section>
+
       <main className="cases">
-        {filtered.map((c, idx) => {
-          const cid = caseID(c);
+        {pagedCases.map((item) => {
+          const c = item.entry;
+          const cid = item.caseIDValue;
+          const caseKey = item.key;
+          const isExpanded = Boolean(expandedCaseKeys[caseKey]);
           const meta = cid ? (caseMetaByID[cid] || emptyCaseMeta()) : null;
           const metaLabels = meta?.loaded ? meta.labels : [];
           const metaLabelPreview = metaLabels.slice(0, 3);
           const metaLabelExtra = metaLabels.length - metaLabelPreview.length;
           const metaIssue = meta?.loaded ? meta.linkedIssue : "";
           const metaIssueDisplay = metaIssue.length > 32 ? `${metaIssue.slice(0, 32)}...` : metaIssue;
-          const archiveURL = caseArchiveURL(c);
+          const archiveURL = isExpanded ? caseArchiveURL(c) : "";
           const downloadURL = archiveURL;
-          const archiveName = (c.archive_name || "").trim();
-          const similarURL = similarCasesURL(workerBaseURL, c);
-          const similarPayload = cid ? similarByCase[cid] : undefined;
-          const similarList = similarPayload?.matches || [];
-          const similarAnswer = (similarPayload?.answer || "").trim();
-          const similarLoading = cid ? Boolean(similarLoadingByCase[cid]) : false;
-          const similarError = cid ? (similarErrorByCase[cid] || "").trim() : "";
-          const reasonLabel = reasonForCase(c);
-          const expectedSQL = detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "";
-          const actualSQL = detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "";
-          const norecPredicate = c.norec_predicate || "";
+          const archiveName = isExpanded ? (c.archive_name || "").trim() : "";
+          const similarURL = isExpanded ? similarCasesURL(workerBaseURL, c) : "";
+          const similarPayload = isExpanded && cid ? similarByCase[cid] : undefined;
+          const similarList = isExpanded ? similarPayload?.matches || [] : [];
+          const similarAnswer = isExpanded ? (similarPayload?.answer || "").trim() : "";
+          const similarLoading = isExpanded && cid ? Boolean(similarLoadingByCase[cid]) : false;
+          const similarError = isExpanded && cid ? (similarErrorByCase[cid] || "").trim() : "";
+          const reasonLabel = item.reasonLabel;
+          const expectedSQL = isExpanded ? detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "" : "";
+          const actualSQL = isExpanded ? detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "" : "";
+          const norecPredicate = isExpanded ? c.norec_predicate || "" : "";
           const expectedRowsTruncated = detailBool(c.details, "expected_rows_truncated");
           const actualRowsTruncated = detailBool(c.details, "actual_rows_truncated");
-          const expectedExplainRaw = detailString(c.details, "expected_explain");
-          const actualExplainRaw = detailString(c.details, "actual_explain");
-          const unoptimizedExplainRaw = detailString(c.details, "unoptimized_explain");
-          const optimizedExplainRaw = detailString(c.details, "optimized_explain");
-          const expectedExplain = formatExplain(expectedExplainRaw);
-          const actualExplain = formatExplain(actualExplainRaw);
-          const optimizedExplain = formatExplain(optimizedExplainRaw);
-          const unoptimizedExplain = formatExplain(unoptimizedExplainRaw);
+          const expectedExplainRaw = isExpanded ? detailString(c.details, "expected_explain") : "";
+          const actualExplainRaw = isExpanded ? detailString(c.details, "actual_explain") : "";
+          const unoptimizedExplainRaw = isExpanded ? detailString(c.details, "unoptimized_explain") : "";
+          const optimizedExplainRaw = isExpanded ? detailString(c.details, "optimized_explain") : "";
+          const expectedExplain = isExpanded ? formatExplain(expectedExplainRaw) : "";
+          const actualExplain = isExpanded ? formatExplain(actualExplainRaw) : "";
+          const optimizedExplain = isExpanded ? formatExplain(optimizedExplainRaw) : "";
+          const unoptimizedExplain = isExpanded ? formatExplain(unoptimizedExplainRaw) : "";
           const expectedActualDiff =
             expectedExplain && actualExplain ? { oldValue: expectedExplain, newValue: actualExplain } : null;
           const optimizedDiff =
@@ -1108,9 +1206,16 @@ export default function Page() {
           return (
             <details
               className="case"
-              key={c.id || cid || idx}
+              key={caseKey}
               onToggle={(event) => {
-                if ((event.currentTarget as HTMLDetailsElement).open && cid) {
+                const open = (event.currentTarget as HTMLDetailsElement).open;
+                setExpandedCaseKeys((prev) => {
+                  if (prev[caseKey] === open) {
+                    return prev;
+                  }
+                  return { ...prev, [caseKey]: open };
+                });
+                if (open && cid) {
                   void ensureCaseMeta(cid);
                 }
               }}
@@ -1152,7 +1257,8 @@ export default function Page() {
                   </span>
                 )}
               </summary>
-              <div className="case__grid">
+              {isExpanded && (
+                <div className="case__grid">
                 {(downloadURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
@@ -1413,7 +1519,8 @@ export default function Page() {
                     ))}
                   </div>
                 )}
-              </div>
+                </div>
+              )}
             </details>
           );
         })}

@@ -110,6 +110,16 @@ code {
   color: var(--muted);
 }
 
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -434,6 +444,10 @@ code {
 }
 .copy-btn:hover {
   background: #e9ecef;
+}
+.copy-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 pre {
