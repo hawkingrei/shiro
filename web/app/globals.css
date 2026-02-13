@@ -442,7 +442,7 @@ code {
   letter-spacing: 0.08em;
   cursor: pointer;
 }
-.copy-btn:hover {
+.copy-btn:hover:not(:disabled) {
   background: #e9ecef;
 }
 .copy-btn:disabled {

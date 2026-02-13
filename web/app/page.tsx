@@ -313,11 +313,7 @@ const reasonForCase = (c: CaseEntry): string => {
 };
 
 const caseRenderKey = (c: CaseEntry, index: number): string => {
-  const id = (caseID(c) || c.id || "").trim();
-  if (id) {
-    return id;
-  }
-  return `case-${index}`;
+  return caseID(c) || `case-${index}`;
 };
 
 const buildCaseSearchBlob = (c: CaseEntry): string => {
@@ -335,8 +331,9 @@ const buildCaseSearchBlob = (c: CaseEntry): string => {
     c.plan_signature,
     c.plan_signature_format,
     ...(c.sql || []),
-    JSON.stringify(c.details || {}),
+    c.details ? JSON.stringify(c.details) : null,
   ]
+    .filter((value) => Boolean(value))
     .join(" ")
     .toLowerCase();
 };
@@ -1032,6 +1029,7 @@ export default function Page() {
         <button
           className="copy-btn"
           type="button"
+          aria-label="Go to previous page"
           onClick={() => setPage((current) => Math.max(1, current - 1))}
           disabled={page <= 1}
         >
@@ -1048,6 +1046,7 @@ export default function Page() {
         <button
           className="copy-btn"
           type="button"
+          aria-label="Go to next page"
           onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
           disabled={page >= totalPages}
         >
