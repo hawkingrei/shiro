@@ -22,6 +22,8 @@ Links:
 
 ## Recent updates
 
+- Documented GitHub Actions secret/variable mapping for GCS (S3-compatible upload path) to explicit `storage.s3.*` config keys in README, including credential-chain usage via `AWS_*` env vars (2026-02-14).
+- Improved CI integration by adding standardized `SHIRO_CI_*` environment mapping in GitHub Actions and wiring Shiro to collect runtime metadata from environment variables; metadata is now logged at startup and persisted into case summaries/report JSON as `run_info` (2026-02-14).
 - Ensured PQS pivot row fetch checks rows.Err and uses CloseWithErr to avoid masking query failures (2026-02-09).
 - Stripped database qualifiers from dumped CREATE VIEW statements in reports, with normalizeCreateView tests (2026-02-09).
 - Deduplicated CODDTest CASE conditions to reduce oversized dependent predicates, with regression coverage (2026-02-09).

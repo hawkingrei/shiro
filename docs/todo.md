@@ -1,6 +1,8 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: documented the GitHub Actions GCS-secret-to-`storage.s3.*` mapping (including `AWS_*` credential-chain usage) in `README.md` (2026-02-14).
+Latest sync: added CI runtime metadata ingestion from environment (`SHIRO_CI_*` with provider fallback), wired it into case `summary.json`/`report.json` as `run_info`, and mapped GitHub Actions CI env defaults in `.github/workflows/ci.yaml` (2026-02-14).
 Latest sync: addressed PQS review feedback (bool literal consistency, row error checks, preallocations, doc status) (2026-02-09).
 Latest sync: fixed PQS lints for errcheck (rows.Close) and revive confusing-results (2026-02-09).
 Latest sync: aligned TODO with follow-ups after PQS float-guard work (2026-02-09).

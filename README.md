@@ -24,6 +24,26 @@ Shiro prints the final resolved configuration at startup.
 
 Reports are written under `reports/`.
 
+## CI run metadata from environment
+Shiro can record CI runtime metadata directly from environment variables and persist it into each case `summary.json` as `run_info`.
+
+Preferred explicit variables:
+- `SHIRO_CI`
+- `SHIRO_CI_PROVIDER`
+- `SHIRO_CI_REPOSITORY`
+- `SHIRO_CI_BRANCH`
+- `SHIRO_CI_COMMIT`
+- `SHIRO_CI_WORKFLOW`
+- `SHIRO_CI_JOB`
+- `SHIRO_CI_RUN_ID`
+- `SHIRO_CI_RUN_NUMBER`
+- `SHIRO_CI_EVENT`
+- `SHIRO_CI_PULL_REQUEST`
+- `SHIRO_CI_ACTOR`
+- `SHIRO_CI_BUILD_URL`
+
+If explicit `SHIRO_CI_*` values are not set, Shiro auto-detects common CI providers and consumes defaults (for example, GitHub Actions `GITHUB_*` variables).
+
 ## Concurrency
 Set `workers` in `config.yaml`. Each worker runs in its own database (`<database>_wN`) to keep session variables isolated.
 
@@ -123,3 +143,40 @@ At each report interval, Shiro writes `dynamic_state.json` in the working direct
 
 ## S3 upload
 Configure `storage.s3` in `config.yaml`. When enabled, each case directory is uploaded as-is and the summary includes `upload_location`.
+
+### GCS secret injection in GitHub Actions
+Shiro uploads through the S3-compatible path (`storage.s3`). For Google Cloud Storage, use GCS HMAC credentials and map your GitHub secrets/variables to the following config keys.
+
+| GitHub secret/variable name | Target config key | Notes |
+| --- | --- | --- |
+| `SHIRO_GCS_BUCKET` | `storage.s3.bucket` | Required. |
+| `SHIRO_GCS_PREFIX` | `storage.s3.prefix` | Optional object prefix. |
+| `SHIRO_GCS_ENDPOINT` | `storage.s3.endpoint` | Usually `https://storage.googleapis.com`. |
+| `SHIRO_GCS_REGION` | `storage.s3.region` | Use `auto` for GCS interoperability. |
+| `SHIRO_GCS_HMAC_ACCESS_KEY_ID` | `storage.s3.access_key_id` (or `AWS_ACCESS_KEY_ID`) | Prefer exporting to `AWS_ACCESS_KEY_ID` in CI. |
+| `SHIRO_GCS_HMAC_SECRET_ACCESS_KEY` | `storage.s3.secret_access_key` (or `AWS_SECRET_ACCESS_KEY`) | Prefer exporting to `AWS_SECRET_ACCESS_KEY` in CI. |
+| `SHIRO_GCS_SESSION_TOKEN` | `storage.s3.session_token` (or `AWS_SESSION_TOKEN`) | Optional, usually empty for GCS HMAC. |
+
+Set these static config values in a CI config file:
+
+```yaml
+storage:
+  s3:
+    enabled: true
+    endpoint: https://storage.googleapis.com
+    region: auto
+    bucket: your-bucket
+    prefix: shiro-reports
+    use_path_style: false
+```
+
+Then inject credentials in GitHub Actions:
+
+```yaml
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.SHIRO_GCS_HMAC_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SHIRO_GCS_HMAC_SECRET_ACCESS_KEY }}
+  AWS_SESSION_TOKEN: ${{ secrets.SHIRO_GCS_SESSION_TOKEN }}
+```
+
+This works because the uploader uses AWS SDK credential resolution when `storage.s3.access_key_id` / `storage.s3.secret_access_key` are not set in the file.

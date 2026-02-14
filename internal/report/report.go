@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"shiro/internal/db"
+	"shiro/internal/runinfo"
 	"shiro/internal/schema"
 	"shiro/internal/util"
 
@@ -34,31 +35,32 @@ type Case struct {
 
 // Summary captures the persisted metadata for a case.
 type Summary struct {
-	Oracle                       string         `json:"oracle"`
-	SQL                          []string       `json:"sql"`
-	Expected                     string         `json:"expected"`
-	Actual                       string         `json:"actual"`
-	Error                        string         `json:"error"`
-	ErrorReason                  string         `json:"error_reason"`
-	BugHint                      string         `json:"bug_hint"`
-	GroundTruthDSGMismatchReason string         `json:"groundtruth_dsg_mismatch_reason"`
-	ErrorSQL                     string         `json:"error_sql"`
-	ReplaySQL                    string         `json:"replay_sql"`
-	MinimizeStatus               string         `json:"minimize_status"`
-	Flaky                        bool           `json:"flaky"`
-	Seed                         int64          `json:"seed"`
-	PlanReplay                   string         `json:"plan_replayer"`
-	UploadLocation               string         `json:"upload_location"`
-	CaseDir                      string         `json:"case_dir"`
-	NoRECOptimizedSQL            string         `json:"norec_optimized_sql"`
-	NoRECUnoptimizedSQL          string         `json:"norec_unoptimized_sql"`
-	NoRECPredicate               string         `json:"norec_predicate"`
-	Details                      map[string]any `json:"details"`
-	GroundTruth                  *TruthSummary  `json:"groundtruth,omitempty"`
-	Timestamp                    string         `json:"timestamp"`
-	TiDBVersion                  string         `json:"tidb_version"`
-	PlanSignature                string         `json:"plan_signature"`
-	PlanSigFormat                string         `json:"plan_signature_format"`
+	Oracle                       string             `json:"oracle"`
+	SQL                          []string           `json:"sql"`
+	Expected                     string             `json:"expected"`
+	Actual                       string             `json:"actual"`
+	Error                        string             `json:"error"`
+	ErrorReason                  string             `json:"error_reason"`
+	BugHint                      string             `json:"bug_hint"`
+	GroundTruthDSGMismatchReason string             `json:"groundtruth_dsg_mismatch_reason"`
+	ErrorSQL                     string             `json:"error_sql"`
+	ReplaySQL                    string             `json:"replay_sql"`
+	MinimizeStatus               string             `json:"minimize_status"`
+	Flaky                        bool               `json:"flaky"`
+	Seed                         int64              `json:"seed"`
+	RunInfo                      *runinfo.BasicInfo `json:"run_info,omitempty"`
+	PlanReplay                   string             `json:"plan_replayer"`
+	UploadLocation               string             `json:"upload_location"`
+	CaseDir                      string             `json:"case_dir"`
+	NoRECOptimizedSQL            string             `json:"norec_optimized_sql"`
+	NoRECUnoptimizedSQL          string             `json:"norec_unoptimized_sql"`
+	NoRECPredicate               string             `json:"norec_predicate"`
+	Details                      map[string]any     `json:"details"`
+	GroundTruth                  *TruthSummary      `json:"groundtruth,omitempty"`
+	Timestamp                    string             `json:"timestamp"`
+	TiDBVersion                  string             `json:"tidb_version"`
+	PlanSignature                string             `json:"plan_signature"`
+	PlanSigFormat                string             `json:"plan_signature_format"`
 }
 
 // TruthSummary captures optional ground-truth evaluation metadata.

@@ -128,6 +128,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		Flaky:                        flaky,
 		Details:                      details,
 		Seed:                         r.gen.Seed,
+		RunInfo:                      r.cfg.RunInfo,
 		Timestamp:                    time.Now().Format(time.RFC3339),
 		PlanReplay:                   planPath,
 		TiDBVersion:                  r.tidbVersion(ctx),
