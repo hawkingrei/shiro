@@ -4,6 +4,9 @@ This file tracks current tasks and should stay aligned with `docs/notes/follow-u
 Latest sync: reviewed fresh local logs/reports after oracle fixes (2026-02-14): DQP showed no `sql_error_1054` and stayed effective, EET `no_transform` skip dropped in the DQE interval, but GroundTruth remained skip-dominant (`dsg_key_mismatch_right_key`/`base_table`) with effective ratio 0 and captured cases still minimized as non-reproducible.
 Latest sync: completed follow-ups from the 2026-02-14 logs/reports review: GroundTruth now adds DSG prechecks + right-key availability checks with higher pick retries, EET now falls back across rewrite kinds to reduce `no_transform`, and DQP now skips invalid-scope queries (`dqp:scope_invalid`) with NATURAL RIGHT JOIN scope regression coverage (2026-02-14).
 Latest sync: reviewed local `logs/shiro.log` + `reports/case_*/summary.json` (2026-02-14): GroundTruth effective ratio repeatedly dropped to 0 due to `dsg_key_mismatch_right_key`/`empty_query`; EET skips were dominated by `eet:no_transform`; recent captured cases were mostly non-reproducible during minimize (`base_replay_not_reproducible`).
+Latest sync: addressed PR #110 follow-up review findings by sanitizing dot-segment case path components, preferring local case summary URLs when case IDs are present, and treating empty `details` objects as not detail-loaded in frontend normalization (2026-02-13).
+Latest sync: addressed PR #110 review threads by aligning search-blob empty-details handling, adding abort/race safety for on-demand case detail fetches, and preventing unresolved-summary lazy-load attempts via `detail_loaded=true` fallback in index entries (2026-02-13).
+Latest sync: completed report index + on-demand detail loading (P1): shiro-report now writes `reports.index.json` and per-case `cases/<case_id>/summary.json`, publish uploads include index+case summaries, and UI loads index first with lazy `summary_url` fetch plus legacy manifest fallback (2026-02-13).
 Latest sync: addressed PR #109 review follow-ups in report UI (simplified case render key, cleaned search-blob construction, fixed disabled button hover behavior, and added pagination aria-labels) (2026-02-13).
 Latest sync: improved report UI query efficiency (P0) with debounced+deferred keyword search, prebuilt per-case search blobs, pagination (30 cases/page), and lazy rendering of heavy case body sections only after row expansion (2026-02-13).
 Latest sync: addressed PR #108 review follow-ups for metadata bootstrap robustness (safe async error handling, complete-only missing-case loaded marking, draft-edit preservation during merge, narrowed effect dependencies via refs, and shared auth-header usage for PATCH) (2026-02-13).
@@ -104,22 +107,19 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 
 ## Reporting / Aggregation
 
-1. Build a report index for on-demand loading (replace monolithic `report.json` for large runs).
-2. Add index writer with sharding and optional gzip support for CDN/S3.
-3. Update report UI to load the index first, then fetch individual `summary.json` files on demand with paging and caching.
-4. Add `report_base_url` (or reuse existing config) to allow loading reports from HTTP/S3 endpoints with CORS guidance.
-5. Consider column-aware EXPLAIN diff once table parsing stabilizes.
-6. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
-7. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
-8. Report summary now includes `minimize_status` and emits early case-allocation logs to improve logs/reports correlation. (done)
-9. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
-10. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
-11. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
-12. Frontend UX: waterfall/list switch, direct archive/report links, Worker download API integration, and native label/issue editing controls are done. (done)
-13. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
-14. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
-15. Serve the report UI directly from Worker assets for single-domain deployment. (done)
-16. Configure Worker observability settings in wrangler.jsonc. (done)
+1. Add index writer sharding and optional gzip support for CDN/S3.
+2. Consider column-aware EXPLAIN diff once table parsing stabilizes.
+3. Report summaries now expose `error_reason`, `bug_hint`, `error_sql`, and `replay_sql` for indexing. (done)
+4. Review follow-up: `sqlErrorReason(nil)` now returns empty reason and EET ORDER BY drop path is documented. (done)
+5. Report summary now includes `minimize_status` and emits early case-allocation logs to improve logs/reports correlation. (done)
+6. Minimize status flow now has explicit `interrupted` fallback when execution exits while minimize is in progress. (done)
+7. Minimize now prechecks base replay reproducibility and marks non-reproducible cases as `flaky` with explicit `minimize_reason` / `flaky_reason` metadata. (done)
+8. Cloudflare metadata plane follow-up: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
+9. Frontend UX: waterfall/list switch, direct archive/report links, Worker download API integration, and native label/issue editing controls are done. (done)
+10. AI search: Worker now supports per-case similar lookup with optional AI summary; next step is adding vector-style embedding retrieval/rerank once case text fields are normalized.
+11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
+12. Serve the report UI directly from Worker assets for single-domain deployment. (done)
+13. Configure Worker observability settings in wrangler.jsonc. (done)
 17. Add a run-level reproducibility summary (captured/skipped/in-progress counts with top `minimize_reason`) so non-reproducible case spikes are visible without scanning raw logs.
 
 ## Coverage / Guidance

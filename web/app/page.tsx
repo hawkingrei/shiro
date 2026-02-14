@@ -6,7 +6,9 @@ import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import {
   caseArchiveURL,
   caseID,
+  caseReportURL,
   isHTTPURL,
+  objectURL,
   similarCasesURL,
 } from "../lib/report-utils";
 
@@ -45,6 +47,9 @@ type CaseEntry = {
   upload_location: string;
   details: Record<string, unknown> | null;
   files: Record<string, FileContent>;
+  summary_url?: string;
+  search_blob?: string;
+  detail_loaded?: boolean;
 };
 
 type CaseMetaState = {
@@ -62,6 +67,8 @@ type CaseMetaState = {
 type ReportPayload = {
   generated_at: string;
   source: string;
+  index_version?: number;
+  case_count?: number;
   cases: CaseEntry[];
 };
 
@@ -319,6 +326,7 @@ const caseRenderKey = (c: CaseEntry, index: number): string => {
 const buildCaseSearchBlob = (c: CaseEntry): string => {
   return [
     c.oracle,
+    c.error_reason,
     c.error,
     c.expected,
     c.actual,
@@ -330,16 +338,174 @@ const buildCaseSearchBlob = (c: CaseEntry): string => {
     c.tidb_commit,
     c.plan_signature,
     c.plan_signature_format,
+    c.case_id,
+    c.case_dir,
+    c.upload_location,
     ...(c.sql || []),
-    c.details ? JSON.stringify(c.details) : null,
+    c.details && Object.keys(c.details).length > 0 ? JSON.stringify(c.details) : null,
   ]
     .filter((value) => Boolean(value))
     .join(" ")
     .toLowerCase();
 };
 
+const asString = (value: unknown): string => {
+  return typeof value === "string" ? value : "";
+};
+
+const asBoolean = (value: unknown): boolean => {
+  return typeof value === "boolean" ? value : false;
+};
+
+const asStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+};
+
+const asStringRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+};
+
+const normalizeFiles = (value: unknown): Record<string, FileContent> => {
+  const record = asStringRecord(value);
+  if (!record) {
+    return {};
+  }
+  const normalized: Record<string, FileContent> = {};
+  for (const [key, item] of Object.entries(record)) {
+    const file = asStringRecord(item);
+    if (!file) {
+      continue;
+    }
+    const truncatedRaw = file.truncated;
+    const truncated =
+      typeof truncatedRaw === "boolean"
+        ? truncatedRaw
+        : typeof truncatedRaw === "string"
+        ? truncatedRaw.toLowerCase() === "true"
+        : false;
+    normalized[key] = {
+      name: asString(file.name),
+      content: asString(file.content),
+      truncated,
+    };
+  }
+  return normalized;
+};
+
+const normalizeCaseEntry = (value: unknown): CaseEntry | null => {
+  const record = asStringRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const sql = asStringArray(record.sql);
+  const details = asStringRecord(record.details);
+  const files = normalizeFiles(record.files);
+  const inferredDetailLoaded =
+    sql.length > 0 ||
+    (details !== null && Object.keys(details).length > 0) ||
+    Object.keys(files).length > 0 ||
+    asString(record.norec_optimized_sql).trim().length > 0 ||
+    asString(record.norec_unoptimized_sql).trim().length > 0;
+
+  const normalized: CaseEntry = {
+    id: asString(record.id),
+    dir: asString(record.dir),
+    oracle: asString(record.oracle),
+    timestamp: asString(record.timestamp),
+    tidb_version: asString(record.tidb_version),
+    tidb_commit: asString(record.tidb_commit),
+    error_reason: asString(record.error_reason),
+    plan_signature: asString(record.plan_signature),
+    plan_signature_format: asString(record.plan_signature_format),
+    expected: asString(record.expected),
+    actual: asString(record.actual),
+    error: asString(record.error),
+    groundtruth_dsg_mismatch_reason: asString(record.groundtruth_dsg_mismatch_reason),
+    flaky: asBoolean(record.flaky),
+    norec_optimized_sql: asString(record.norec_optimized_sql),
+    norec_unoptimized_sql: asString(record.norec_unoptimized_sql),
+    norec_predicate: asString(record.norec_predicate),
+    case_id: asString(record.case_id),
+    case_dir: asString(record.case_dir),
+    archive_name: asString(record.archive_name),
+    archive_codec: asString(record.archive_codec),
+    archive_url: asString(record.archive_url),
+    report_url: asString(record.report_url),
+    sql,
+    plan_replayer: asString(record.plan_replayer),
+    upload_location: asString(record.upload_location),
+    details,
+    files,
+    summary_url: asString(record.summary_url),
+    search_blob: asString(record.search_blob),
+    detail_loaded: typeof record.detail_loaded === "boolean" ? record.detail_loaded : inferredDetailLoaded,
+  };
+
+  if (!normalized.summary_url) {
+    normalized.summary_url = caseReportURL(normalized);
+  }
+  if (!normalized.search_blob) {
+    normalized.search_blob = buildCaseSearchBlob(normalized);
+  }
+  return normalized;
+};
+
+const normalizeReportPayload = (value: unknown): ReportPayload | null => {
+  const record = asStringRecord(value);
+  if (!record) {
+    return null;
+  }
+  const rawCases = Array.isArray(record.cases) ? record.cases : [];
+  const cases: CaseEntry[] = [];
+  for (const raw of rawCases) {
+    const normalized = normalizeCaseEntry(raw);
+    if (normalized) {
+      cases.push(normalized);
+    }
+  }
+  return {
+    generated_at: asString(record.generated_at),
+    source: asString(record.source),
+    index_version: typeof record.index_version === "number" ? record.index_version : undefined,
+    case_count: typeof record.case_count === "number" ? record.case_count : undefined,
+    cases,
+  };
+};
+
+const resolveSummaryURL = (summaryURL: string, manifestBaseURL: string): string => {
+  const trimmed = summaryURL.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (isHTTPURL(trimmed)) {
+    return trimmed;
+  }
+  const rel = trimmed.replace(/^\.\//, "");
+  const base = manifestBaseURL.trim();
+  if (isHTTPURL(base)) {
+    return objectURL(base, rel);
+  }
+  if (!base || base === ".") {
+    if (trimmed.startsWith("./") || trimmed.startsWith("/")) {
+      return trimmed;
+    }
+    return `./${rel}`;
+  }
+  return `${base.replace(/\/+$/, "")}/${rel}`;
+};
+
 export default function Page() {
   const [payload, setPayload] = useState<ReportPayload | null>(null);
+  const [manifestBaseURL, setManifestBaseURL] = useState(reportsBaseURL || ".");
+  const [caseDetailLoadingByKey, setCaseDetailLoadingByKey] = useState<Record<string, boolean>>({});
+  const [caseDetailErrorByKey, setCaseDetailErrorByKey] = useState<Record<string, string>>({});
   const [similarByCase, setSimilarByCase] = useState<Record<string, SimilarPayload>>({});
   const [similarLoadingByCase, setSimilarLoadingByCase] = useState<Record<string, boolean>>({});
   const [similarErrorByCase, setSimilarErrorByCase] = useState<Record<string, string>>({});
@@ -364,6 +530,10 @@ export default function Page() {
   const metaBootstrapRunID = useRef(0);
   const caseMetaByIDRef = useRef(caseMetaByID);
   const activeMetaIDRef = useRef(activeMetaID);
+  const pageMountedRef = useRef(true);
+  const caseDetailAbortByKeyRef = useRef<Record<string, AbortController>>({});
+  const caseDetailRunIDByKeyRef = useRef<Record<string, number>>({});
+  const caseDetailNextRunIDRef = useRef(1);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(workerTokenStorageKey) || "";
@@ -396,6 +566,19 @@ export default function Page() {
   }, [activeMetaID]);
 
   useEffect(() => {
+    pageMountedRef.current = true;
+    return () => {
+      pageMountedRef.current = false;
+      const inFlight = caseDetailAbortByKeyRef.current;
+      for (const controller of Object.values(inFlight)) {
+        controller.abort();
+      }
+      caseDetailAbortByKeyRef.current = {};
+      caseDetailRunIDByKeyRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedQuery(query);
     }, searchDebounceMS);
@@ -416,20 +599,35 @@ export default function Page() {
     let canceled = false;
     const load = async () => {
       let lastErr: Error | null = null;
-      const urls: string[] = [];
+      const candidates: Array<{ url: string; base: string }> = [];
       if (reportsBaseURL) {
-        urls.push(`${reportsBaseURL}/reports.json`, `${reportsBaseURL}/report.json`);
+        candidates.push(
+          { url: `${reportsBaseURL}/reports.index.json`, base: reportsBaseURL },
+          { url: `${reportsBaseURL}/reports.json`, base: reportsBaseURL },
+          { url: `${reportsBaseURL}/report.json`, base: reportsBaseURL },
+        );
       }
-      urls.push("./reports.json", "./report.json");
-      for (const url of urls) {
+      candidates.push(
+        { url: "./reports.index.json", base: "." },
+        { url: "./reports.json", base: "." },
+        { url: "./report.json", base: "." },
+      );
+      for (const candidate of candidates) {
         try {
-          const res = await fetch(url, { cache: "no-cache" });
+          const res = await fetch(candidate.url, { cache: "no-cache" });
           if (!res.ok) {
-            throw new Error(`failed to load ${url}: ${res.status}`);
+            throw new Error(`failed to load ${candidate.url}: ${res.status}`);
           }
-          const data: ReportPayload = await res.json();
+          const raw = await res.json();
+          const data = normalizeReportPayload(raw);
+          if (!data) {
+            throw new Error(`invalid report payload from ${candidate.url}`);
+          }
           if (!canceled) {
             setPayload(data);
+            setManifestBaseURL(candidate.base);
+            setCaseDetailLoadingByKey({});
+            setCaseDetailErrorByKey({});
             setError(null);
           }
           return;
@@ -446,6 +644,114 @@ export default function Page() {
       canceled = true;
     };
   }, []);
+
+  const patchCaseEntry = (caseKey: string, updater: (current: CaseEntry) => CaseEntry) => {
+    if (!caseKey) {
+      return;
+    }
+    setPayload((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      let changed = false;
+      const nextCases = prev.cases.map((entry, index) => {
+        if (caseRenderKey(entry, index) !== caseKey) {
+          return entry;
+        }
+        changed = true;
+        return updater(entry);
+      });
+      if (!changed) {
+        return prev;
+      }
+      return { ...prev, cases: nextCases };
+    });
+  };
+
+  const cancelCaseDetail = (caseKey: string) => {
+    const controller = caseDetailAbortByKeyRef.current[caseKey];
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    delete caseDetailAbortByKeyRef.current[caseKey];
+    delete caseDetailRunIDByKeyRef.current[caseKey];
+    if (pageMountedRef.current) {
+      setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: false }));
+    }
+  };
+
+  const ensureCaseDetail = async (caseKey: string, entry: CaseEntry) => {
+    if (!caseKey || entry.detail_loaded) {
+      return;
+    }
+    if (caseDetailAbortByKeyRef.current[caseKey]) {
+      return;
+    }
+    const summaryURL = resolveSummaryURL(entry.summary_url || caseReportURL(entry), manifestBaseURL);
+    if (!summaryURL) {
+      if (pageMountedRef.current) {
+        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "detail URL missing" }));
+      }
+      return;
+    }
+    const controller = new AbortController();
+    const runID = caseDetailNextRunIDRef.current;
+    caseDetailNextRunIDRef.current += 1;
+    caseDetailAbortByKeyRef.current[caseKey] = controller;
+    caseDetailRunIDByKeyRef.current[caseKey] = runID;
+    if (pageMountedRef.current) {
+      setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: true }));
+      setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "" }));
+    }
+    const isCurrentRun = () => {
+      return pageMountedRef.current && caseDetailRunIDByKeyRef.current[caseKey] === runID;
+    };
+    try {
+      const resp = await fetch(summaryURL, { cache: "no-cache", signal: controller.signal });
+      if (!resp.ok) {
+        if (isCurrentRun()) {
+          setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: `load failed (${resp.status})` }));
+        }
+        return;
+      }
+      const raw = await resp.json();
+      const detail = normalizeCaseEntry(raw);
+      if (!detail) {
+        if (isCurrentRun()) {
+          setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "invalid case summary payload" }));
+        }
+        return;
+      }
+      if (!isCurrentRun()) {
+        return;
+      }
+      patchCaseEntry(caseKey, (current) => ({
+        ...current,
+        ...detail,
+        summary_url: current.summary_url || detail.summary_url,
+        search_blob: detail.search_blob || current.search_blob || buildCaseSearchBlob(detail),
+        detail_loaded: true,
+      }));
+      setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "" }));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      if (isCurrentRun()) {
+        setCaseDetailErrorByKey((prev) => ({ ...prev, [caseKey]: "load failed" }));
+      }
+    } finally {
+      if (caseDetailRunIDByKeyRef.current[caseKey] !== runID) {
+        return;
+      }
+      delete caseDetailRunIDByKeyRef.current[caseKey];
+      delete caseDetailAbortByKeyRef.current[caseKey];
+      if (pageMountedRef.current) {
+        setCaseDetailLoadingByKey((prev) => ({ ...prev, [caseKey]: false }));
+      }
+    }
+  };
 
   const updateCaseMetaState = (caseID: string, updater: (current: CaseMetaState) => CaseMetaState) => {
     setCaseMetaByID((prev) => {
@@ -731,7 +1037,7 @@ export default function Page() {
       key: caseRenderKey(entry, index),
       caseIDValue: (caseID(entry) || "").trim(),
       reasonLabel: reasonForCase(entry),
-      searchBlob: buildCaseSearchBlob(entry),
+      searchBlob: (entry.search_blob || buildCaseSearchBlob(entry)).toLowerCase(),
     }));
   }, [cases]);
 
@@ -868,9 +1174,10 @@ export default function Page() {
     };
   }, [filtered]);
   const searchPending = query.trim() !== debouncedQuery.trim();
+  const indexModeLabel = payload?.index_version ? `index v${payload.index_version}` : "full payload";
 
   if (error) {
-    return <div className="page"><div className="error">Failed to load reports.json/report.json: {error}</div></div>;
+    return <div className="page"><div className="error">Failed to load reports.index.json/reports.json/report.json: {error}</div></div>;
   }
 
   return (
@@ -880,11 +1187,12 @@ export default function Page() {
           <div className="hero__kicker">Shiro Fuzzing</div>
           <h1>Case Report Index</h1>
           <p className="hero__sub">
-            Static frontend reading <code>reports.json</code> with fallback to <code>report.json</code>. Deploy to GitHub Pages or Vercel and update the JSON to refresh. Set <code>NEXT_PUBLIC_REPORTS_BASE_URL</code> to load JSON from a public bucket or CDN.
+            Static frontend reads <code>reports.index.json</code> first, then falls back to <code>reports.json</code> and <code>report.json</code>. Expand a case to load full detail on demand from <code>summary_url</code>. Set <code>NEXT_PUBLIC_REPORTS_BASE_URL</code> to load reports from a public bucket or CDN.
           </p>
           <div className="hero__meta">
             <span>Generated: {payload?.generated_at ?? "-"}</span>
             <span>Source: {payload?.source ?? "-"}</span>
+            <span>Mode: {indexModeLabel}</span>
           </div>
         </div>
         <div className="hero__panel">
@@ -1060,6 +1368,9 @@ export default function Page() {
           const cid = item.caseIDValue;
           const caseKey = item.key;
           const isExpanded = Boolean(expandedCaseKeys[caseKey]);
+          const detailLoading = isExpanded ? Boolean(caseDetailLoadingByKey[caseKey]) : false;
+          const detailError = isExpanded ? (caseDetailErrorByKey[caseKey] || "").trim() : "";
+          const detailLoaded = Boolean(c.detail_loaded);
           const meta = cid ? (caseMetaByID[cid] || emptyCaseMeta()) : null;
           const metaLabels = meta?.loaded ? meta.labels : [];
           const metaLabelPreview = metaLabels.slice(0, 3);
@@ -1215,7 +1526,12 @@ export default function Page() {
                   return { ...prev, [caseKey]: open };
                 });
                 if (open && cid) {
+                  void ensureCaseDetail(caseKey, c);
                   void ensureCaseMeta(cid);
+                } else if (open) {
+                  void ensureCaseDetail(caseKey, c);
+                } else {
+                  cancelCaseDetail(caseKey);
                 }
               }}
             >
@@ -1258,6 +1574,8 @@ export default function Page() {
               </summary>
               {isExpanded && (
                 <div className="case__grid">
+                {!detailLoaded && detailLoading && <div className="hint">Loading case details...</div>}
+                {!detailLoaded && detailError && <div className="error">{detailError}</div>}
                 {(downloadURL || similarURL) && (
                   <div className="case__actions">
                     {downloadURL && (
