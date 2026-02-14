@@ -529,20 +529,42 @@ func rewritePredicate(expr ast.ExprNode, kind eetRewriteKind) ast.ExprNode {
 }
 
 func rewriteSelectPredicates(sel *ast.SelectStmt, gen *generator.Generator, resolver *columnTypeResolver) (eetRewriteKind, bool, string) {
-	kind := pickEETRewriteKind(sel, gen, resolver)
-	if kind == "" {
+	preferred := pickEETRewriteKind(sel, gen, resolver)
+	if preferred == "" {
 		return "", false, "eet:no_rewrite_kind"
 	}
-	if kind == eetRewriteDoubleNot || kind == eetRewriteAndTrue || kind == eetRewriteOrFalse {
-		if rewriteBooleanPredicateInSelect(sel, kind, gen) {
+	kinds := []eetRewriteKind{
+		preferred,
+		eetRewriteDoubleNot,
+		eetRewriteAndTrue,
+		eetRewriteOrFalse,
+		eetRewriteNumericIdentity,
+		eetRewriteStringIdentity,
+		eetRewriteDateIdentity,
+	}
+	seen := make(map[eetRewriteKind]struct{}, len(kinds))
+	lastReason := "eet:no_transform"
+	for _, kind := range kinds {
+		if kind == "" {
+			continue
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		if kind == eetRewriteDoubleNot || kind == eetRewriteAndTrue || kind == eetRewriteOrFalse {
+			if rewriteBooleanPredicateInSelect(sel, kind, gen) {
+				return kind, true, ""
+			}
+			lastReason = "eet:rewrite_no_boolean_target"
+			continue
+		}
+		if rewriteLiteralPredicateInSelect(sel, kind, gen, resolver) {
 			return kind, true, ""
 		}
-		return kind, false, "eet:rewrite_no_boolean_target"
+		lastReason = "eet:rewrite_no_literal_target"
 	}
-	if rewriteLiteralPredicateInSelect(sel, kind, gen, resolver) {
-		return kind, true, ""
-	}
-	return kind, false, "eet:rewrite_no_literal_target"
+	return preferred, false, lastReason
 }
 
 func pickEETRewriteKind(sel *ast.SelectStmt, gen *generator.Generator, resolver *columnTypeResolver) eetRewriteKind {
