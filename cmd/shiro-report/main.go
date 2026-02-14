@@ -452,9 +452,14 @@ func buildSiteIndex(site SiteData) SiteIndexData {
 		if caseID == "" {
 			caseID = strings.TrimSpace(c.ID)
 		}
-		summaryURL := strings.TrimSpace(c.ReportURL)
-		if !isHTTPURL(summaryURL) {
+		var summaryURL string
+		if caseID != "" {
 			summaryURL = caseSummaryRelPath(caseID)
+		} else {
+			candidate := strings.TrimSpace(c.ReportURL)
+			if isHTTPURL(candidate) {
+				summaryURL = candidate
+			}
 		}
 		detailLoaded := strings.TrimSpace(summaryURL) == ""
 		entries = append(entries, CaseIndexEntry{
@@ -509,6 +514,9 @@ func casePathComponent(caseID string) string {
 	}
 	component = strings.ReplaceAll(component, "/", "_")
 	component = strings.ReplaceAll(component, "\\", "_")
+	if component == "." || component == ".." || strings.Contains(component, "..") {
+		return ""
+	}
 	return component
 }
 

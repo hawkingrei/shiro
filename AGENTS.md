@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Addressed PR #110 follow-up review findings: hardened case summary path component sanitization against dot-segment traversal, made index `summary_url` prefer local `cases/<case_id>/summary.json` when case IDs exist (fallback to HTTP report URL only when no case ID), and aligned frontend inferred detail-loaded checks to treat empty `details` objects as not loaded (2026-02-13).
 - Addressed PR #110 review threads: aligned frontend/backend search-blob empty-details handling, added abort/race guards for on-demand case detail fetches, and marked index entries without resolvable summary sources as `detail_loaded=true` to avoid broken lazy fetch attempts (2026-02-13).
 - Completed report index + on-demand detail loading (P1): `cmd/shiro-report` now emits `reports.index.json` plus per-case `cases/<case_id>/summary.json`, publish flow includes all summary JSON files, and the report UI now loads `reports.index.json` first with lazy `summary_url` fetch on case expand (fallback to `reports.json`/`report.json` preserved) (2026-02-13).
 - Addressed PR #109 review follow-ups in report UI: simplified `caseRenderKey`, cleaned search-blob construction to avoid null-detail noise, fixed disabled button hover behavior, and added pagination `aria-label`s for accessibility (2026-02-13).

@@ -409,7 +409,7 @@ const normalizeCaseEntry = (value: unknown): CaseEntry | null => {
   const files = normalizeFiles(record.files);
   const inferredDetailLoaded =
     sql.length > 0 ||
-    details !== null ||
+    (details !== null && Object.keys(details).length > 0) ||
     Object.keys(files).length > 0 ||
     asString(record.norec_optimized_sql).trim().length > 0 ||
     asString(record.norec_unoptimized_sql).trim().length > 0;
