@@ -5,6 +5,7 @@ import (
 
 	"shiro/internal/generator"
 	"shiro/internal/oracle/groundtruth"
+	"shiro/internal/schema"
 )
 
 func TestShouldSkipGroundTruth(t *testing.T) {
@@ -126,5 +127,78 @@ func TestGroundTruthDSGSkipReason(t *testing.T) {
 	}
 	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "t0", RightTable: "t1", LeftKeys: nil, RightKeys: []string{"k1"}}}); reason != "left_keys_missing" {
 		t.Fatalf("expected left_keys_missing, got %q", reason)
+	}
+}
+
+func TestGroundTruthDSGPrecheck(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+
+	valid := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", Using: []string{"k1"}},
+			},
+		},
+	}
+	if skip, reason := groundTruthDSGPrecheck(valid, state); skip != "" || reason != "" {
+		t.Fatalf("expected valid precheck, got skip=%q reason=%q", skip, reason)
+	}
+
+	invalidUsing := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", Using: []string{"id"}},
+			},
+		},
+	}
+	if skip, reason := groundTruthDSGPrecheck(invalidUsing, state); skip != "groundtruth:dsg_key_mismatch_right_key" || reason != "right_key" {
+		t.Fatalf("expected right_key mismatch, got skip=%q reason=%q", skip, reason)
+	}
+}
+
+func TestGroundTruthDSGRightKeysAvailable(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	edges := []groundtruth.JoinEdge{
+		{
+			LeftTable:  "t0",
+			RightTable: "t1",
+			LeftKeys:   []string{"k0"},
+			RightKeys:  []string{"k1"},
+		},
+	}
+	if !groundTruthDSGRightKeysAvailable(state, edges) {
+		t.Fatalf("expected right keys to be available")
+	}
+	edges[0].RightKeys = []string{"k9"}
+	if groundTruthDSGRightKeysAvailable(state, edges) {
+		t.Fatalf("expected missing right keys to be detected")
 	}
 }

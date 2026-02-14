@@ -1,6 +1,9 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: reviewed fresh local logs/reports after oracle fixes (2026-02-14): DQP showed no `sql_error_1054` and stayed effective, EET `no_transform` skip dropped in the DQE interval, but GroundTruth remained skip-dominant (`dsg_key_mismatch_right_key`/`base_table`) with effective ratio 0 and captured cases still minimized as non-reproducible.
+Latest sync: completed follow-ups from the 2026-02-14 logs/reports review: GroundTruth now adds DSG prechecks + right-key availability checks with higher pick retries, EET now falls back across rewrite kinds to reduce `no_transform`, and DQP now skips invalid-scope queries (`dqp:scope_invalid`) with NATURAL RIGHT JOIN scope regression coverage (2026-02-14).
+Latest sync: reviewed local `logs/shiro.log` + `reports/case_*/summary.json` (2026-02-14): GroundTruth effective ratio repeatedly dropped to 0 due to `dsg_key_mismatch_right_key`/`empty_query`; EET skips were dominated by `eet:no_transform`; recent captured cases were mostly non-reproducible during minimize (`base_replay_not_reproducible`).
 Latest sync: addressed PR #110 follow-up review findings by sanitizing dot-segment case path components, preferring local case summary URLs when case IDs are present, and treating empty `details` objects as not detail-loaded in frontend normalization (2026-02-13).
 Latest sync: addressed PR #110 review threads by aligning search-blob empty-details handling, adding abort/race safety for on-demand case detail fetches, and preventing unresolved-summary lazy-load attempts via `detail_loaded=true` fallback in index entries (2026-02-13).
 Latest sync: completed report index + on-demand detail loading (P1): shiro-report now writes `reports.index.json` and per-case `cases/<case_id>/summary.json`, publish uploads include index+case summaries, and UI loads index first with lazy `summary_url` fetch plus legacy manifest fallback (2026-02-13).
@@ -117,6 +120,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 12. Serve the report UI directly from Worker assets for single-domain deployment. (done)
 13. Configure Worker observability settings in wrangler.jsonc. (done)
+17. Add a run-level reproducibility summary (captured/skipped/in-progress counts with top `minimize_reason`) so non-reproducible case spikes are visible without scanning raw logs.
 
 ## Coverage / Guidance
 
