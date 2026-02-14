@@ -71,12 +71,6 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 				"groundtruth_dsg_mismatch_reason": reason,
 			}}
 		}
-		if !groundTruthDSGRightKeysAvailable(state, edges) {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
-				"skip_reason":                     "groundtruth:dsg_key_mismatch_right_key",
-				"groundtruth_dsg_mismatch_reason": "right_key",
-			}}
-		}
 	}
 	columnsByTable := joinKeyColumns(state, edges, query.From.BaseTable)
 	if len(columnsByTable) == 0 {
@@ -171,12 +165,6 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
 				"skip_reason":                     skip,
 				"groundtruth_dsg_mismatch_reason": reason,
-			}}
-		}
-		if !groundTruthDSGRightKeysAvailable(state, edges) {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
-				"skip_reason":                     "groundtruth:dsg_key_mismatch_right_key",
-				"groundtruth_dsg_mismatch_reason": "right_key",
 			}}
 		}
 	}
