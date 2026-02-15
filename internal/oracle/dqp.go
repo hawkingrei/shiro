@@ -281,7 +281,7 @@ func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin b
 	return candidates
 }
 
-func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgHints map[string]struct{}) ([]string, []string) {
+func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgHints map[string]struct{}) (baseHints []string, setVarHints []string) {
 	if gen == nil {
 		return nil, nil
 	}
@@ -289,15 +289,21 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 	if len(rawHints) == 0 {
 		return nil, nil
 	}
-	baseHints := make([]string, 0, len(rawHints))
-	setVarHints := make([]string, 0, len(rawHints))
+	baseHints = make([]string, 0, len(rawHints))
+	setVarHints = make([]string, 0, len(rawHints))
 	for _, raw := range rawHints {
 		trimmed := strings.TrimSpace(raw)
 		if trimmed == "" {
 			continue
 		}
-		if setVarHint := normalizeSetVarHint(trimmed); setVarHint != "" {
-			setVarHints = append(setVarHints, setVarHint)
+		if strings.Contains(trimmed, "*/") {
+			continue
+		}
+		setVarHint, isSetVar, valid := normalizeSetVarHint(trimmed)
+		if isSetVar {
+			if valid {
+				setVarHints = append(setVarHints, setVarHint)
+			}
 			continue
 		}
 		baseHints = append(baseHints, buildHintSQL(trimmed, tables, noArgHints))
@@ -305,22 +311,22 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 	return baseHints, setVarHints
 }
 
-func normalizeSetVarHint(raw string) string {
+func normalizeSetVarHint(raw string) (hint string, isSetVar bool, valid bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return ""
+		return "", false, false
 	}
 	upper := strings.ToUpper(trimmed)
 	if strings.HasPrefix(upper, "SET_VAR(") {
 		if strings.HasSuffix(trimmed, ")") {
-			return trimmed
+			return trimmed, true, true
 		}
-		return ""
+		return "", true, false
 	}
 	if strings.Contains(trimmed, "=") {
-		return "SET_VAR(" + trimmed + ")"
+		return "SET_VAR(" + trimmed + ")", true, true
 	}
-	return ""
+	return "", false, false
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {
