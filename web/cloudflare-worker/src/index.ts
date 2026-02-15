@@ -316,11 +316,9 @@ function isAuthorized(request: Request, env: Env): boolean {
 }
 
 function isReadAuthorized(request: Request, env: Env): boolean {
-  const token = clean(env.API_TOKEN);
-  if (!token) {
-    return true;
-  }
-  return isAuthorized(request, env);
+  void request;
+  void env;
+  return true;
 }
 
 async function parseJSON<T>(request: Request, maxBytes: number): Promise<ParseJSONResult<T>> {

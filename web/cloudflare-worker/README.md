@@ -17,8 +17,17 @@ Schema is in `schema.sql`.
 - `PATCH /api/v1/cases/:case_id`
 - `POST /api/v1/cases/search`
 
-`/api/v1/cases/sync`, `/api/v1/cases`, `/api/v1/cases/search`, `/api/v1/cases/:case_id`, `/api/v1/cases/:case_id/similar`, and `PATCH /api/v1/cases/:case_id` require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is set.
-If you really need local insecure mode, set `ALLOW_INSECURE_WRITES=1`.
+Read endpoints are public:
+- `GET /api/v1/cases`
+- `POST /api/v1/cases/search`
+- `GET /api/v1/cases/:case_id`
+- `GET /api/v1/cases/:case_id/similar`
+
+Write endpoints require `Authorization: Bearer <API_TOKEN>` when `API_TOKEN` is set:
+- `POST /api/v1/cases/sync`
+- `PATCH /api/v1/cases/:case_id`
+
+If you need local insecure write mode, set `ALLOW_INSECURE_WRITES=1`.
 
 ## Similar-bug search
 `GET /api/v1/cases/:case_id/similar?limit=20&ai=1`
@@ -119,4 +128,5 @@ If publish/sync flags are omitted, behavior stays unchanged.
 ## Security and limits
 - Sync and patch request bodies are size-limited (`2 MiB` for sync, `64 KiB` for search/patch).
 - Sync rejects oversized `cases[]` payloads (limit `2000`).
+- Reads are intentionally unauthenticated; configure `ALLOW_ORIGIN` for CORS control.
 - CORS responses include `Vary: Origin`.

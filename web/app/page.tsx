@@ -659,6 +659,8 @@ export default function Page() {
   const [showExplainSame, setShowExplainSame] = useState(false);
   const [reason, setReason] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [issueFilter, setIssueFilter] = useState("");
+  const [onlyWithIssue, setOnlyWithIssue] = useState(false);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
@@ -1294,6 +1296,19 @@ export default function Page() {
     return Array.from(labels.values()).sort();
   }, [indexedCases, caseMetaByID]);
 
+  const issueOptions = useMemo(() => {
+    const issues = new Set<string>();
+    indexedCases.forEach((item) => {
+      const cid = item.caseIDValue;
+      const meta = cid ? (caseMetaByID[cid] || null) : null;
+      const issue = caseResolvedIssue(item.entry, meta).trim();
+      if (issue) {
+        issues.add(issue);
+      }
+    });
+    return Array.from(issues.values()).sort();
+  }, [indexedCases, caseMetaByID]);
+
   const filtered = useMemo(() => {
     return indexedCases.filter((item) => {
       const c = item.entry;
@@ -1307,21 +1322,30 @@ export default function Page() {
       if (planSigFormat && c.plan_signature_format !== planSigFormat) return false;
       if (onlyErrors && !c.error) return false;
       if (reason && item.reasonLabel !== reason) return false;
+      const cid = item.caseIDValue;
+      const meta = cid ? (caseMetaByID[cid] || null) : null;
       if (labelFilter) {
-        const cid = item.caseIDValue;
-        const meta = cid ? (caseMetaByID[cid] || null) : null;
         const labels = caseResolvedLabels(c, meta);
         const match = labels.some((label) => label.toLowerCase() === labelFilter.toLowerCase());
         if (!match) return false;
       }
+      if (onlyWithIssue || issueFilter) {
+        const issue = caseResolvedIssue(c, meta).trim();
+        if (onlyWithIssue && !issue) {
+          return false;
+        }
+        if (issueFilter && issue.toLowerCase() !== issueFilter.toLowerCase()) {
+          return false;
+        }
+      }
       if (!q) return true;
       return item.searchBlob.includes(q);
     });
-  }, [indexedCases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, caseMetaByID, q]);
+  }, [indexedCases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, issueFilter, onlyWithIssue, caseMetaByID, q]);
 
   useEffect(() => {
     setPage(1);
-  }, [oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, q]);
+  }, [oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, issueFilter, onlyWithIssue, q]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(filtered.length / casesPerPage));
@@ -1472,9 +1496,23 @@ export default function Page() {
                 ))}
               </select>
             )}
+            {issueOptions.length > 0 && (
+              <select value={issueFilter} onChange={(e) => setIssueFilter(e.target.value)}>
+                <option value="">All issues</option>
+                {issueOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            )}
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={onlyWithIssue} onChange={(e) => setOnlyWithIssue(e.target.checked)} />
+              Only linked issue
             </label>
             <label className="toggle">
               <input type="checkbox" checked={showExplainSame} onChange={(e) => setShowExplainSame(e.target.checked)} />
