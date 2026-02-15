@@ -25,6 +25,10 @@ const (
 	pqsPredicateMaxCols = 3
 	pqsJoinPickTries    = 4
 	pqsPivotIDColumn    = "id"
+	pqsJoinOnProb       = 55
+	pqsJoinRectifyProb  = 60
+	pqsSubqueryProb     = 35
+	pqsDerivedTableProb = 35
 )
 
 type pqsPivotValue struct {
@@ -50,6 +54,15 @@ type pqsSelectColumn struct {
 	SQL       string
 }
 
+type pqsSubqueryMeta struct {
+	Kind      string
+	Reason    string
+	SQL       string
+	Predicate string
+	Table     string
+	Column    string
+}
+
 // Run selects a pivot row, builds a predicate guaranteed true for that row,
 // and checks whether the row is contained in the query result.
 func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
@@ -58,7 +71,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	pivot, details, err := pickPQSPivotRow(ctx, exec, gen, state)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: pqsErrorSQL(err), Err: err, Details: details}
 	}
 	if pivot == nil {
 		if details == nil {
@@ -67,9 +80,29 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	query, aliases := buildPQSQuery(pivot)
-	predicate, predMeta := pqsBuildPredicate(gen, pivot)
+	derivedTables := pqsApplyDerivedTables(gen, pivot, query)
+	joinOn := len(pivot.Tables) > 1 && gen != nil && gen.Config.Features.Joins && util.Chance(gen.Rand, pqsJoinOnProb)
+	var joinMeta *pqsJoinPredicateMeta
+	if joinOn {
+		meta, ok := pqsApplyJoinOn(gen, pivot, query)
+		if ok {
+			joinMeta = &meta
+		} else {
+			joinOn = false
+		}
+	}
+	if !joinOn {
+		aliases = pqsCompactUsingIDColumns(query, aliases)
+	}
+	basePredicate, predMeta := pqsBuildPredicate(gen, pivot)
+	subqueryPredicate, subqueryMeta := pqsMaybeBuildSubqueryPredicate(gen, pivot)
+	predicate := pqsCombinePredicates(basePredicate, subqueryPredicate)
+	hasBasePredicate := basePredicate != nil
 	updateBandit := func(ok bool, err error, skipped bool) {
 		if !predMeta.BanditEnabled {
+			return
+		}
+		if !hasBasePredicate {
 			return
 		}
 		reward := pqsBanditReward(ok, err, skipped)
@@ -90,7 +123,8 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			reason = "pqs:" + predMeta.Reason
 		}
 		updateBandit(true, nil, true)
-		return Result{OK: true, Oracle: o.Name(), Details: attachBandit(map[string]any{"skip_reason": reason})}
+		details := pqsAttachMeta(map[string]any{"skip_reason": reason}, subqueryMeta, joinMeta, joinOn, derivedTables)
+		return Result{OK: true, Oracle: o.Name(), Details: attachBandit(details)}
 	}
 	query.Where = predicate
 
@@ -104,13 +138,19 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	present := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		reason, code := sqlErrorReason("pqs", err)
-		details := map[string]any{
+		details := pqsAttachMeta(map[string]any{
 			"error_reason":            reason,
+			"pqs_error_stage":         "containment",
+			"pqs_query_sql":           querySQL,
+			"pqs_containment_sql":     containSQL,
 			"pqs_predicate":           predMeta.Rectified,
 			"pqs_predicate_original":  predMeta.Original,
 			"pqs_predicate_rectified": predMeta.Rectified,
 			"pqs_rectify_reason":      predMeta.Reason,
 			"pqs_rectify_fallback":    predMeta.Fallback,
+		}, subqueryMeta, joinMeta, joinOn, derivedTables)
+		if strings.HasSuffix(reason, ":timeout") {
+			details["pqs_timeout_stage"] = "containment"
 		}
 		if code != 0 {
 			details["error_code"] = int(code)
@@ -128,7 +168,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			SQL:      []string{querySQL, containSQL},
 			Expected: "pivot_row_present",
 			Actual:   "pivot_row_missing",
-			Details: attachBandit(map[string]any{
+			Details: attachBandit(pqsAttachMeta(map[string]any{
 				"pqs_table":               pqsSingleTableName(tableNames),
 				"pqs_tables":              tableNames,
 				"pqs_predicate":           predMeta.Rectified,
@@ -144,7 +184,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				"replay_expected_sql":     replayExpected,
 				"replay_actual_sql":       "SELECT 1",
 				"replay_expected_note":    "pqs_contains",
-			}),
+			}, subqueryMeta, joinMeta, joinOn, derivedTables)),
 		}
 	}
 	updateBandit(true, nil, false)
@@ -159,7 +199,7 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 	if len(tables) >= 2 {
 		pivot, err := fetchPQSJoinPivotRow(ctx, exec, gen, tables)
 		if err != nil {
-			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
+			return nil, pqsPivotErrorDetails(err), err
 		}
 		if pivot != nil {
 			return pivot, nil, nil
@@ -169,7 +209,7 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 		tbl := tables[gen.Rand.Intn(len(tables))]
 		pivot, err := fetchPQSPivotRow(ctx, exec, gen, tbl)
 		if err != nil {
-			return nil, map[string]any{"skip_reason": "pqs:pivot_error"}, err
+			return nil, pqsPivotErrorDetails(err), err
 		}
 		if pivot == nil {
 			continue
@@ -204,7 +244,7 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 	query := fmt.Sprintf("SELECT %s FROM %s ORDER BY RAND() LIMIT 1", strings.Join(colNames, ", "), tbl.Name)
 	rows, err := exec.QueryContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand", query, err)
 	}
 	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
@@ -219,10 +259,10 @@ func fetchPQSPivotRowByRand(ctx context.Context, exec *db.DB, tbl schema.Table) 
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand_scan", query, err)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_rand_scan", query, err)
 	}
 	return pqsPivotRowFromRaw([]schema.Table{tbl}, cols, raw), nil
 }
@@ -289,6 +329,386 @@ func buildPQSQuery(pivot *pqsPivotRow) (*generator.SelectQuery, []pqsAliasColumn
 	}
 	query.Items = items
 	return query, aliases
+}
+
+func pqsApplyDerivedTables(gen *generator.Generator, pivot *pqsPivotRow, query *generator.SelectQuery) []string {
+	if gen == nil || pivot == nil || query == nil {
+		return nil
+	}
+	if !gen.Config.Features.DerivedTables {
+		return nil
+	}
+	wrapped := make([]string, 0, len(query.From.Joins)+1)
+	if util.Chance(gen.Rand, pqsDerivedTableProb) {
+		if baseTbl, ok := pqsPivotTable(pivot, query.From.BaseTable); ok {
+			query.From.BaseQuery = pqsDerivedTableQuery(gen, pivot, baseTbl)
+			query.From.BaseAlias = baseTbl.Name
+			wrapped = append(wrapped, baseTbl.Name)
+		}
+	}
+	for i := range query.From.Joins {
+		if !util.Chance(gen.Rand, pqsDerivedTableProb) {
+			continue
+		}
+		join := &query.From.Joins[i]
+		if join.Table == "" || join.TableQuery != nil {
+			continue
+		}
+		if tbl, ok := pqsPivotTable(pivot, join.Table); ok {
+			join.TableQuery = pqsDerivedTableQuery(gen, pivot, tbl)
+			join.TableAlias = tbl.Name
+			wrapped = append(wrapped, tbl.Name)
+		}
+	}
+	if len(wrapped) == 0 {
+		return nil
+	}
+	return wrapped
+}
+
+func pqsDerivedTableQuery(gen *generator.Generator, pivot *pqsPivotRow, tbl schema.Table) *generator.SelectQuery {
+	items := make([]generator.SelectItem, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		items = append(items, generator.SelectItem{
+			Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}},
+			Alias: col.Name,
+		})
+	}
+	predicate := pqsPredicateForTableWithRange(gen, pivot, tbl.Name, 1, 1, false)
+	return &generator.SelectQuery{
+		Items: items,
+		From:  generator.FromClause{BaseTable: tbl.Name},
+		Where: predicate,
+	}
+}
+
+func pqsApplyJoinOn(gen *generator.Generator, pivot *pqsPivotRow, query *generator.SelectQuery) (pqsJoinPredicateMeta, bool) {
+	if gen == nil || pivot == nil || query == nil || len(query.From.Joins) == 0 {
+		return pqsJoinPredicateMeta{}, false
+	}
+	base, ok := pqsPivotTable(pivot, query.From.BaseTable)
+	if !ok {
+		return pqsJoinPredicateMeta{Reason: "join_base_missing"}, false
+	}
+	meta := pqsJoinPredicateMeta{Fallback: true, Reason: "join_rectify_skip"}
+	preds := make([]string, 0, len(query.From.Joins))
+	onExprs := make([]generator.Expr, 0, len(query.From.Joins))
+	leftTables := []schema.Table{base}
+	for i := range query.From.Joins {
+		join := &query.From.Joins[i]
+		right, ok := pqsPivotTable(pivot, join.Table)
+		if !ok {
+			return pqsJoinPredicateMeta{Reason: "join_table_missing"}, false
+		}
+		var rectified generator.Expr
+		if util.Chance(gen.Rand, pqsJoinRectifyProb) {
+			joinTables := append([]schema.Table{}, leftTables...)
+			joinTables = append(joinTables, right)
+			rectified, meta = pqsBuildJoinPredicateForTables(gen, pivot, joinTables)
+		}
+		leftTable := leftTables[len(leftTables)-1]
+		onExpr, ok := pqsJoinOnExpr(gen, pivot, leftTable, right, rectified)
+		if !ok {
+			return pqsJoinPredicateMeta{Reason: "join_on_missing"}, false
+		}
+		preds = append(preds, buildExpr(onExpr))
+		onExprs = append(onExprs, onExpr)
+		leftTables = append(leftTables, right)
+	}
+	for i := range query.From.Joins {
+		query.From.Joins[i].Using = nil
+		query.From.Joins[i].On = onExprs[i]
+	}
+	meta.Predicates = preds
+	return meta, true
+}
+
+func pqsJoinOnExpr(gen *generator.Generator, pivot *pqsPivotRow, base schema.Table, right schema.Table, rectified generator.Expr) (generator.Expr, bool) {
+	eq, ok := pqsJoinEqualityExpr(base, right)
+	if !ok {
+		return nil, false
+	}
+	expr := eq
+	rightPred := pqsPredicateForTableWithRange(gen, pivot, right.Name, 1, 1, true)
+	expr = pqsCombinePredicates(expr, rightPred)
+	expr = pqsCombinePredicates(expr, rectified)
+	return expr, true
+}
+
+func pqsJoinEqualityExpr(left schema.Table, right schema.Table) (generator.Expr, bool) {
+	leftCol, ok := pqsTableColumn(left, pqsPivotIDColumn)
+	if !ok {
+		return nil, false
+	}
+	rightCol, ok := pqsTableColumn(right, pqsPivotIDColumn)
+	if !ok {
+		return nil, false
+	}
+	return generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: left.Name, Name: leftCol.Name, Type: leftCol.Type}},
+		Op:    "=",
+		Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: right.Name, Name: rightCol.Name, Type: rightCol.Type}},
+	}, true
+}
+
+func pqsPredicateForTableWithRange(gen *generator.Generator, pivot *pqsPivotRow, tableName string, minCols, maxCols int, preferNonID bool) generator.Expr {
+	if pivot == nil || tableName == "" {
+		return nil
+	}
+	tbl, ok := pqsPivotTable(pivot, tableName)
+	if !ok {
+		return nil
+	}
+	cols := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if !pqsPredicateColumnAllowed(col) {
+			continue
+		}
+		if preferNonID && strings.EqualFold(col.Name, pqsPivotIDColumn) {
+			continue
+		}
+		cols = append(cols, col)
+	}
+	if len(cols) == 0 && preferNonID {
+		for _, col := range tbl.Columns {
+			if !pqsPredicateColumnAllowed(col) {
+				continue
+			}
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 {
+		return nil
+	}
+	indices := make([]int, len(cols))
+	for i := range cols {
+		indices[i] = i
+	}
+	if gen != nil {
+		gen.Rand.Shuffle(len(indices), func(i, j int) {
+			indices[i], indices[j] = indices[j], indices[i]
+		})
+	}
+	maxAllowed := pqsMin(maxCols, len(indices))
+	if maxAllowed <= 0 {
+		return nil
+	}
+	minAllowed := minCols
+	if minAllowed < 1 {
+		minAllowed = 1
+	}
+	if minAllowed > maxAllowed {
+		minAllowed = maxAllowed
+	}
+	useCols := minAllowed
+	if gen != nil && maxAllowed > minAllowed {
+		useCols = minAllowed + gen.Rand.Intn(maxAllowed-minAllowed+1)
+	}
+	var expr generator.Expr
+	for _, idx := range indices[:useCols] {
+		col := cols[idx]
+		val, ok := pqsPivotValueFor(pivot, tbl.Name, col.Name)
+		if !ok {
+			continue
+		}
+		ref := generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
+		part := pqsPredicateExprForValue(ref, val)
+		expr = pqsCombinePredicates(expr, part)
+	}
+	return expr
+}
+
+func pqsPivotTable(pivot *pqsPivotRow, tableName string) (schema.Table, bool) {
+	if pivot == nil {
+		return schema.Table{}, false
+	}
+	for _, tbl := range pivot.Tables {
+		if tbl.Name == tableName {
+			return tbl, true
+		}
+	}
+	return schema.Table{}, false
+}
+
+func pqsMaybeBuildSubqueryPredicate(gen *generator.Generator, pivot *pqsPivotRow) (generator.Expr, pqsSubqueryMeta) {
+	return pqsBuildSubqueryPredicate(gen, pivot, false)
+}
+
+func pqsBuildSubqueryPredicate(gen *generator.Generator, pivot *pqsPivotRow, force bool) (generator.Expr, pqsSubqueryMeta) {
+	meta := pqsSubqueryMeta{}
+	if gen == nil || pivot == nil || len(pivot.Tables) == 0 {
+		meta.Reason = "subquery_disabled"
+		return nil, meta
+	}
+	if !gen.Config.Features.Subqueries {
+		meta.Reason = "subquery_disabled"
+		return nil, meta
+	}
+	if !force && !util.Chance(gen.Rand, pqsSubqueryProb) {
+		meta.Reason = "subquery_skip"
+		return nil, meta
+	}
+	tbl, col, val, ok := pqsPickSubqueryColumn(gen, pivot)
+	if !ok {
+		meta.Reason = "subquery_no_columns"
+		return nil, meta
+	}
+	kind := "exists"
+	if !val.Null {
+		kinds := []string{"exists", "in"}
+		if gen.Config.Features.QuantifiedSubqueries {
+			kinds = append(kinds, "any", "all")
+		}
+		kind = kinds[gen.Rand.Intn(len(kinds))]
+	}
+	return pqsBuildSubqueryPredicateWithKind(tbl, col, val, kind)
+}
+
+func pqsBuildSubqueryPredicateForKind(gen *generator.Generator, pivot *pqsPivotRow, kind string) (generator.Expr, pqsSubqueryMeta) {
+	tbl, col, val, ok := pqsPickSubqueryColumn(gen, pivot)
+	if !ok {
+		return nil, pqsSubqueryMeta{Reason: "subquery_no_columns"}
+	}
+	return pqsBuildSubqueryPredicateWithKind(tbl, col, val, kind)
+}
+
+func pqsBuildSubqueryPredicateWithKind(tbl schema.Table, col schema.Column, val pqsPivotValue, kind string) (generator.Expr, pqsSubqueryMeta) {
+	meta := pqsSubqueryMeta{Kind: kind, Table: tbl.Name, Column: col.Name}
+	if val.Null && kind != "exists" {
+		kind = "exists"
+		meta.Kind = kind
+		meta.Reason = "subquery_null_fallback"
+	}
+	ref := generator.ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}
+	pivotPred := pqsPredicateExprForValue(ref, val)
+	selectExpr := generator.Expr(generator.LiteralExpr{Value: 1})
+	if kind != "exists" {
+		selectExpr = generator.ColumnExpr{Ref: ref}
+	}
+	subquery := pqsBuildSubqueryQuery(tbl, selectExpr, pivotPred)
+	meta.SQL = subquery.SQLString()
+	left := generator.ColumnExpr{Ref: ref}
+	switch kind {
+	case "in":
+		expr := generator.InExpr{Left: left, List: []generator.Expr{generator.SubqueryExpr{Query: subquery}}}
+		meta.Predicate = buildExpr(expr)
+		return expr, meta
+	case "any":
+		expr := generator.CompareSubqueryExpr{Left: left, Op: "=", Quantifier: "ANY", Query: subquery}
+		meta.Predicate = buildExpr(expr)
+		return expr, meta
+	case "all":
+		expr := generator.CompareSubqueryExpr{Left: left, Op: "=", Quantifier: "ALL", Query: subquery}
+		meta.Predicate = buildExpr(expr)
+		return expr, meta
+	default:
+		expr := generator.ExistsExpr{Query: subquery}
+		meta.Predicate = buildExpr(expr)
+		return expr, meta
+	}
+}
+
+func pqsBuildSubqueryQuery(tbl schema.Table, selectExpr generator.Expr, predicate generator.Expr) *generator.SelectQuery {
+	if selectExpr == nil {
+		selectExpr = generator.LiteralExpr{Value: 1}
+	}
+	return &generator.SelectQuery{
+		Items: []generator.SelectItem{{
+			Expr:  selectExpr,
+			Alias: "c0",
+		}},
+		From:  generator.FromClause{BaseTable: tbl.Name},
+		Where: predicate,
+	}
+}
+
+func pqsPickSubqueryColumn(gen *generator.Generator, pivot *pqsPivotRow) (schema.Table, schema.Column, pqsPivotValue, bool) {
+	if pivot == nil {
+		return schema.Table{}, schema.Column{}, pqsPivotValue{}, false
+	}
+	type candidate struct {
+		Table schema.Table
+		Col   schema.Column
+		Val   pqsPivotValue
+	}
+	candidates := make([]candidate, 0, 8)
+	for _, tbl := range pivot.Tables {
+		for _, col := range tbl.Columns {
+			if !pqsPredicateColumnAllowed(col) {
+				continue
+			}
+			val, ok := pqsPivotValueFor(pivot, tbl.Name, col.Name)
+			if !ok {
+				continue
+			}
+			candidates = append(candidates, candidate{Table: tbl, Col: col, Val: val})
+		}
+	}
+	if len(candidates) == 0 {
+		return schema.Table{}, schema.Column{}, pqsPivotValue{}, false
+	}
+	idx := 0
+	if gen != nil {
+		idx = gen.Rand.Intn(len(candidates))
+	}
+	chosen := candidates[idx]
+	return chosen.Table, chosen.Col, chosen.Val, true
+}
+
+func pqsCombinePredicates(left, right generator.Expr) generator.Expr {
+	if left == nil {
+		return right
+	}
+	if right == nil {
+		return left
+	}
+	return generator.BinaryExpr{Left: left, Op: "AND", Right: right}
+}
+
+func pqsAttachMeta(details map[string]any, subqueryMeta pqsSubqueryMeta, joinMeta *pqsJoinPredicateMeta, joinOn bool, derivedTables []string) map[string]any {
+	if details == nil {
+		details = map[string]any{}
+	}
+	if joinOn {
+		details["pqs_join_on"] = true
+	}
+	if joinMeta != nil {
+		if joinMeta.Original != "" {
+			details["pqs_join_predicate_original"] = joinMeta.Original
+		}
+		if joinMeta.Rectified != "" {
+			details["pqs_join_predicate"] = joinMeta.Rectified
+		}
+		if joinMeta.Reason != "" {
+			details["pqs_join_rectify_reason"] = joinMeta.Reason
+		}
+		details["pqs_join_rectify_fallback"] = joinMeta.Fallback
+		if len(joinMeta.Predicates) > 0 {
+			details["pqs_join_predicates"] = joinMeta.Predicates
+		}
+	}
+	if subqueryMeta.Kind != "" {
+		details["pqs_subquery_kind"] = subqueryMeta.Kind
+	}
+	if subqueryMeta.Reason != "" {
+		details["pqs_subquery_reason"] = subqueryMeta.Reason
+	}
+	if subqueryMeta.SQL != "" {
+		details["pqs_subquery_sql"] = subqueryMeta.SQL
+	}
+	if subqueryMeta.Predicate != "" {
+		details["pqs_subquery_predicate"] = subqueryMeta.Predicate
+	}
+	if subqueryMeta.Table != "" {
+		details["pqs_subquery_table"] = subqueryMeta.Table
+	}
+	if subqueryMeta.Column != "" {
+		details["pqs_subquery_column"] = subqueryMeta.Column
+	}
+	if len(derivedTables) > 0 {
+		details["pqs_derived_tables"] = derivedTables
+	}
+	return details
 }
 
 func pqsPredicateForPivot(gen *generator.Generator, pivot *pqsPivotRow) generator.Expr {
@@ -403,6 +823,135 @@ func pqsMatchExpr(pivot *pqsPivotRow, aliases []pqsAliasColumn) generator.Expr {
 		}
 	}
 	return expr
+}
+
+func pqsCompactUsingIDColumns(query *generator.SelectQuery, aliases []pqsAliasColumn) []pqsAliasColumn {
+	if query == nil || len(query.Items) == 0 || len(aliases) == 0 {
+		return aliases
+	}
+	if !pqsHasUsingIDJoin(query) {
+		return aliases
+	}
+	limit := len(query.Items)
+	if len(aliases) < limit {
+		limit = len(aliases)
+	}
+	newItems := make([]generator.SelectItem, 0, limit)
+	newAliases := make([]pqsAliasColumn, 0, limit)
+	seenID := false
+	for i := 0; i < limit; i++ {
+		item := query.Items[i]
+		alias := aliases[i]
+		if strings.EqualFold(alias.Column.Name, pqsPivotIDColumn) {
+			if seenID {
+				continue
+			}
+			seenID = true
+			if col, ok := item.Expr.(generator.ColumnExpr); ok {
+				col.Ref.Table = ""
+				item.Expr = col
+			}
+		}
+		newItems = append(newItems, item)
+		newAliases = append(newAliases, alias)
+	}
+	query.Items = newItems
+	return newAliases
+}
+
+func pqsHasUsingIDJoin(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, join := range query.From.Joins {
+		for _, col := range join.Using {
+			if strings.EqualFold(col, pqsPivotIDColumn) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type pqsErrorContext struct {
+	Stage string
+	SQL   string
+	Err   error
+}
+
+func (e *pqsErrorContext) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *pqsErrorContext) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func pqsWrapError(stage, sqlText string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &pqsErrorContext{
+		Stage: stage,
+		SQL:   strings.TrimSpace(sqlText),
+		Err:   err,
+	}
+}
+
+func pqsPivotErrorDetails(err error) map[string]any {
+	details := map[string]any{"skip_reason": "pqs:pivot_error"}
+	if err == nil {
+		return details
+	}
+	stage := pqsErrorStage(err)
+	if stage != "" {
+		details["pqs_error_stage"] = stage
+	}
+	if sqlText := pqsErrorSQLText(err); sqlText != "" {
+		details["pqs_error_sql"] = sqlText
+		details["pqs_query_sql"] = sqlText
+	}
+	reason, _ := sqlErrorReason("pqs", err)
+	if strings.HasSuffix(reason, ":timeout") && stage != "" {
+		details["pqs_timeout_stage"] = stage
+	}
+	return details
+}
+
+func pqsErrorStage(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ctxErr *pqsErrorContext
+	if errors.As(err, &ctxErr) && ctxErr != nil {
+		return strings.TrimSpace(ctxErr.Stage)
+	}
+	return ""
+}
+
+func pqsErrorSQLText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ctxErr *pqsErrorContext
+	if errors.As(err, &ctxErr) && ctxErr != nil {
+		return strings.TrimSpace(ctxErr.SQL)
+	}
+	return ""
+}
+
+func pqsErrorSQL(err error) []string {
+	sqlText := pqsErrorSQLText(err)
+	if sqlText == "" {
+		return nil
+	}
+	return []string{sqlText}
 }
 
 func pqsPredicateExprForValue(ref generator.ColumnRef, val pqsPivotValue) generator.Expr {
@@ -557,7 +1106,7 @@ func fetchPQSTableIDRange(ctx context.Context, exec *db.DB, tbl schema.Table) (m
 	var minVal sql.NullInt64
 	var maxVal sql.NullInt64
 	if err = row.Scan(&minVal, &maxVal); err != nil {
-		return 0, 0, false, err
+		return 0, 0, false, pqsWrapError("pivot_id_range", query, err)
 	}
 	if !minVal.Valid || !maxVal.Valid {
 		return 0, 0, false, nil
@@ -606,7 +1155,7 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 	query += " LIMIT 1"
 	rows, err := exec.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query", query, err)
 	}
 	defer util.CloseWithErr(rows, "pqs pivot rows")
 	if !rows.Next() {
@@ -621,10 +1170,10 @@ func fetchPQSPivotRowByQuery(ctx context.Context, exec *db.DB, tables []schema.T
 		scanArgs[i] = &raw[i]
 	}
 	if err := rows.Scan(scanArgs...); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query_scan", query, err)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, pqsWrapError("pivot_query_scan", query, err)
 	}
 	return pqsPivotRowFromRaw(tables, cols, raw), nil
 }

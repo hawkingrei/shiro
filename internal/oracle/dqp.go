@@ -47,6 +47,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		MaxTries:        dqpBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireDeterministic: true,
+			PredicateMode:        generator.PredicateModeSimpleColumns,
 			DisallowLimit:        true,
 			DisallowWindow:       true,
 		},
@@ -60,6 +61,9 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: details}
+	}
+	if gen != nil && !gen.ValidateQueryScope(query) {
+		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:scope_invalid"}}
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}
@@ -228,6 +232,8 @@ func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasS
 	var candidates []string
 	if hasJoin {
 		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
+		candidates = append(candidates, toggleHints(SetVarEnableOuterJoinReorderOn, SetVarEnableOuterJoinReorderOff)...)
+		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
 	}
 	if hasSubquery {
 		candidates = append(candidates, toggleHints(SetVarEnableNonEvalScalarSubqueryOn, SetVarEnableNonEvalScalarSubqueryOff)...)

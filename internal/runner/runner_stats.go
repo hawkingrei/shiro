@@ -130,20 +130,44 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	if features.HasNotInSubquery {
 		r.genSQLNotInSubquery++
 	}
+	if features.HasSetOperations {
+		r.genSQLSetOperations++
+	}
+	if features.HasDerivedTables {
+		r.genSQLDerivedTables++
+	}
+	if features.HasQuantifiedSubqueries {
+		r.genSQLQuantifiedSubquery++
+	}
 	if features.HasWindow {
 		r.genSQLWindow++
 	}
+	if features.HasWindowFrame {
+		r.genSQLWindowFrame++
+	}
+	if features.HasIntervalArith {
+		r.genSQLIntervalArith++
+	}
+	if features.HasNaturalJoin {
+		r.genSQLNaturalJoin++
+	}
+	if features.HasFullJoinEmulation {
+		r.genSQLFullJoinEmulation++
+	}
+	if features.HasRecursiveCTE {
+		r.genSQLRecursiveCTE++
+	}
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
-	}
-	if r.joinGraphSigs == nil {
-		r.joinGraphSigs = make(map[string]int64)
 	}
 	if features.JoinTypeSeq != "" {
 		r.joinTypeSeqs[features.JoinTypeSeq]++
 	}
 	if features.JoinGraphSig != "" {
 		r.joinGraphSigs[features.JoinGraphSig]++
+	}
+	if strategy := generator.NormalizeTemplateJoinPredicateStrategy(features.TemplateJoinPredicateStrategy); strategy != "" {
+		r.templateJoinPredicateStrategies[strategy]++
 	}
 	if features.ViewCount > 0 {
 		r.viewQueries++
@@ -337,6 +361,30 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	}
 }
 
+func (r *Runner) observeReproducibilitySummary(minimizeStatus string, minimizeReason string) {
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+	r.capturedCases++
+	status := normalizeMinimizeStatus(minimizeStatus)
+	r.capturedMinimizeStatus[status]++
+	reason := strings.TrimSpace(minimizeReason)
+	if reason != "" {
+		r.capturedMinimizeReasons[reason]++
+	}
+}
+
+func normalizeMinimizeStatus(status string) string {
+	normalized := strings.TrimSpace(strings.ToLower(status))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	if normalized == "" {
+		return "unknown"
+	}
+	if normalized == "inprogress" {
+		return "in_progress"
+	}
+	return normalized
+}
+
 func oracleSkipReason(result oracle.Result) string {
 	if result.Details == nil {
 		return ""
@@ -471,7 +519,15 @@ func (r *Runner) startStatsLogger() func() {
 		var lastGenNotIn int64
 		var lastGenInSubquery int64
 		var lastGenNotInSubquery int64
+		var lastGenSetOperations int64
+		var lastGenDerivedTables int64
+		var lastGenQuantifiedSubquery int64
 		var lastGenWindow int64
+		var lastGenWindowFrame int64
+		var lastGenIntervalArith int64
+		var lastGenNaturalJoin int64
+		var lastGenFullJoinEmulation int64
+		var lastGenRecursiveCTE int64
 		var lastInSubqueryVariant int64
 		var lastNotInSubqueryVariant int64
 		var lastImpoTotal int64
@@ -492,6 +548,7 @@ func (r *Runner) startStatsLogger() func() {
 		lastJoinCounts := make(map[int]int64)
 		lastJoinTypeSeqs := make(map[string]int64)
 		lastJoinGraphSigs := make(map[string]int64)
+		lastTemplateJoinPredicateStrategies := make(map[string]int64)
 		var lastTruthMismatches int64
 		var lastMismatchTotal int64
 		var lastMismatchExplainSame int64
@@ -507,7 +564,10 @@ func (r *Runner) startStatsLogger() func() {
 		var lastSubqueryAttempts int64
 		var lastSubqueryBuilt int64
 		var lastSubqueryFailed int64
+		var lastCapturedCases int64
 		lastSubqueryDisallowReasons := make(map[string]int64)
+		lastCapturedMinimizeStatus := make(map[string]int64)
+		lastCapturedMinimizeReasons := make(map[string]int64)
 		lastSubqueryOracleStats := make(map[string]subqueryOracleStats)
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
@@ -539,7 +599,15 @@ func (r *Runner) startStatsLogger() func() {
 				genNotIn := r.genSQLNotIn
 				genInSubquery := r.genSQLInSubquery
 				genNotInSubquery := r.genSQLNotInSubquery
+				genSetOperations := r.genSQLSetOperations
+				genDerivedTables := r.genSQLDerivedTables
+				genQuantifiedSubquery := r.genSQLQuantifiedSubquery
 				genWindow := r.genSQLWindow
+				genWindowFrame := r.genSQLWindowFrame
+				genIntervalArith := r.genSQLIntervalArith
+				genNaturalJoin := r.genSQLNaturalJoin
+				genFullJoinEmulation := r.genSQLFullJoinEmulation
+				genRecursiveCTE := r.genSQLRecursiveCTE
 				inSubqueryVariant := r.sqlInSubqueryVariant
 				notInSubqueryVariant := r.sqlNotInSubqueryVariant
 				impoTotal := r.impoTotal
@@ -556,6 +624,7 @@ func (r *Runner) startStatsLogger() func() {
 				gtRowcount := r.groundtruthSkipRowcount
 				gtJoinRows := r.groundtruthSkipJoinRows
 				gtTableRows := r.groundtruthSkipTblRows
+				capturedCases := r.capturedCases
 				joinCounts := make(map[int]int64, len(r.joinCounts))
 				for k, v := range r.joinCounts {
 					joinCounts[k] = v
@@ -568,6 +637,10 @@ func (r *Runner) startStatsLogger() func() {
 				for k, v := range r.joinGraphSigs {
 					joinGraphSigs[k] = v
 				}
+				templateJoinPredicateStrategies := make(map[string]int64, len(r.templateJoinPredicateStrategies))
+				for k, v := range r.templateJoinPredicateStrategies {
+					templateJoinPredicateStrategies[k] = v
+				}
 				predicatePairsTotal := r.predicatePairsTotal
 				predicatePairsJoin := r.predicatePairsJoin
 				subqueryAllowed := r.subqueryAllowed
@@ -579,6 +652,14 @@ func (r *Runner) startStatsLogger() func() {
 				subqueryDisallowReasons := make(map[string]int64, len(r.subqueryDisallowReasons))
 				for k, v := range r.subqueryDisallowReasons {
 					subqueryDisallowReasons[k] = v
+				}
+				capturedMinimizeStatus := make(map[string]int64, len(r.capturedMinimizeStatus))
+				for k, v := range r.capturedMinimizeStatus {
+					capturedMinimizeStatus[k] = v
+				}
+				capturedMinimizeReasons := make(map[string]int64, len(r.capturedMinimizeReasons))
+				for k, v := range r.capturedMinimizeReasons {
+					capturedMinimizeReasons[k] = v
 				}
 				subqueryOracleStatsByName := make(map[string]subqueryOracleStats, len(r.subqueryOracleStats))
 				for name, stats := range r.subqueryOracleStats {
@@ -686,7 +767,15 @@ func (r *Runner) startStatsLogger() func() {
 				deltaGenNotIn := genNotIn - lastGenNotIn
 				deltaGenInSubquery := genInSubquery - lastGenInSubquery
 				deltaGenNotInSubquery := genNotInSubquery - lastGenNotInSubquery
+				deltaGenSetOperations := genSetOperations - lastGenSetOperations
+				deltaGenDerivedTables := genDerivedTables - lastGenDerivedTables
+				deltaGenQuantifiedSubquery := genQuantifiedSubquery - lastGenQuantifiedSubquery
 				deltaGenWindow := genWindow - lastGenWindow
+				deltaGenWindowFrame := genWindowFrame - lastGenWindowFrame
+				deltaGenIntervalArith := genIntervalArith - lastGenIntervalArith
+				deltaGenNaturalJoin := genNaturalJoin - lastGenNaturalJoin
+				deltaGenFullJoinEmulation := genFullJoinEmulation - lastGenFullJoinEmulation
+				deltaGenRecursiveCTE := genRecursiveCTE - lastGenRecursiveCTE
 				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
 				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
 				deltaImpoTotal := impoTotal - lastImpoTotal
@@ -703,6 +792,7 @@ func (r *Runner) startStatsLogger() func() {
 				deltaGTRowcount := gtRowcount - lastGroundTruthRowcount
 				deltaGTJoinRows := gtJoinRows - lastGroundTruthJoinRows
 				deltaGTTableRows := gtTableRows - lastGroundTruthTableRows
+				deltaCapturedCases := capturedCases - lastCapturedCases
 				deltaPredicatePairsTotal := predicatePairsTotal - lastPredicatePairsTotal
 				deltaPredicatePairsJoin := predicatePairsJoin - lastPredicatePairsJoin
 				deltaSubqueryAllowed := subqueryAllowed - lastSubqueryAllowed
@@ -711,6 +801,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaSubqueryAttempts := subqueryAttempts - lastSubqueryAttempts
 				deltaSubqueryBuilt := subqueryBuilt - lastSubqueryBuilt
 				deltaSubqueryFailed := subqueryFailed - lastSubqueryFailed
+				deltaCapturedStatus := diffCountMap(capturedMinimizeStatus, lastCapturedMinimizeStatus)
+				deltaCapturedReasons := diffCountMap(capturedMinimizeReasons, lastCapturedMinimizeReasons)
 				deltaJoinCounts := make(map[int]int64, len(joinCounts))
 				for k, v := range joinCounts {
 					prev := lastJoinCounts[k]
@@ -735,6 +827,14 @@ func (r *Runner) startStatsLogger() func() {
 					}
 				}
 				lastJoinGraphSigs = joinGraphSigs
+				deltaTemplateJoinPredicateStrategies := make(map[string]int64, len(templateJoinPredicateStrategies))
+				for k, v := range templateJoinPredicateStrategies {
+					prev := lastTemplateJoinPredicateStrategies[k]
+					if v-prev > 0 {
+						deltaTemplateJoinPredicateStrategies[k] = v - prev
+					}
+				}
+				lastTemplateJoinPredicateStrategies = templateJoinPredicateStrategies
 				deltaImpoMutationCounts := make(map[string]int64, len(impoMutationCounts))
 				for k, v := range impoMutationCounts {
 					prev := lastImpoMutationCounts[k]
@@ -776,7 +876,15 @@ func (r *Runner) startStatsLogger() func() {
 				lastGenNotIn = genNotIn
 				lastGenInSubquery = genInSubquery
 				lastGenNotInSubquery = genNotInSubquery
+				lastGenSetOperations = genSetOperations
+				lastGenDerivedTables = genDerivedTables
+				lastGenQuantifiedSubquery = genQuantifiedSubquery
 				lastGenWindow = genWindow
+				lastGenWindowFrame = genWindowFrame
+				lastGenIntervalArith = genIntervalArith
+				lastGenNaturalJoin = genNaturalJoin
+				lastGenFullJoinEmulation = genFullJoinEmulation
+				lastGenRecursiveCTE = genRecursiveCTE
 				lastInSubqueryVariant = inSubqueryVariant
 				lastNotInSubqueryVariant = notInSubqueryVariant
 				lastImpoTotal = impoTotal
@@ -793,6 +901,9 @@ func (r *Runner) startStatsLogger() func() {
 				lastGroundTruthRowcount = gtRowcount
 				lastGroundTruthJoinRows = gtJoinRows
 				lastGroundTruthTableRows = gtTableRows
+				lastCapturedCases = capturedCases
+				lastCapturedMinimizeStatus = capturedMinimizeStatus
+				lastCapturedMinimizeReasons = capturedMinimizeReasons
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
 					tqsStats = r.tqsHistory.Stats()
@@ -833,8 +944,14 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					if deltaGenTotal > 0 {
+						const genSQLLogFormat = "gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d " +
+							"in_subquery=%d not_in_subquery=%d set_operations=%d derived_tables=%d quantified_subquery=%d " +
+							"window=%d window_frame=%d interval_arith=%d natural_join=%d full_join_emulation=%d recursive_cte=%d"
+						const genSQLRatioLogFormat = "gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f " +
+							"in_subquery=%.3f not_in_subquery=%.3f set_operations=%.3f derived_tables=%.3f quantified_subquery=%.3f " +
+							"window_frame=%.3f interval_arith=%.3f natural_join=%.3f full_join_emulation=%.3f recursive_cte=%.3f"
 						util.Infof(
-							"gen_sql last interval: total=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d window=%d",
+							genSQLLogFormat,
 							deltaGenTotal,
 							deltaGenExists,
 							deltaGenNotEx,
@@ -842,14 +959,30 @@ func (r *Runner) startStatsLogger() func() {
 							deltaGenNotIn,
 							deltaGenInSubquery,
 							deltaGenNotInSubquery,
+							deltaGenSetOperations,
+							deltaGenDerivedTables,
+							deltaGenQuantifiedSubquery,
 							deltaGenWindow,
+							deltaGenWindowFrame,
+							deltaGenIntervalArith,
+							deltaGenNaturalJoin,
+							deltaGenFullJoinEmulation,
+							deltaGenRecursiveCTE,
 						)
 						util.Infof(
-							"gen_sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f",
+							genSQLRatioLogFormat,
 							ratio(deltaGenExists, deltaGenTotal),
 							ratio(deltaGenNotEx, deltaGenTotal),
 							ratio(deltaGenInSubquery, deltaGenTotal),
 							ratio(deltaGenNotInSubquery, deltaGenTotal),
+							ratio(deltaGenSetOperations, deltaGenTotal),
+							ratio(deltaGenDerivedTables, deltaGenTotal),
+							ratio(deltaGenQuantifiedSubquery, deltaGenTotal),
+							ratio(deltaGenWindowFrame, deltaGenTotal),
+							ratio(deltaGenIntervalArith, deltaGenTotal),
+							ratio(deltaGenNaturalJoin, deltaGenTotal),
+							ratio(deltaGenFullJoinEmulation, deltaGenTotal),
+							ratio(deltaGenRecursiveCTE, deltaGenTotal),
 						)
 					}
 					var impoInvalidRatio float64
@@ -992,6 +1125,25 @@ func (r *Runner) startStatsLogger() func() {
 							ratio(deltaMismatchExplainSame, deltaMismatchTotal),
 						)
 					}
+					if deltaCapturedCases > 0 {
+						util.Infof(
+							"repro_summary last interval: captured=%d skipped=%d in_progress=%d success=%d interrupted=%d not_applicable=%d disabled=%d",
+							deltaCapturedCases,
+							deltaCapturedStatus["skipped"],
+							deltaCapturedStatus["in_progress"],
+							deltaCapturedStatus["success"],
+							deltaCapturedStatus["interrupted"],
+							deltaCapturedStatus["not_applicable"],
+							deltaCapturedStatus["disabled"],
+						)
+						if len(deltaCapturedReasons) > 0 {
+							util.Infof(
+								"minimize_reason last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedReasons, topOracleSummaryN),
+							)
+						}
+					}
 					if len(deltaJoinCounts) > 0 {
 						util.Detailf(
 							"join_count last interval top=%d total=%d: %s",
@@ -1014,6 +1166,13 @@ func (r *Runner) startStatsLogger() func() {
 							topJoinSigN,
 							len(deltaJoinGraphSigs),
 							formatTopJoinSigs(deltaJoinGraphSigs, topJoinSigN),
+						)
+					}
+					if len(deltaTemplateJoinPredicateStrategies) > 0 {
+						util.Infof(
+							"template_join_predicate_strategy last interval top=%d: %s",
+							topOracleSummaryN,
+							formatTopJoinSigs(deltaTemplateJoinPredicateStrategies, topOracleSummaryN),
 						)
 					}
 					if len(deltaImpoMutationCounts) > 0 {
@@ -1413,6 +1572,16 @@ func (r *Runner) startStatsLogger() func() {
 						deltaJoinOrders := joinOrders - lastJoinOrders
 						deltaOpSigs := opSigs - lastOpSigs
 						deltaSeenSQLAdded := seenSQLAdded - lastSeenSQLAdded
+						qpgReset := deltaPlans < 0 || deltaShapes < 0 || deltaOps < 0 || deltaJoins < 0 || deltaJoinOrders < 0 || deltaOpSigs < 0 || deltaSeenSQLAdded < 0
+						if qpgReset {
+							deltaPlans = plans
+							deltaShapes = shapes
+							deltaOps = ops
+							deltaJoins = joins
+							deltaJoinOrders = joinOrders
+							deltaOpSigs = opSigs
+							deltaSeenSQLAdded = seenSQLAdded
+						}
 						lastPlans = plans
 						lastShapes = shapes
 						lastOps = ops
@@ -1421,7 +1590,7 @@ func (r *Runner) startStatsLogger() func() {
 						lastOpSigs = opSigs
 						lastSeenSQLAdded = seenSQLAdded
 						util.Detailf(
-							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d added=%d(+%d)",
+							"qpg stats plans=%d(+%d) shapes=%d(+%d) ops=%d(+%d) join_types=%d(+%d) join_orders=%d(+%d) op_sigs=%d(+%d) seen_sql=%d added=%d(+%d) reset=%t",
 							plans,
 							deltaPlans,
 							shapes,
@@ -1437,6 +1606,7 @@ func (r *Runner) startStatsLogger() func() {
 							seenSQL,
 							seenSQLAdded,
 							deltaSeenSQLAdded,
+							qpgReset,
 						)
 						if r.qpgState.lastOverride != "" && r.qpgState.lastOverride != r.qpgState.lastOverrideLogged {
 							util.Detailf("qpg override=%s", r.qpgState.lastOverride)
@@ -1516,6 +1686,23 @@ func formatTopJoinCount(counts map[int]int64, topN int) string {
 		parts = append(parts, fmt.Sprintf("%d=%d", items[i].key, items[i].count))
 	}
 	return strings.Join(parts, " ")
+}
+
+func diffCountMap(current map[string]int64, previous map[string]int64) map[string]int64 {
+	if len(current) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(current))
+	for key, total := range current {
+		prev := previous[key]
+		if total-prev > 0 {
+			out[key] = total - prev
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func collectGroundTruthDSGMismatchReasons(deltaFunnel map[string]oracleFunnel) map[string]int64 {

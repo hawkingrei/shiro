@@ -10,7 +10,7 @@ import (
 )
 
 func TestNoRECNoTablesSkip(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

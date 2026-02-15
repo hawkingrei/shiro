@@ -11,6 +11,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestRewritePredicateDoubleNot(t *testing.T) {
@@ -104,7 +106,7 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 }
 
 func TestApplyEETTransformColumnIdentity(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -135,6 +137,39 @@ func TestApplyEETTransformColumnIdentity(t *testing.T) {
 	}
 	if !strings.Contains(out, "+0") {
 		t.Fatalf("expected numeric identity rewrite, got: %s", out)
+	}
+}
+
+func TestApplyEETTransformFallbackRewriteKind(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.EETRewrites = config.EETRewriteWeights{
+		NumericIdentity: 10,
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "c0", Type: schema.TypeVarchar},
+					{Name: "c1", Type: schema.TypeVarchar},
+				},
+			},
+		},
+	}
+	gen := generator.New(cfg, &state, 1)
+	sql := "SELECT t0.c0 AS c0 FROM t0 WHERE t0.c0 = t0.c1"
+	out, details, err := applyEETTransform(sql, gen)
+	if err != nil {
+		t.Fatalf("transform err: %v", err)
+	}
+	if out == "" || out == sql {
+		t.Fatalf("expected transformed sql via fallback kind, got: %s", out)
+	}
+	if details["rewrite"] == nil {
+		t.Fatalf("expected rewrite detail")
 	}
 }
 
@@ -229,6 +264,30 @@ func TestEETDistinctOrderByCompatible(t *testing.T) {
 	}
 	if eetDistinctOrderByCompatible(query) {
 		t.Fatalf("expected non-selected DISTINCT ORDER BY expression to be incompatible")
+	}
+}
+
+func TestEETIsDistinctOrderByErr(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  3065,
+		Message: "Expression #1 of ORDER BY clause is not in SELECT list",
+	}
+	if !eetIsDistinctOrderByErr(err) {
+		t.Fatalf("expected distinct-order-by runtime error to be detected")
+	}
+}
+
+func TestEETSignatureErrorDetailsDistinctOrderBy(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  3065,
+		Message: "Expression #1 of ORDER BY clause is not in SELECT list",
+	}
+	reason, bugHint := eetSignatureErrorDetails(err, "base")
+	if reason != "eet:distinct_order_by" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if bugHint != "" {
+		t.Fatalf("unexpected bug hint: %s", bugHint)
 	}
 }
 

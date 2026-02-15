@@ -3,8 +3,10 @@ package oracle
 import (
 	"testing"
 
+	"shiro/internal/config"
 	"shiro/internal/generator"
 	"shiro/internal/oracle/groundtruth"
+	"shiro/internal/schema"
 )
 
 func TestShouldSkipGroundTruth(t *testing.T) {
@@ -126,5 +128,156 @@ func TestGroundTruthDSGSkipReason(t *testing.T) {
 	}
 	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "t0", RightTable: "t1", LeftKeys: nil, RightKeys: []string{"k1"}}}); reason != "left_keys_missing" {
 		t.Fatalf("expected left_keys_missing, got %q", reason)
+	}
+}
+
+func TestGroundTruthDSGPrecheck(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+
+	valid := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", Using: []string{"k1"}},
+			},
+		},
+	}
+	if skip, reason := groundTruthDSGPrecheck(valid, state); skip != "" || reason != "" {
+		t.Fatalf("expected valid precheck, got skip=%q reason=%q", skip, reason)
+	}
+
+	invalidUsing := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", Using: []string{"id"}},
+			},
+		},
+	}
+	if skip, reason := groundTruthDSGPrecheck(invalidUsing, state); skip != "groundtruth:dsg_key_mismatch_right_key" || reason != "right_key" {
+		t.Fatalf("expected right_key mismatch, got skip=%q reason=%q", skip, reason)
+	}
+}
+
+func TestGroundTruthDSGRightKeysAvailable(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	edges := []groundtruth.JoinEdge{
+		{
+			LeftTable:  "t0",
+			RightTable: "t1",
+			LeftKeys:   []string{"k0"},
+			RightKeys:  []string{"k1"},
+		},
+	}
+	if !groundTruthDSGRightKeysAvailable(state, edges) {
+		t.Fatalf("expected right keys to be available")
+	}
+	edges[0].RightKeys = []string{"k9"}
+	if groundTruthDSGRightKeysAvailable(state, edges) {
+		t.Fatalf("expected missing right keys to be detected")
+	}
+}
+
+func TestGroundTruthJoinEdgesPrefersSQLASTForAliases(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "a",
+			Joins: []generator.Join{
+				{
+					Type:       generator.JoinInner,
+					Table:      "t1",
+					TableAlias: "b",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "a", Name: "k0"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "b", Name: "k0"}},
+					},
+				},
+			},
+		},
+	}
+	edges := groundTruthJoinEdges(query, state)
+	if len(edges) != 1 {
+		t.Fatalf("expected one edge, got %d", len(edges))
+	}
+	if edges[0].LeftTable != "t0" || edges[0].RightTable != "t1" {
+		t.Fatalf("unexpected edge tables: left=%q right=%q", edges[0].LeftTable, edges[0].RightTable)
+	}
+	if len(edges[0].LeftKeyList()) != 1 || edges[0].LeftKeyList()[0] != "k0" {
+		t.Fatalf("unexpected left keys: %v", edges[0].LeftKeyList())
+	}
+	if len(edges[0].RightKeyList()) != 1 || edges[0].RightKeyList()[0] != "k0" {
+		t.Fatalf("unexpected right keys: %v", edges[0].RightKeyList())
+	}
+}
+
+func TestGroundTruthEffectiveMaxRows(t *testing.T) {
+	if got := groundTruthEffectiveMaxRows(nil); got != groundTruthDefaultMaxRows {
+		t.Fatalf("nil generator maxRows=%d want=%d", got, groundTruthDefaultMaxRows)
+	}
+	gen := &generator.Generator{
+		Config: config.Config{
+			MaxRowsPerTable: 60,
+			Oracles: config.OracleConfig{
+				GroundTruthMaxRows: 40,
+			},
+		},
+	}
+	if got := groundTruthEffectiveMaxRows(gen); got != 60 {
+		t.Fatalf("base maxRows=%d want=60", got)
+	}
+	gen.Config.Features.DSG = true
+	gen.Config.TQS.Enabled = true
+	gen.Config.TQS.WideRows = 80
+	if got := groundTruthEffectiveMaxRows(gen); got != 80 {
+		t.Fatalf("dsg+tqs maxRows=%d want=80", got)
+	}
+	gen.Config.Features.DSG = false
+	if got := groundTruthEffectiveMaxRows(gen); got != 60 {
+		t.Fatalf("non-dsg maxRows=%d want=60", got)
 	}
 }

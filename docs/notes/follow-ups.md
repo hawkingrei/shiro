@@ -1,7 +1,7 @@
 # Follow-ups
 
 This list mirrors `docs/todo.md` and is kept in sync to avoid stale plans.
-Last sync: 2026-02-09.
+Last sync: 2026-02-13.
 
 ## Generator / Oracles
 
@@ -19,9 +19,7 @@ Last sync: 2026-02-09.
 
 ## PQS (Rigger OSDI20)
 
-1. Build PQS query synthesis paths for `JOIN ON`, including join-aware pivot bindings and skip reasons when rectification is unsafe or unsupported.
-2. Extend containment assertion SQL templates and reducer-friendly report fields for join-path PQS.
-3. Add staged tests for join-path containment and rectification invariants.
+1. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
 
 ## Reporting / Aggregation
 

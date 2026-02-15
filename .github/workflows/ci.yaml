@@ -9,7 +9,48 @@ on:
       - main
 
 jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        working-directory: web
+        run: npm ci
+
+      - name: Compile web
+        working-directory: web
+        run: npm run compile
+
+      - name: Lint web
+        working-directory: web
+        run: npm run lint
+
+      - name: Test web
+        working-directory: web
+        run: npm run test
+
+      - name: Verify web worker config
+        working-directory: web
+        run: npm run test:worker
+
+      - name: Run web build (release)
+        working-directory: web
+        env:
+          SHIRO_RELEASE: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
   test:
+    needs: web
     runs-on: ubuntu-latest
     env:
       SHIRO_CI: "true"
@@ -46,31 +87,6 @@ jobs:
         run: |
           go test ./...
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install web deps
-        working-directory: web
-        run: npm ci
-
-      - name: Run web lint
-        working-directory: web
-        run: npm run lint
-
-      - name: Verify web worker config
-        working-directory: web
-        run: npm run test:worker
-
-      - name: Run web build (release)
-        working-directory: web
-        env:
-          SHIRO_RELEASE: "1"
-          NEXT_TELEMETRY_DISABLED: "1"
-        run: npm run build
       - name: Install TiUP
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh

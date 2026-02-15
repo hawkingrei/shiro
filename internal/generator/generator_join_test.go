@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -82,6 +83,43 @@ func TestNaturalJoinAllowedAcceptsUniqueNames(t *testing.T) {
 	right := schema.Table{Name: "t1", Columns: []schema.Column{{Name: "id", Type: schema.TypeBigInt}}}
 	if !gen.naturalJoinAllowed(left, right) {
 		t.Fatalf("expected natural join to be allowed with unique left columns")
+	}
+}
+
+func TestPickUsingColumnsRejectsAmbiguousLeft(t *testing.T) {
+	gen := &Generator{
+		Rand: rand.New(rand.NewSource(1)),
+		Config: config.Config{
+			Weights: config.Weights{
+				Features: config.FeatureWeights{IndexPrefixProb: 100},
+			},
+		},
+	}
+	left := []schema.Table{
+		{
+			Name: "t0",
+			Columns: []schema.Column{
+				{Name: "k0", Type: schema.TypeVarchar, HasIndex: true},
+				{Name: "c0", Type: schema.TypeInt},
+			},
+		},
+		{
+			Name: "t1",
+			Columns: []schema.Column{
+				{Name: "k0", Type: schema.TypeVarchar},
+				{Name: "c1", Type: schema.TypeInt},
+			},
+		},
+	}
+	right := schema.Table{
+		Name: "t2",
+		Columns: []schema.Column{
+			{Name: "k0", Type: schema.TypeVarchar, HasIndex: true},
+		},
+	}
+	using := gen.pickUsingColumns(left, right)
+	if len(using) != 0 {
+		t.Fatalf("expected no USING columns when left side is ambiguous, got %v", using)
 	}
 }
 

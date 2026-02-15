@@ -1,0 +1,32 @@
+{
+  // Git-integrated deploy uses this root config; keep runtime bindings here.
+  "name": "shiro-report-worker",
+  "main": "./web/cloudflare-worker/src/index.ts",
+  "compatibility_date": "2026-02-10",
+  "assets": {
+    "directory": "./web/cloudflare-worker/assets"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "shiro_cases",
+      "database_id": "98465bae-a23b-4c21-9467-e4a79d6f40d0",
+      "remote": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
+}

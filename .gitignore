@@ -1,7 +1,7 @@
 reports/
 logs/
 .cache/
-!.cache/.gitkeep
+config.yaml
 *.zip
 .DS_Store
 *.log
@@ -13,5 +13,11 @@ web/node_modules
 web/.next
 web/out
 web/public
+web/pnpm-lock.yaml
+web/cloudflare-worker/.wrangler/
+web/cloudflare-worker/node_modules/
+web/cloudflare-worker/wrangler.toml
+web/cloudflare-worker/assets/*
+!web/cloudflare-worker/assets/.gitkeep
 .paper
 paper/

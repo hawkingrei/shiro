@@ -108,6 +108,15 @@ func TestAnalyzeQueryWithDerivedAndSetOpQuantifiedSubquery(t *testing.T) {
 	if !features.HasSubquery {
 		t.Fatalf("expected subquery feature for derived/quantified query")
 	}
+	if !features.HasSetOperations {
+		t.Fatalf("expected set-operation feature")
+	}
+	if !features.HasDerivedTables {
+		t.Fatalf("expected derived-table feature")
+	}
+	if !features.HasQuantifiedSubqueries {
+		t.Fatalf("expected quantified-subquery feature")
+	}
 	if features.HasAggregate {
 		t.Fatalf("unexpected aggregate feature")
 	}
@@ -120,6 +129,51 @@ func TestAnalyzeQueryWithDerivedAndSetOpQuantifiedSubquery(t *testing.T) {
 	}
 	if analysis.HasOrderBy || analysis.HasLimit || analysis.HasGroupBy || analysis.HasHaving {
 		t.Fatalf("unexpected order/limit/group/having flags")
+	}
+}
+
+func TestAnalyzeQueryFeaturesNestedSetOpAndDerivedInSubquery(t *testing.T) {
+	nested := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "d1", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		From: FromClause{
+			BaseQuery: &SelectQuery{
+				Items: []SelectItem{
+					{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+				},
+				From: FromClause{BaseTable: "t1"},
+			},
+			BaseAlias: "d1",
+		},
+		SetOps: []SetOperation{
+			{
+				Type: SetOperationUnion,
+				Query: &SelectQuery{
+					Items: []SelectItem{
+						{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+					},
+					From: FromClause{BaseTable: "t2"},
+				},
+			},
+		},
+	}
+
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  FromClause{BaseTable: "t0"},
+		Where: ExistsExpr{Query: nested},
+	}
+
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasSubquery {
+		t.Fatalf("expected subquery feature")
+	}
+	if !features.HasSetOperations {
+		t.Fatalf("expected nested set-operation feature")
+	}
+	if !features.HasDerivedTables {
+		t.Fatalf("expected nested derived-table feature")
 	}
 }
 

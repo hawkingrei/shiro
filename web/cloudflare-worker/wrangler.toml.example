@@ -1,0 +1,21 @@
+name = "shiro-report-worker"
+main = "src/index.ts"
+compatibility_date = "2026-02-10"
+
+[assets]
+directory = "./assets"
+
+[vars]
+ALLOW_ORIGIN = "*"
+# API_TOKEN = "replace-with-random-token"
+# ALLOW_INSECURE_WRITES = "1" # local dev only; do not enable in production
+# ARTIFACT_PUBLIC_BASE_URL = "https://<public-artifact-domain>"
+# AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shiro_cases"
+database_id = "replace-with-d1-database-id"
+
+[ai]
+binding = "AI"

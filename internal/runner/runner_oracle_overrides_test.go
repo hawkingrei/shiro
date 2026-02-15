@@ -9,7 +9,7 @@ import (
 )
 
 func TestApplyOracleOverridesGroundTruth(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestApplyOracleOverridesGroundTruth(t *testing.T) {
 }
 
 func TestApplyOracleOverridesCODDTest(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestApplyOracleOverridesCODDTest(t *testing.T) {
 }
 
 func TestApplyOracleOverridesPQS(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -95,8 +95,20 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 	restore := r.applyOracleOverrides("PQS")
 	defer restore()
 
-	if r.gen.Config.Features.Subqueries {
-		t.Fatalf("pqs override should disable subqueries")
+	if !r.gen.Config.Features.Subqueries {
+		t.Fatalf("pqs override should enable subqueries")
+	}
+	if !r.gen.Config.Features.QuantifiedSubqueries {
+		t.Fatalf("pqs override should enable quantified subqueries")
+	}
+	if r.gen.Config.Features.NotExists {
+		t.Fatalf("pqs override should disable not exists")
+	}
+	if r.gen.Config.Features.NotIn {
+		t.Fatalf("pqs override should disable not in")
+	}
+	if !r.gen.Config.Features.DerivedTables {
+		t.Fatalf("pqs override should enable derived tables")
 	}
 	if r.gen.Config.Features.SetOperations {
 		t.Fatalf("pqs override should disable set operations")
@@ -113,7 +125,7 @@ func TestApplyOracleOverridesPQS(t *testing.T) {
 }
 
 func TestApplyOracleOverridesAllowSubquery(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -149,7 +161,7 @@ func TestApplyOracleOverridesAllowSubquery(t *testing.T) {
 }
 
 func TestApplyOracleOverridesJoinUsingProbMin(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

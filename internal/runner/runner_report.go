@@ -82,7 +82,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	if err != nil {
 		return
 	}
-	util.Warnf("case allocated oracle=%s dir=%s", result.Oracle, caseData.Dir)
+	util.Warnf("case allocated oracle=%s case_id=%s dir=%s", result.Oracle, caseData.ID, caseData.Dir)
 	planPath := ""
 	planSignature := ""
 	planSigFormat := ""
@@ -149,7 +149,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			RowCount: result.Truth.RowCount,
 		}
 	}
+	summary.CaseID = caseData.ID
 	summary.CaseDir = filepath.Base(caseData.Dir)
+	if r.cfg.Storage.CloudEnabled() {
+		summary.CaseDir = caseData.ID
+		summary.ArchiveName = report.CaseArchiveName
+		summary.ArchiveCodec = report.CaseArchiveCodec
+	}
 	if result.Oracle == "NoREC" && result.Details != nil {
 		if optimized, ok := result.Details["norec_optimized_sql"].(string); ok {
 			summary.NoRECOptimizedSQL = optimized
@@ -235,24 +241,83 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		_ = r.reporter.WriteSummary(caseData, summary)
 	}
 
+	_ = r.reporter.WriteSummary(caseData, summary)
+	if r.cfg.Storage.CloudEnabled() {
+		_ = r.reporter.WriteReport(caseData, summary)
+		if _, _, archiveErr := r.reporter.WriteCaseArchive(caseData); archiveErr != nil {
+			util.Warnf("case archive failed dir=%s err=%v", caseData.Dir, archiveErr)
+			summary.ArchiveName = ""
+			summary.ArchiveCodec = ""
+			_ = r.reporter.WriteSummary(caseData, summary)
+			_ = r.reporter.WriteReport(caseData, summary)
+		}
+	}
+
 	if r.uploader.Enabled() {
 		location, err := r.uploader.UploadDir(ctx, caseData.Dir)
 		if err == nil {
 			summary.UploadLocation = location
 			_ = r.reporter.WriteSummary(caseData, summary)
+			if r.cfg.Storage.CloudEnabled() {
+				_ = r.reporter.WriteReport(caseData, summary)
+			}
 		}
 	}
 
+	minimizeReason := ""
+	if details != nil {
+		if reason, ok := details["minimize_reason"].(string); ok {
+			minimizeReason = reason
+		}
+	}
+	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason)
 	if result.Err != nil {
-		util.Errorf("case captured oracle=%s dir=%s err=%v", result.Oracle, caseData.Dir, result.Err)
+		util.Errorf(
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s err=%v",
+			result.Oracle,
+			caseData.ID,
+			caseData.Dir,
+			errorReason,
+			summary.MinimizeStatus,
+			minimizeReason,
+			result.Err,
+		)
 	} else if result.Expected != "" || result.Actual != "" {
 		if flaky {
-			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s flaky=true", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+			util.Warnf(
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s flaky=true",
+				result.Oracle,
+				caseData.ID,
+				caseData.Dir,
+				errorReason,
+				summary.MinimizeStatus,
+				minimizeReason,
+				result.Expected,
+				result.Actual,
+			)
 		} else {
-			util.Warnf("case captured oracle=%s dir=%s expected=%s actual=%s", result.Oracle, caseData.Dir, result.Expected, result.Actual)
+			util.Warnf(
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s",
+				result.Oracle,
+				caseData.ID,
+				caseData.Dir,
+				errorReason,
+				summary.MinimizeStatus,
+				minimizeReason,
+				result.Expected,
+				result.Actual,
+			)
 		}
 	} else {
-		util.Warnf("case captured oracle=%s dir=%s", result.Oracle, caseData.Dir)
+		util.Warnf(
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s",
+			result.Oracle,
+			caseData.ID,
+			caseData.Dir,
+			errorReason,
+			summary.MinimizeStatus,
+			minimizeReason,
+		)
 	}
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
 		util.Errorf("rotate database after bug failed: %v", err)

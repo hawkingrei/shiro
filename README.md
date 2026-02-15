@@ -22,7 +22,7 @@ go run ./cmd/shiro -config config.yaml
 
 Shiro prints the final resolved configuration at startup.
 
-Reports are written under `reports/`.
+Reports are written under `reports/` by default.
 
 ## CI run metadata from environment
 Shiro can record CI runtime metadata directly from environment variables and persist it into each case `summary.json` as `run_info`.
@@ -79,6 +79,34 @@ QPG also tracks operator-sequence signatures (plan operator lists) to nudge aggr
 JSON parsing accepts either `id` or `operator` keys and normalizes operator names for coverage accounting.
 QPG normalizes EXPLAIN text (table/column/index tokens, numeric literals) before hashing to reduce noise.
 
+### CI tuning snippet for QPG
+For short CI runs, you can tighten QPG trigger thresholds and keep override TTLs short:
+
+```yaml
+qpg:
+  enabled: true
+  explain_format: "brief"
+  mutation_prob: 35
+  no_join_threshold: 2
+  no_agg_threshold: 2
+  no_new_plan_threshold: 3
+  no_new_op_sig_threshold: 3
+  no_new_shape_threshold: 3
+  no_new_join_type_threshold: 2
+  no_new_join_order_threshold: 2
+  override_ttl: 3
+  template_override:
+    no_new_join_order_threshold: 2
+    no_new_shape_threshold: 3
+    no_agg_threshold: 2
+    no_new_plan_threshold: 3
+    join_weight_boost: 7
+    agg_weight_boost: 7
+    semi_weight_boost: 6
+    enabled_prob: 65
+    override_ttl: 3
+```
+
 ## Plan cache only
 Set `plan_cache_only: true` for a focused plan-cache run that executes only prepared statements.
 In normal mode, Shiro still runs prepared statements and applies the same plan-cache checks; this flag just isolates that workflow.
@@ -100,10 +128,12 @@ Generate a JSON report that a static frontend can consume:
 go run ./cmd/shiro-report -input reports -output web/public
 ```
 
-For S3 inputs, provide a config with `storage.s3` enabled:
+`cmd/shiro-report` now defaults to reading `.report`; pass `-input` when your run output directory is different (for example the default runner output `reports/`).
+
+For GCS inputs, provide a config with `storage.gcs` enabled (legacy `s3://` inputs still work with `storage.s3`):
 
 ```bash
-go run ./cmd/shiro-report -input s3://my-bucket/shiro-reports/ -config config.yaml -output web/public
+go run ./cmd/shiro-report -input gs://my-bucket/shiro-reports/ -config config.yaml -output web/public
 ```
 
 ### Next.js frontend
@@ -118,9 +148,36 @@ Or run both steps with:
 make report-web
 ```
 
-Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `report.json` at runtime, so you only need to update the JSON to refresh the view.
+Deploy the `web/out/` directory (GitHub Pages/Vercel). The frontend reads `reports.json` (fallback `report.json`) at runtime, so you only need to update the JSON to refresh the view.
+Set `NEXT_PUBLIC_REPORTS_BASE_URL` to point the frontend at a public bucket or CDN when hosting JSON outside the app bundle.
 
 The report JSON now includes `plan_signature` (QPG EXPLAIN hash) and `plan_signature_format` (plain/json); the UI can filter by both.
+Each case entry also includes `case_id`, `archive_name`, `archive_codec`, `archive_url`, and `report_url`.
+
+To publish report manifests to an S3-compatible endpoint (for example Cloudflare R2) and sync metadata to Cloudflare Worker + D1:
+
+```bash
+go run ./cmd/shiro-report \
+  -input s3://my-bucket/shiro-reports/ \
+  -config config.yaml \
+  -output web/public \
+  -artifact-public-base-url https://<artifact-public-domain> \
+  -publish-endpoint https://<accountid>.r2.cloudflarestorage.com \
+  -publish-region auto \
+  -publish-bucket <r2-bucket> \
+  -publish-prefix shiro/manifests/latest \
+  -publish-access-key-id <r2-access-key> \
+  -publish-secret-access-key <r2-secret-key> \
+  -publish-public-base-url https://<r2-public-domain> \
+  -worker-sync-endpoint https://<worker-domain>/api/v1/cases/sync \
+  -worker-sync-token <worker-api-token>
+```
+
+When publish/sync flags are omitted, `cmd/shiro-report` keeps existing local behavior.
+When `-artifact-public-base-url` is not provided, per-case `report_url` and `archive_url` are only emitted when the source upload location is already HTTP(S).
+For GCS, `-artifact-public-base-url` should be the public HTTP base that serves your bucket (for example `https://storage.googleapis.com/<bucket>` or a CDN domain).
+To publish manifests to GCS, set `-publish-gcs-bucket` (and optionally `-publish-gcs-prefix`), and ensure `GOOGLE_APPLICATION_CREDENTIALS` is available for ADC.
+Cloudflare metadata/search worker code is under `web/cloudflare-worker/`.
 
 ## Dynamic state dump
 At each report interval, Shiro writes `dynamic_state.json` in the working directory with bandit/QPG/feature weights so runs can be resumed or compared.
@@ -141,11 +198,15 @@ At each report interval, Shiro writes `dynamic_state.json` in the working direct
 | Constant Optimization Driven Database System Testing (CODDTest) | CODDTest | Uses constant folding/propagation to transform predicates and compares results to detect logic bugs in DBMSs. |
 | Testing Database Engines via Query Plan Guidance (QPG) | QPG | Guides test-case generation toward diverse query plans by mutating database state to trigger previously unseen plans. |
 
-## S3 upload
-Configure `storage.s3` in `config.yaml`. When enabled, each case directory is uploaded as-is and the summary includes `upload_location`.
+## GCS upload
+Configure `storage.gcs` in `config.yaml`. When enabled, each case is uploaded under UUID path (`gs://<bucket>/<prefix>/<case_id>/...`), and the summary includes `upload_location`.
 
-### GCS secret injection in GitHub Actions
-Shiro uploads through the S3-compatible path (`storage.s3`). For Google Cloud Storage, use GCS HMAC credentials and map your GitHub secrets/variables to the following config keys.
+Legacy S3-compatible uploads remain available through `storage.s3`, but new deployments should use GCS.
+
+When neither `storage.gcs.enabled` nor `storage.s3.enabled` is true, Shiro keeps legacy local report layout (`case_XXXX_uuid` directories) and summary-only artifact flow.
+
+### S3-compatible upload (legacy, including GCS HMAC)
+If you still use the `storage.s3` path in CI (for example with GCS HMAC interoperability), configure `storage.s3` and map secrets/variables as follows.
 
 | GitHub secret/variable name | Target config key | Notes |
 | --- | --- | --- |
@@ -157,7 +218,7 @@ Shiro uploads through the S3-compatible path (`storage.s3`). For Google Cloud St
 | `SHIRO_GCS_HMAC_SECRET_ACCESS_KEY` | `storage.s3.secret_access_key` (or `AWS_SECRET_ACCESS_KEY`) | Prefer exporting to `AWS_SECRET_ACCESS_KEY` in CI. |
 | `SHIRO_GCS_SESSION_TOKEN` | `storage.s3.session_token` (or `AWS_SESSION_TOKEN`) | Optional, usually empty for GCS HMAC. |
 
-Set these static config values in a CI config file:
+Example static config:
 
 ```yaml
 storage:
@@ -170,7 +231,7 @@ storage:
     use_path_style: false
 ```
 
-Then inject credentials in GitHub Actions:
+Example GitHub Actions env injection:
 
 ```yaml
 env:
@@ -178,5 +239,3 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SHIRO_GCS_HMAC_SECRET_ACCESS_KEY }}
   AWS_SESSION_TOKEN: ${{ secrets.SHIRO_GCS_SESSION_TOKEN }}
 ```
-
-This works because the uploader uses AWS SDK credential resolution when `storage.s3.access_key_id` / `storage.s3.secret_access_key` are not set in the file.

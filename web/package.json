@@ -7,22 +7,27 @@
     "dev:webpack": "next dev --webpack -p 3001",
     "build": "node scripts/guard-build.js && next build",
     "build:release": "SHIRO_RELEASE=1 next build",
+    "build:worker": "SHIRO_RELEASE=1 NEXT_DISABLE_TURBOPACK=1 npm run build && node scripts/export-worker-assets.js",
     "start": "next start",
+    "compile": "tsc --noEmit",
     "lint": "eslint .",
+    "test": "tsx --test test/*.test.ts",
     "test:worker": "node scripts/test-compute-worker.js"
   },
   "dependencies": {
     "next": "^16.1.6",
     "react": "19.2.4",
+    "react-diff-viewer-continued": "^4.1.2",
     "react-dom": "19.2.4",
-    "react-diff-viewer-continued": "^4.1.0",
-    "sql-formatter": "^15.5.2"
+    "sql-formatter": "^15.7.1"
   },
   "devDependencies": {
-    "@types/node": "25.2.1",
-    "@types/react": "19.2.13",
-    "typescript": "5.9.3",
+    "@types/node": "25.2.3",
+    "@types/react": "19.2.14",
     "eslint": "^9.0.0",
-    "eslint-config-next": "^16.1.6"
+    "eslint-config-next": "^16.1.6",
+    "tsx": "^4.20.6",
+    "typescript": "5.9.3",
+    "wrangler": "^4.65.0"
   }
 }

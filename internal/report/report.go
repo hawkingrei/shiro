@@ -1,11 +1,13 @@
 package report
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,17 +21,20 @@ import (
 	"shiro/internal/util"
 
 	"github.com/google/uuid"
+	"github.com/klauspost/compress/zstd"
 )
 
 // Reporter writes case artifacts to disk.
 type Reporter struct {
 	OutputDir       string
 	MaxDataDumpRows int
+	UseUUIDPath     bool
 	caseSeq         int
 }
 
 // Case describes a report directory.
 type Case struct {
+	ID  string
 	Dir string
 }
 
@@ -51,7 +56,10 @@ type Summary struct {
 	RunInfo                      *runinfo.BasicInfo `json:"run_info,omitempty"`
 	PlanReplay                   string             `json:"plan_replayer"`
 	UploadLocation               string             `json:"upload_location"`
+	CaseID                       string             `json:"case_id"`
 	CaseDir                      string             `json:"case_dir"`
+	ArchiveName                  string             `json:"archive_name"`
+	ArchiveCodec                 string             `json:"archive_codec"`
 	NoRECOptimizedSQL            string             `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL          string             `json:"norec_unoptimized_sql"`
 	NoRECPredicate               string             `json:"norec_predicate"`
@@ -82,17 +90,99 @@ func (r *Reporter) NewCase() (Case, error) {
 	if v7, err := uuid.NewV7(); err == nil {
 		caseID = v7.String()
 	}
-	dir := filepath.Join(r.OutputDir, fmt.Sprintf("case_%04d_%s", r.caseSeq, caseID))
+	caseDir := fmt.Sprintf("case_%04d_%s", r.caseSeq, caseID)
+	if r.UseUUIDPath {
+		caseDir = caseID
+	}
+	dir := filepath.Join(r.OutputDir, caseDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Case{}, err
 	}
 	_ = os.WriteFile(filepath.Join(dir, "README.md"), []byte("# Reproduce Case\n\n- Apply schema: schema.sql\n- Load data: inserts.sql (preferred) or data.tsv\n- Run query: case.sql\n- Plan replayer: plan_replayer.zip (if present)\n"), 0o644)
-	return Case{Dir: dir}, nil
+	return Case{ID: caseID, Dir: dir}, nil
 }
+
+// Case archive artifact metadata used for per-case compressed bundles.
+const (
+	CaseArchiveName  = "case.tar.zst"
+	CaseArchiveCodec = "zstd"
+)
 
 // WriteSummary writes summary.json into the case directory.
 func (r *Reporter) WriteSummary(c Case, summary Summary) error {
-	f, err := os.Create(filepath.Join(c.Dir, "summary.json"))
+	return r.writeSummaryFile(c, "summary.json", summary)
+}
+
+// WriteReport writes report.json into the case directory.
+func (r *Reporter) WriteReport(c Case, summary Summary) error {
+	return r.writeSummaryFile(c, "report.json", summary)
+}
+
+// RecoverInterruptedMinimizeCases converts stale in-progress minimize states to interrupted.
+func (r *Reporter) RecoverInterruptedMinimizeCases(reason string) (int, error) {
+	if r == nil || strings.TrimSpace(r.OutputDir) == "" {
+		return 0, nil
+	}
+	entries, err := os.ReadDir(r.OutputDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	updated := 0
+	reason = strings.TrimSpace(reason)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		caseDir := filepath.Join(r.OutputDir, entry.Name())
+		summaryPath := filepath.Join(caseDir, "summary.json")
+		data, err := os.ReadFile(summaryPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return updated, err
+		}
+		var summary Summary
+		if err := json.Unmarshal(data, &summary); err != nil {
+			continue
+		}
+		if summary.MinimizeStatus != "in_progress" {
+			continue
+		}
+		summary.MinimizeStatus = "interrupted"
+		if summary.Details == nil {
+			summary.Details = map[string]any{}
+		}
+		if reason != "" {
+			if _, ok := summary.Details["minimize_reason"]; !ok {
+				summary.Details["minimize_reason"] = reason
+			}
+		}
+		caseData := Case{
+			ID:  summary.CaseID,
+			Dir: caseDir,
+		}
+		if err := r.WriteSummary(caseData, summary); err != nil {
+			return updated, err
+		}
+		reportPath := filepath.Join(caseDir, "report.json")
+		if _, err := os.Stat(reportPath); err == nil {
+			if err := r.WriteReport(caseData, summary); err != nil {
+				return updated, err
+			}
+		} else if !os.IsNotExist(err) {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
+}
+
+func (r *Reporter) writeSummaryFile(c Case, name string, summary Summary) error {
+	f, err := os.Create(filepath.Join(c.Dir, name))
 	if err != nil {
 		return err
 	}
@@ -126,6 +216,80 @@ func (r *Reporter) WriteText(c Case, name string, content string) error {
 		}
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// WriteCaseArchive creates a compressed archive for the case directory.
+func (r *Reporter) WriteCaseArchive(c Case) (name string, codec string, err error) {
+	archivePath := filepath.Join(c.Dir, CaseArchiveName)
+	if removeErr := os.Remove(archivePath); removeErr != nil && !os.IsNotExist(removeErr) {
+		return "", "", removeErr
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(archivePath)
+		}
+	}()
+	file, err := os.Create(archivePath)
+	if err != nil {
+		return "", "", err
+	}
+	defer util.CloseWithErr(file, "archive output")
+
+	zw, err := zstd.NewWriter(file)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() {
+		if closeErr := zw.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
+	tw := tar.NewWriter(zw)
+	defer func() {
+		if closeErr := tw.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+
+	walkErr := filepath.WalkDir(c.Dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || path == archivePath {
+			return nil
+		}
+		rel, err := filepath.Rel(c.Dir, path)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		header.Name = filepath.ToSlash(rel)
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		src, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(tw, src); err != nil {
+			util.CloseWithErr(src, "archive source")
+			return err
+		}
+		util.CloseWithErr(src, "archive source")
+		return nil
+	})
+	if walkErr != nil {
+		return "", "", walkErr
+	}
+	return CaseArchiveName, CaseArchiveCodec, nil
 }
 
 // DumpSchema writes schema.sql for the current state.

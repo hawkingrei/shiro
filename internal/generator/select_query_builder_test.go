@@ -175,7 +175,7 @@ func TestSelectQueryBuilderRefreshesAnalysisAfterAttachPredicate(t *testing.T) {
 
 func newTestGenerator(t *testing.T) *Generator {
 	t.Helper()
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

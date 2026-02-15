@@ -39,7 +39,7 @@ func TestInjectHintWithCTE(t *testing.T) {
 }
 
 func TestJoinReorderThresholdHintsRange(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestJoinReorderThresholdHintsRange(t *testing.T) {
 }
 
 func TestDQPSetVarHintsCount(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 }
 
 func TestDQPHintsForQueryCount(t *testing.T) {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}

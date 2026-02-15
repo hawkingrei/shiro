@@ -74,18 +74,21 @@ type SelectItem struct {
 type SelectQuery struct {
 	With              []CTE
 	WithRecursive     bool
-	SetOps            []SetOperation
-	Distinct          bool
-	Items             []SelectItem
-	From              FromClause
-	Where             Expr
-	GroupBy           []Expr
-	GroupByWithRollup bool
-	Having            Expr
-	WindowDefs        []WindowDef
-	OrderBy           []OrderBy
-	Limit             *int
-	Analysis          *QueryAnalysis
+	FullJoinEmulation bool
+	// TemplateJoinPredicateStrategy records template join-predicate shaping mode.
+	TemplateJoinPredicateStrategy string
+	SetOps                        []SetOperation
+	Distinct                      bool
+	Items                         []SelectItem
+	From                          FromClause
+	Where                         Expr
+	GroupBy                       []Expr
+	GroupByWithRollup             bool
+	Having                        Expr
+	WindowDefs                    []WindowDef
+	OrderBy                       []OrderBy
+	Limit                         *int
+	Analysis                      *QueryAnalysis
 }
 
 // Build emits the SQL for the select query into the builder.
