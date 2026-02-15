@@ -50,6 +50,10 @@ type CaseEntry = {
   summary_url?: string;
   search_blob?: string;
   detail_loaded?: boolean;
+  labels?: string[];
+  linked_issue?: string;
+  replay_sql?: string;
+  minimize_status?: string;
 };
 
 type CaseMetaState = {
@@ -61,6 +65,8 @@ type CaseMetaState = {
   loading: boolean;
   saving: boolean;
   loaded: boolean;
+  loadedFromWorker: boolean;
+  unauthorizedNoToken: boolean;
   error: string;
 };
 
@@ -160,6 +166,8 @@ const emptyCaseMeta = (): CaseMetaState => ({
   loading: false,
   saving: false,
   loaded: false,
+  loadedFromWorker: false,
+  unauthorizedNoToken: false,
   error: "",
 });
 
@@ -171,6 +179,7 @@ const workerBaseURLEnv = (process.env.NEXT_PUBLIC_WORKER_BASE_URL || "").trim().
 const reportsBaseURL = (process.env.NEXT_PUBLIC_REPORTS_BASE_URL || "").trim().replace(/\/+$/, "");
 const issueBaseURLEnv = (process.env.NEXT_PUBLIC_ISSUE_BASE_URL || "").trim().replace(/\/+$/, "");
 const workerTokenStorageKey = "shiro_worker_write_token";
+const caseMetaCacheStorageKey = "shiro_case_meta_cache_v1";
 const searchDebounceMS = 180;
 const casesPerPage = 30;
 const reservedFileKeys = new Set([
@@ -259,6 +268,129 @@ const formatSQL = (sql: string) => {
   }
 };
 
+type PersistedCaseMeta = {
+  labels?: string[];
+  linkedIssue?: string;
+};
+
+const logCacheIssue = (message: string, err: unknown, level: "warn" | "error" = "warn") => {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+  if (level === "error") {
+    console.error(message, err);
+    return;
+  }
+  console.warn(message, err);
+};
+
+const buildPersistedCaseMeta = (metaByID: Record<string, CaseMetaState>): Record<string, PersistedCaseMeta> => {
+  const payload: Record<string, PersistedCaseMeta> = {};
+  for (const [caseIDValue, meta] of Object.entries(metaByID)) {
+    if (!caseIDValue.trim()) {
+      continue;
+    }
+    const labels = normalizeLabels(meta.labels);
+    const linkedIssue = (meta.linkedIssue || "").trim();
+    if (labels.length === 0 && !linkedIssue) {
+      continue;
+    }
+    payload[caseIDValue] = { labels, linkedIssue };
+  }
+  return payload;
+};
+
+const loadPersistedCaseMeta = (): Record<string, PersistedCaseMeta> => {
+  try {
+    const raw = window.localStorage.getItem(caseMetaCacheStorageKey) || "";
+    if (!raw.trim()) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, PersistedCaseMeta> = {};
+    for (const [caseIDValue, value] of Object.entries(parsed)) {
+      if (!caseIDValue.trim()) {
+        continue;
+      }
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const row = value as Record<string, unknown>;
+      const labels = normalizeLabels(row.labels);
+      const linkedIssue = typeof row.linkedIssue === "string" ? row.linkedIssue.trim() : "";
+      out[caseIDValue] = { labels, linkedIssue };
+    }
+    return out;
+  } catch (err) {
+    logCacheIssue("Failed to load case metadata cache", err, "error");
+    return {};
+  }
+};
+
+const persistCaseMeta = (metaByID: Record<string, CaseMetaState>) => {
+  try {
+    const payload = buildPersistedCaseMeta(metaByID);
+    window.localStorage.setItem(caseMetaCacheStorageKey, JSON.stringify(payload));
+  } catch (err) {
+    // Ignore localStorage failures in restricted/private contexts.
+    logCacheIssue("Failed to persist case metadata cache", err);
+  }
+};
+
+const caseEmbeddedLabels = (entry: CaseEntry): string[] => {
+  const labels = normalizeLabels(entry.labels);
+  if (labels.length > 0) {
+    return labels;
+  }
+  if (!entry.details) {
+    return [];
+  }
+  return normalizeLabels(entry.details["labels"]);
+};
+
+const caseEmbeddedIssue = (entry: CaseEntry): string => {
+  const linkedIssue = (entry.linked_issue || "").trim();
+  if (linkedIssue) {
+    return linkedIssue;
+  }
+  if (!entry.details) {
+    return "";
+  }
+  const raw = entry.details["linked_issue"];
+  return typeof raw === "string" ? raw.trim() : "";
+};
+
+const caseResolvedLabels = (entry: CaseEntry, meta: CaseMetaState | null): string[] => {
+  if (meta?.loadedFromWorker) {
+    return normalizeLabels(meta.labels);
+  }
+  const embedded = caseEmbeddedLabels(entry);
+  if (embedded.length > 0) {
+    return embedded;
+  }
+  if (meta?.loaded) {
+    return normalizeLabels(meta.labels);
+  }
+  return [];
+};
+
+const caseResolvedIssue = (entry: CaseEntry, meta: CaseMetaState | null): string => {
+  if (meta?.loadedFromWorker) {
+    return (meta.linkedIssue || "").trim();
+  }
+  const embedded = caseEmbeddedIssue(entry);
+  if (embedded) {
+    return embedded;
+  }
+  if (meta?.loaded) {
+    return (meta.linkedIssue || "").trim();
+  }
+  return "";
+};
+
 const formatExplain = (text: string) => {
   if (!text.trim()) return text;
   const lines = text.replace(/\r/g, "").split("\n");
@@ -341,6 +473,10 @@ const buildCaseSearchBlob = (c: CaseEntry): string => {
     c.case_id,
     c.case_dir,
     c.upload_location,
+    c.replay_sql,
+    c.minimize_status,
+    ...(c.labels || []),
+    c.linked_issue,
     ...(c.sql || []),
     c.details && Object.keys(c.details).length > 0 ? JSON.stringify(c.details) : null,
   ]
@@ -446,6 +582,10 @@ const normalizeCaseEntry = (value: unknown): CaseEntry | null => {
     summary_url: asString(record.summary_url),
     search_blob: asString(record.search_blob),
     detail_loaded: typeof record.detail_loaded === "boolean" ? record.detail_loaded : inferredDetailLoaded,
+    labels: normalizeLabels(record.labels),
+    linked_issue: asString(record.linked_issue),
+    replay_sql: asString(record.replay_sql),
+    minimize_status: asString(record.minimize_status),
   };
 
   if (!normalized.summary_url) {
@@ -519,6 +659,8 @@ export default function Page() {
   const [showExplainSame, setShowExplainSame] = useState(false);
   const [reason, setReason] = useState("");
   const [labelFilter, setLabelFilter] = useState("");
+  const [issueFilter, setIssueFilter] = useState("");
+  const [onlyWithIssue, setOnlyWithIssue] = useState(false);
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [workerBaseURL, setWorkerBaseURL] = useState(workerBaseURLEnv);
@@ -541,6 +683,55 @@ export default function Page() {
       setWorkerToken(stored);
     }
   }, []);
+
+  useEffect(() => {
+    const persisted = loadPersistedCaseMeta();
+    const entries = Object.entries(persisted);
+    if (entries.length === 0) {
+      return;
+    }
+    setCaseMetaByID((prev) => {
+      const next = { ...prev };
+      for (const [caseIDValue, meta] of entries) {
+        const current = next[caseIDValue] || emptyCaseMeta();
+        if (current.loadedFromWorker || current.loading || current.saving) {
+          continue;
+        }
+        const labels = normalizeLabels(meta.labels);
+        const linkedIssue = typeof meta.linkedIssue === "string" ? meta.linkedIssue.trim() : "";
+        next[caseIDValue] = {
+          ...current,
+          labels,
+          linkedIssue,
+          draftLabels: current.draftLabels || labels.join(", "),
+          draftIssue: current.draftIssue || linkedIssue,
+          loaded: true,
+          loadedFromWorker: false,
+          unauthorizedNoToken: false,
+          error: "",
+        };
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const nextPayload = JSON.stringify(buildPersistedCaseMeta(caseMetaByID));
+    const timer = window.setTimeout(() => {
+      try {
+        const currentRaw = window.localStorage.getItem(caseMetaCacheStorageKey) || "";
+        if (currentRaw === nextPayload) {
+          return;
+        }
+      } catch (err) {
+        logCacheIssue("Failed to read case metadata cache", err);
+      }
+      persistCaseMeta(caseMetaByID);
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [caseMetaByID]);
 
   useEffect(() => {
     if (workerBaseURLEnv) {
@@ -772,7 +963,10 @@ export default function Page() {
       return;
     }
     const current = caseMetaByID[caseID];
-    if (current?.loaded || current?.loading) {
+    if (current?.loadedFromWorker || current?.loading) {
+      return;
+    }
+    if (current?.unauthorizedNoToken && !workerToken.trim()) {
       return;
     }
     updateCaseMetaState(caseID, (state) => ({ ...state, loading: true, error: "" }));
@@ -786,16 +980,21 @@ export default function Page() {
           ...state,
           loading: false,
           loaded: true,
+          loadedFromWorker: true,
+          unauthorizedNoToken: false,
           error: "",
         }));
         return;
       }
       if (resp.status === 401) {
+        const silentUnauthorized = !workerToken.trim();
         updateCaseMetaState(caseID, (state) => ({
           ...state,
           loading: false,
-          loaded: false,
-          error: "unauthorized",
+          loaded: silentUnauthorized ? true : state.loaded,
+          loadedFromWorker: false,
+          unauthorizedNoToken: silentUnauthorized,
+          error: silentUnauthorized ? "" : "unauthorized",
         }));
         return;
       }
@@ -803,7 +1002,9 @@ export default function Page() {
         updateCaseMetaState(caseID, (state) => ({
           ...state,
           loading: false,
-          loaded: false,
+          loaded: state.loaded,
+          loadedFromWorker: state.loadedFromWorker,
+          unauthorizedNoToken: false,
           error: `load failed (${resp.status})`,
         }));
         return;
@@ -819,13 +1020,20 @@ export default function Page() {
         draftIssue: linkedIssue,
         loading: false,
         loaded: true,
+        loadedFromWorker: true,
+        unauthorizedNoToken: false,
         error: "",
       }));
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       updateCaseMetaState(caseID, (state) => ({
         ...state,
         loading: false,
-        loaded: false,
+        loaded: state.loaded,
+        loadedFromWorker: state.loadedFromWorker,
+        unauthorizedNoToken: false,
         error: "load failed",
       }));
     }
@@ -849,7 +1057,16 @@ export default function Page() {
     }
     const needBootstrap = caseIDs.some((cid) => {
       const meta = caseMetaByIDRef.current[cid];
-      return !meta || (!meta.loaded && !meta.loading);
+      if (!meta) {
+        return true;
+      }
+      if (meta.loading || meta.loadedFromWorker) {
+        return false;
+      }
+      if (meta.unauthorizedNoToken && !workerToken.trim()) {
+        return false;
+      }
+      return true;
     });
     if (!needBootstrap) {
       return;
@@ -936,15 +1153,19 @@ export default function Page() {
                 draftLabels: keepDraftLabels ? currentDraftLabels : loadedDraftLabels,
                 draftIssue: keepDraftIssue ? currentDraftIssue : loadedDraftIssue,
                 loaded: true,
+                loadedFromWorker: true,
+                unauthorizedNoToken: false,
                 loading: false,
                 error: "",
               };
               continue;
             }
-            if (result.complete && !current.loaded && !current.loading && !current.saving) {
+            if (result.complete && !current.loadedFromWorker && !current.loading && !current.saving) {
               next[cid] = {
                 ...current,
                 loaded: true,
+                loadedFromWorker: true,
+                unauthorizedNoToken: false,
                 loading: false,
                 error: "",
               };
@@ -1019,6 +1240,8 @@ export default function Page() {
         draftIssue: linkedIssue,
         saving: false,
         loaded: true,
+        loadedFromWorker: true,
+        unauthorizedNoToken: false,
         error: "",
       }));
     } catch {
@@ -1065,14 +1288,25 @@ export default function Page() {
     const labels = new Set<string>();
     indexedCases.forEach((item) => {
       const cid = item.caseIDValue;
-      if (!cid) return;
-      const meta = caseMetaByID[cid];
-      if (!meta?.loaded) return;
-      meta.labels.forEach((label) => {
+      const meta = cid ? (caseMetaByID[cid] || null) : null;
+      caseResolvedLabels(item.entry, meta).forEach((label) => {
         if (label) labels.add(label);
       });
     });
     return Array.from(labels.values()).sort();
+  }, [indexedCases, caseMetaByID]);
+
+  const issueOptions = useMemo(() => {
+    const issues = new Set<string>();
+    indexedCases.forEach((item) => {
+      const cid = item.caseIDValue;
+      const meta = cid ? (caseMetaByID[cid] || null) : null;
+      const issue = caseResolvedIssue(item.entry, meta).trim();
+      if (issue) {
+        issues.add(issue);
+      }
+    });
+    return Array.from(issues.values()).sort();
   }, [indexedCases, caseMetaByID]);
 
   const filtered = useMemo(() => {
@@ -1088,22 +1322,30 @@ export default function Page() {
       if (planSigFormat && c.plan_signature_format !== planSigFormat) return false;
       if (onlyErrors && !c.error) return false;
       if (reason && item.reasonLabel !== reason) return false;
+      const cid = item.caseIDValue;
+      const meta = cid ? (caseMetaByID[cid] || null) : null;
       if (labelFilter) {
-        const cid = item.caseIDValue;
-        if (!cid) return false;
-        const meta = caseMetaByID[cid];
-        if (!meta?.loaded) return false;
-        const match = meta.labels.some((label) => label.toLowerCase() === labelFilter.toLowerCase());
+        const labels = caseResolvedLabels(c, meta);
+        const match = labels.some((label) => label.toLowerCase() === labelFilter.toLowerCase());
         if (!match) return false;
+      }
+      if (onlyWithIssue || issueFilter) {
+        const issue = caseResolvedIssue(c, meta).trim();
+        if (onlyWithIssue && !issue) {
+          return false;
+        }
+        if (issueFilter && issue.toLowerCase() !== issueFilter.toLowerCase()) {
+          return false;
+        }
       }
       if (!q) return true;
       return item.searchBlob.includes(q);
     });
-  }, [indexedCases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, caseMetaByID, q]);
+  }, [indexedCases, oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, issueFilter, onlyWithIssue, caseMetaByID, q]);
 
   useEffect(() => {
     setPage(1);
-  }, [oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, q]);
+  }, [oracle, commit, planSig, planSigFormat, onlyErrors, reason, labelFilter, issueFilter, onlyWithIssue, q]);
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(filtered.length / casesPerPage));
@@ -1254,9 +1496,23 @@ export default function Page() {
                 ))}
               </select>
             )}
+            {issueOptions.length > 0 && (
+              <select value={issueFilter} onChange={(e) => setIssueFilter(e.target.value)}>
+                <option value="">All issues</option>
+                {issueOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            )}
             <label className="toggle">
               <input type="checkbox" checked={onlyErrors} onChange={(e) => setOnlyErrors(e.target.checked)} />
               Only errors
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={onlyWithIssue} onChange={(e) => setOnlyWithIssue(e.target.checked)} />
+              Only linked issue
             </label>
             <label className="toggle">
               <input type="checkbox" checked={showExplainSame} onChange={(e) => setShowExplainSame(e.target.checked)} />
@@ -1372,10 +1628,10 @@ export default function Page() {
           const detailError = isExpanded ? (caseDetailErrorByKey[caseKey] || "").trim() : "";
           const detailLoaded = Boolean(c.detail_loaded);
           const meta = cid ? (caseMetaByID[cid] || emptyCaseMeta()) : null;
-          const metaLabels = meta?.loaded ? meta.labels : [];
+          const metaLabels = caseResolvedLabels(c, meta);
           const metaLabelPreview = metaLabels.slice(0, 3);
           const metaLabelExtra = metaLabels.length - metaLabelPreview.length;
-          const metaIssue = meta?.loaded ? meta.linkedIssue : "";
+          const metaIssue = caseResolvedIssue(c, meta);
           const metaIssueDisplay = metaIssue.length > 32 ? `${metaIssue.slice(0, 32)}...` : metaIssue;
           const archiveURL = isExpanded ? caseArchiveURL(c) : "";
           const downloadURL = archiveURL;
@@ -1389,6 +1645,10 @@ export default function Page() {
           const reasonLabel = item.reasonLabel;
           const expectedSQL = isExpanded ? detailString(c.details, "replay_expected_sql") || c.norec_optimized_sql || "" : "";
           const actualSQL = isExpanded ? detailString(c.details, "replay_actual_sql") || c.norec_unoptimized_sql || "" : "";
+          const replaySQL = isExpanded ? detailString(c.details, "replay_sql") || c.replay_sql || "" : "";
+          const minimizeStatus = isExpanded
+            ? detailString(c.details, "minimize_status") || c.minimize_status || ""
+            : c.minimize_status || "";
           const norecPredicate = isExpanded ? c.norec_predicate || "" : "";
           const expectedRowsTruncated = detailBool(c.details, "expected_rows_truncated");
           const actualRowsTruncated = detailBool(c.details, "actual_rows_truncated");
@@ -1432,6 +1692,13 @@ export default function Page() {
                 label: "Actual SQL",
                 content: <pre>{formatSQL(actualSQL)}</pre>,
                 copyText: actualSQL,
+              }
+            : null;
+          const replaySQLBlock: CaseBlock | null = replaySQL
+            ? {
+                label: minimizeStatus ? `Min Repro SQL (${minimizeStatus})` : "Min Repro SQL",
+                content: <pre>{formatSQL(replaySQL)}</pre>,
+                copyText: replaySQL,
               }
             : null;
           const expectedExplainBlock: CaseBlock | null = expectedExplain
@@ -1543,6 +1810,7 @@ export default function Page() {
                 {cid && <span className="pill">{cid}</span>}
                 {c.flaky && <span className="pill pill--flaky">flaky</span>}
                 {reasonLabel !== "other" && <span className="pill">{reasonLabel.replace(/_/g, " ")}</span>}
+                {minimizeStatus && <span className="pill">minimize {minimizeStatus}</span>}
                 {(expectedRowsTruncated || actualRowsTruncated) && (
                   <span className="pill pill--warn">
                     {expectedRowsTruncated && actualRowsTruncated
@@ -1653,38 +1921,43 @@ export default function Page() {
                   </div>
                 )}
                 <div className="case__meta">
-                  {workerBaseURL && cid && (() => {
-                    const issueLink = meta.linkedIssue ? issueLinkFrom(meta.linkedIssue) : null;
+                  {((workerBaseURL && cid) || metaLabels.length > 0 || Boolean(metaIssue)) && (() => {
+                    const currentMeta = meta || emptyCaseMeta();
+                    const issueLink = metaIssue ? issueLinkFrom(metaIssue) : null;
+                    const showMetaError =
+                      currentMeta.error && !(currentMeta.error === "unauthorized" && !workerToken.trim());
                     return (
                       <div className="case__meta-block">
                         <LabelRow label="Tags & Issue" />
-                        {meta.loading && <div className="hint">Loading metadata...</div>}
-                        {meta.error && <div className="error">{meta.error}</div>}
-                        {meta.labels.length > 0 && (
+                        {workerBaseURL && cid && currentMeta.loading && <div className="hint">Loading metadata...</div>}
+                        {workerBaseURL && cid && showMetaError && <div className="error">{currentMeta.error}</div>}
+                        {metaLabels.length > 0 && (
                           <div className="pill-row">
-                            {meta.labels.map((label) => (
+                            {metaLabels.map((label) => (
                               <span className="pill" key={`${cid}-${label}`}>{label}</span>
                             ))}
                           </div>
                         )}
-                        {meta.linkedIssue && issueLink && (
+                        {metaIssue && issueLink && (
                           <a className="action-link" href={issueLink.href} target="_blank" rel="noreferrer">
                             Issue {issueLink.label}
                           </a>
                         )}
-                        {meta.linkedIssue && !issueLink && (
+                        {metaIssue && !issueLink && (
                           <div className="linked-issue">
                             <span className="pill">issue</span>
-                            <span>{meta.linkedIssue}</span>
+                            <span>{metaIssue}</span>
                           </div>
                         )}
-                        <button
-                          className="copy-btn"
-                          type="button"
-                          onClick={() => void openMetaEditor(cid)}
-                        >
-                          Edit tags & issue
-                        </button>
+                        {workerBaseURL && cid && (
+                          <button
+                            className="copy-btn"
+                            type="button"
+                            onClick={() => void openMetaEditor(cid)}
+                          >
+                            Edit tags & issue
+                          </button>
+                        )}
                       </div>
                     );
                   })()}
@@ -1698,6 +1971,15 @@ export default function Page() {
                     <>
                       <LabelRow label="NoREC Predicate" onCopy={() => copyText("norec predicate", norecPredicate)} />
                       <pre>{norecPredicate}</pre>
+                    </>
+                  )}
+                  {replaySQLBlock && (
+                    <>
+                      <LabelRow
+                        label={replaySQLBlock.label}
+                        onCopy={replaySQLBlock.copyText ? () => copyText(replaySQLBlock.label, replaySQLBlock.copyText || "") : undefined}
+                      />
+                      {replaySQLBlock.content}
                     </>
                   )}
                   {(() => {
