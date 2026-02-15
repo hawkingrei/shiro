@@ -65,6 +65,8 @@ type CaseMetaState = {
   loading: boolean;
   saving: boolean;
   loaded: boolean;
+  loadedFromWorker: boolean;
+  unauthorizedNoToken: boolean;
   error: string;
 };
 
@@ -164,6 +166,8 @@ const emptyCaseMeta = (): CaseMetaState => ({
   loading: false,
   saving: false,
   loaded: false,
+  loadedFromWorker: false,
+  unauthorizedNoToken: false,
   error: "",
 });
 
@@ -269,6 +273,33 @@ type PersistedCaseMeta = {
   linkedIssue?: string;
 };
 
+const logCacheIssue = (message: string, err: unknown, level: "warn" | "error" = "warn") => {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+  if (level === "error") {
+    console.error(message, err);
+    return;
+  }
+  console.warn(message, err);
+};
+
+const buildPersistedCaseMeta = (metaByID: Record<string, CaseMetaState>): Record<string, PersistedCaseMeta> => {
+  const payload: Record<string, PersistedCaseMeta> = {};
+  for (const [caseIDValue, meta] of Object.entries(metaByID)) {
+    if (!caseIDValue.trim()) {
+      continue;
+    }
+    const labels = normalizeLabels(meta.labels);
+    const linkedIssue = (meta.linkedIssue || "").trim();
+    if (labels.length === 0 && !linkedIssue) {
+      continue;
+    }
+    payload[caseIDValue] = { labels, linkedIssue };
+  }
+  return payload;
+};
+
 const loadPersistedCaseMeta = (): Record<string, PersistedCaseMeta> => {
   try {
     const raw = window.localStorage.getItem(caseMetaCacheStorageKey) || "";
@@ -293,28 +324,19 @@ const loadPersistedCaseMeta = (): Record<string, PersistedCaseMeta> => {
       out[caseIDValue] = { labels, linkedIssue };
     }
     return out;
-  } catch {
+  } catch (err) {
+    logCacheIssue("Failed to load case metadata cache", err, "error");
     return {};
   }
 };
 
 const persistCaseMeta = (metaByID: Record<string, CaseMetaState>) => {
   try {
-    const payload: Record<string, PersistedCaseMeta> = {};
-    for (const [caseIDValue, meta] of Object.entries(metaByID)) {
-      if (!caseIDValue.trim()) {
-        continue;
-      }
-      const labels = normalizeLabels(meta.labels);
-      const linkedIssue = (meta.linkedIssue || "").trim();
-      if (labels.length === 0 && !linkedIssue) {
-        continue;
-      }
-      payload[caseIDValue] = { labels, linkedIssue };
-    }
+    const payload = buildPersistedCaseMeta(metaByID);
     window.localStorage.setItem(caseMetaCacheStorageKey, JSON.stringify(payload));
-  } catch {
+  } catch (err) {
     // Ignore localStorage failures in restricted/private contexts.
+    logCacheIssue("Failed to persist case metadata cache", err);
   }
 };
 
@@ -342,17 +364,31 @@ const caseEmbeddedIssue = (entry: CaseEntry): string => {
 };
 
 const caseResolvedLabels = (entry: CaseEntry, meta: CaseMetaState | null): string[] => {
+  if (meta?.loadedFromWorker) {
+    return normalizeLabels(meta.labels);
+  }
+  const embedded = caseEmbeddedLabels(entry);
+  if (embedded.length > 0) {
+    return embedded;
+  }
   if (meta?.loaded) {
     return normalizeLabels(meta.labels);
   }
-  return caseEmbeddedLabels(entry);
+  return [];
 };
 
 const caseResolvedIssue = (entry: CaseEntry, meta: CaseMetaState | null): string => {
+  if (meta?.loadedFromWorker) {
+    return (meta.linkedIssue || "").trim();
+  }
+  const embedded = caseEmbeddedIssue(entry);
+  if (embedded) {
+    return embedded;
+  }
   if (meta?.loaded) {
     return (meta.linkedIssue || "").trim();
   }
-  return caseEmbeddedIssue(entry);
+  return "";
 };
 
 const formatExplain = (text: string) => {
@@ -656,6 +692,9 @@ export default function Page() {
       const next = { ...prev };
       for (const [caseIDValue, meta] of entries) {
         const current = next[caseIDValue] || emptyCaseMeta();
+        if (current.loadedFromWorker || current.loading || current.saving) {
+          continue;
+        }
         const labels = normalizeLabels(meta.labels);
         const linkedIssue = typeof meta.linkedIssue === "string" ? meta.linkedIssue.trim() : "";
         next[caseIDValue] = {
@@ -665,6 +704,8 @@ export default function Page() {
           draftLabels: current.draftLabels || labels.join(", "),
           draftIssue: current.draftIssue || linkedIssue,
           loaded: true,
+          loadedFromWorker: false,
+          unauthorizedNoToken: false,
           error: "",
         };
       }
@@ -673,7 +714,21 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    persistCaseMeta(caseMetaByID);
+    const nextPayload = JSON.stringify(buildPersistedCaseMeta(caseMetaByID));
+    const timer = window.setTimeout(() => {
+      try {
+        const currentRaw = window.localStorage.getItem(caseMetaCacheStorageKey) || "";
+        if (currentRaw === nextPayload) {
+          return;
+        }
+      } catch (err) {
+        logCacheIssue("Failed to read case metadata cache", err);
+      }
+      persistCaseMeta(caseMetaByID);
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [caseMetaByID]);
 
   useEffect(() => {
@@ -906,7 +961,10 @@ export default function Page() {
       return;
     }
     const current = caseMetaByID[caseID];
-    if (current?.loaded || current?.loading) {
+    if (current?.loadedFromWorker || current?.loading) {
+      return;
+    }
+    if (current?.unauthorizedNoToken && !workerToken.trim()) {
       return;
     }
     updateCaseMetaState(caseID, (state) => ({ ...state, loading: true, error: "" }));
@@ -920,6 +978,8 @@ export default function Page() {
           ...state,
           loading: false,
           loaded: true,
+          loadedFromWorker: true,
+          unauthorizedNoToken: false,
           error: "",
         }));
         return;
@@ -929,7 +989,9 @@ export default function Page() {
         updateCaseMetaState(caseID, (state) => ({
           ...state,
           loading: false,
-          loaded: state.loaded,
+          loaded: silentUnauthorized ? true : state.loaded,
+          loadedFromWorker: false,
+          unauthorizedNoToken: silentUnauthorized,
           error: silentUnauthorized ? "" : "unauthorized",
         }));
         return;
@@ -939,6 +1001,8 @@ export default function Page() {
           ...state,
           loading: false,
           loaded: state.loaded,
+          loadedFromWorker: state.loadedFromWorker,
+          unauthorizedNoToken: false,
           error: `load failed (${resp.status})`,
         }));
         return;
@@ -954,13 +1018,20 @@ export default function Page() {
         draftIssue: linkedIssue,
         loading: false,
         loaded: true,
+        loadedFromWorker: true,
+        unauthorizedNoToken: false,
         error: "",
       }));
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       updateCaseMetaState(caseID, (state) => ({
         ...state,
         loading: false,
         loaded: state.loaded,
+        loadedFromWorker: state.loadedFromWorker,
+        unauthorizedNoToken: false,
         error: "load failed",
       }));
     }
@@ -984,7 +1055,16 @@ export default function Page() {
     }
     const needBootstrap = caseIDs.some((cid) => {
       const meta = caseMetaByIDRef.current[cid];
-      return !meta || (!meta.loaded && !meta.loading);
+      if (!meta) {
+        return true;
+      }
+      if (meta.loading || meta.loadedFromWorker) {
+        return false;
+      }
+      if (meta.unauthorizedNoToken && !workerToken.trim()) {
+        return false;
+      }
+      return true;
     });
     if (!needBootstrap) {
       return;
@@ -1071,15 +1151,19 @@ export default function Page() {
                 draftLabels: keepDraftLabels ? currentDraftLabels : loadedDraftLabels,
                 draftIssue: keepDraftIssue ? currentDraftIssue : loadedDraftIssue,
                 loaded: true,
+                loadedFromWorker: true,
+                unauthorizedNoToken: false,
                 loading: false,
                 error: "",
               };
               continue;
             }
-            if (result.complete && !current.loaded && !current.loading && !current.saving) {
+            if (result.complete && !current.loadedFromWorker && !current.loading && !current.saving) {
               next[cid] = {
                 ...current,
                 loaded: true,
+                loadedFromWorker: true,
+                unauthorizedNoToken: false,
                 loading: false,
                 error: "",
               };
@@ -1154,6 +1238,8 @@ export default function Page() {
         draftIssue: linkedIssue,
         saving: false,
         loaded: true,
+        loadedFromWorker: true,
+        unauthorizedNoToken: false,
         error: "",
       }));
     } catch {
