@@ -68,7 +68,7 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 	state := schema.State{}
 	gen := generator.New(cfg, &state, 2)
 	for i := 0; i < 20; i++ {
-		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true)
+		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
 		if len(hints) > 2 {
 			t.Fatalf("expected <=2 set_var hints, got %d", len(hints))
 		}
@@ -90,7 +90,7 @@ func TestDQPHintsForQueryCount(t *testing.T) {
 		HintStreamAgg:       {},
 		HintAggToCop:        {},
 	}
-	hints := dqpHintsForQuery(gen, []string{"t1", "t2"}, true, true, true, true, noArgHints)
+	hints := dqpHintsForQuery(gen, []string{"t1", "t2"}, true, true, true, true, noArgHints, nil)
 	if len(hints) > 2 {
 		t.Fatalf("expected <=2 hints, got %d", len(hints))
 	}
@@ -99,6 +99,149 @@ func TestDQPHintsForQueryCount(t *testing.T) {
 			t.Fatalf("unexpected empty hint")
 		}
 	}
+}
+
+func TestDQPSetVarHintCandidatesIncludePartialOrderedTopN(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 3, true, true, true, true, true, true, nil)
+	if !containsHint(candidates, SetVarPartialOrderedTopNCost) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarPartialOrderedTopNCost, candidates)
+	}
+	if !containsHint(candidates, SetVarPartialOrderedTopNDisable) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarPartialOrderedTopNDisable, candidates)
+	}
+}
+
+func TestDQPExternalHintCandidates(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPExternalHints = []string{
+		"SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')",
+		"tidb_opt_partial_ordered_index_for_topn='DISABLE'",
+		"hash_join",
+		"   ",
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 7)
+	noArgHints := map[string]struct{}{
+		HintStraightJoin:    {},
+		HintSemiJoinRewrite: {},
+		HintNoDecorrelate:   {},
+		HintHashAgg:         {},
+		HintStreamAgg:       {},
+		HintAggToCop:        {},
+	}
+	baseHints, setVarHints := dqpExternalHintCandidates(gen, []string{"t1", "t2"}, noArgHints)
+	if !containsHint(baseHints, "HASH_JOIN(t1, t2)") {
+		t.Fatalf("expected normalized HASH_JOIN base hint, got %v", baseHints)
+	}
+	if !containsHint(setVarHints, "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')") {
+		t.Fatalf("expected external set-var COST hint, got %v", setVarHints)
+	}
+	if !containsHint(setVarHints, "SET_VAR(tidb_opt_partial_ordered_index_for_topn='DISABLE')") {
+		t.Fatalf("expected wrapped set-var DISABLE hint, got %v", setVarHints)
+	}
+}
+
+func TestDQPExternalHintCandidatesSkipsUnsafeAndMalformed(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPExternalHints = []string{
+		"SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'",
+		"hash_join */ select 1",
+		"MERGE_JOIN",
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 9)
+	noArgHints := map[string]struct{}{
+		HintStraightJoin:    {},
+		HintSemiJoinRewrite: {},
+		HintNoDecorrelate:   {},
+		HintHashAgg:         {},
+		HintStreamAgg:       {},
+		HintAggToCop:        {},
+	}
+
+	baseHints, setVarHints := dqpExternalHintCandidates(gen, []string{"t1", "t2"}, noArgHints)
+	if !containsHint(baseHints, "MERGE_JOIN(t1, t2)") {
+		t.Fatalf("expected MERGE_JOIN base hint, got %v", baseHints)
+	}
+	if len(setVarHints) != 0 {
+		t.Fatalf("expected malformed set-var hint to be dropped, got %v", setVarHints)
+	}
+	for _, hint := range baseHints {
+		if strings.Contains(hint, "*/") {
+			t.Fatalf("unexpected unsafe hint in candidates: %q", hint)
+		}
+	}
+}
+
+func TestNormalizeSetVarHintClassification(t *testing.T) {
+	cases := []struct {
+		name     string
+		raw      string
+		hint     string
+		isSetVar bool
+		valid    bool
+	}{
+		{
+			name:     "full_set_var",
+			raw:      "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')",
+			hint:     "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')",
+			isSetVar: true,
+			valid:    true,
+		},
+		{
+			name:     "set_var_shorthand",
+			raw:      "tidb_opt_partial_ordered_index_for_topn='DISABLE'",
+			hint:     "SET_VAR(tidb_opt_partial_ordered_index_for_topn='DISABLE')",
+			isSetVar: true,
+			valid:    true,
+		},
+		{
+			name:     "malformed_set_var",
+			raw:      "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'",
+			hint:     "",
+			isSetVar: true,
+			valid:    false,
+		},
+		{
+			name:     "base_hint",
+			raw:      "HASH_JOIN",
+			hint:     "",
+			isSetVar: false,
+			valid:    false,
+		},
+	}
+
+	for _, tc := range cases {
+		hint, isSetVar, valid := normalizeSetVarHint(tc.raw)
+		if hint != tc.hint || isSetVar != tc.isSetVar || valid != tc.valid {
+			t.Fatalf(
+				"%s: normalizeSetVarHint(%q) = (%q,%v,%v), want (%q,%v,%v)",
+				tc.name,
+				tc.raw,
+				hint,
+				isSetVar,
+				valid,
+				tc.hint,
+				tc.isSetVar,
+				tc.valid,
+			)
+		}
+	}
+}
+
+func containsHint(hints []string, target string) bool {
+	for _, hint := range hints {
+		if hint == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuildCombinedHints(t *testing.T) {

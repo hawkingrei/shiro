@@ -150,7 +150,8 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		HintStreamAgg:       {},
 		HintAggToCop:        {},
 	}
-	baseHints := dqpHintsForQuery(gen, tables, hasJoin, hasSemi, hasCorr, hasAgg, noArgHints)
+	externalBaseHints, externalSetVarHints := dqpExternalHintCandidates(gen, tables, noArgHints)
+	baseHints := dqpHintsForQuery(gen, tables, hasJoin, hasSemi, hasCorr, hasAgg, noArgHints, externalBaseHints)
 	variants := make([]dqpVariant, 0, len(baseHints)+1)
 
 	for _, hintSQL := range baseHints {
@@ -159,7 +160,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 
-	setVarHints := dqpSetVarHints(gen, len(tables), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition)
+	setVarHints := dqpSetVarHints(gen, len(tables), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition, externalSetVarHints)
 	for _, hintSQL := range setVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
@@ -194,7 +195,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	return variants
 }
 
-func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}) []string {
+func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}, externalBaseHints []string) []string {
 	var candidates []string
 	if hasJoin {
 		joinHints := []string{
@@ -225,16 +226,30 @@ func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, h
 	if hasCorr {
 		candidates = append(candidates, buildHintSQL(HintNoDecorrelate, tables, noArgHints))
 	}
+	candidates = append(candidates, externalBaseHints...)
 	return pickHintsWithBandit(gen, candidates, 2)
 }
 
-func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool) []string {
+func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
+	candidates := dqpSetVarHintCandidates(gen, tableCount, hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition, externalSetVarHints)
+	if len(candidates) == 0 {
+		return nil
+	}
+	limit := 0
+	if gen != nil {
+		limit = gen.Rand.Intn(3)
+	}
+	return pickHintsWithBandit(gen, candidates, limit)
+}
+
+func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
 	var candidates []string
 	if hasJoin {
 		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableOuterJoinReorderOn, SetVarEnableOuterJoinReorderOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
 	}
+	candidates = append(candidates, toggleHints(SetVarPartialOrderedTopNCost, SetVarPartialOrderedTopNDisable)...)
 	if hasSubquery {
 		candidates = append(candidates, toggleHints(SetVarEnableNonEvalScalarSubqueryOn, SetVarEnableNonEvalScalarSubqueryOff)...)
 	}
@@ -262,14 +277,56 @@ func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasS
 	)
 	candidates = append(candidates, toggleHints(SetVarFixControl44855On, SetVarFixControl44855Off)...)
 	candidates = append(candidates, SetVarFixControl45132Zero)
-	if len(candidates) == 0 {
-		return nil
+	candidates = append(candidates, externalSetVarHints...)
+	return candidates
+}
+
+func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgHints map[string]struct{}) (baseHints []string, setVarHints []string) {
+	if gen == nil {
+		return nil, nil
 	}
-	limit := 0
-	if gen != nil {
-		limit = gen.Rand.Intn(3)
+	rawHints := gen.Config.Oracles.DQPExternalHints
+	if len(rawHints) == 0 {
+		return nil, nil
 	}
-	return pickHintsWithBandit(gen, candidates, limit)
+	baseHints = make([]string, 0, len(rawHints))
+	setVarHints = make([]string, 0, len(rawHints))
+	for _, raw := range rawHints {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "*/") {
+			continue
+		}
+		setVarHint, isSetVar, valid := normalizeSetVarHint(trimmed)
+		if isSetVar {
+			if valid {
+				setVarHints = append(setVarHints, setVarHint)
+			}
+			continue
+		}
+		baseHints = append(baseHints, buildHintSQL(trimmed, tables, noArgHints))
+	}
+	return baseHints, setVarHints
+}
+
+func normalizeSetVarHint(raw string) (hint string, isSetVar bool, valid bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false, false
+	}
+	upper := strings.ToUpper(trimmed)
+	if strings.HasPrefix(upper, "SET_VAR(") {
+		if strings.HasSuffix(trimmed, ")") {
+			return trimmed, true, true
+		}
+		return "", true, false
+	}
+	if strings.Contains(trimmed, "=") {
+		return "SET_VAR(" + trimmed + ")", true, true
+	}
+	return "", false, false
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {

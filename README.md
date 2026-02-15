@@ -59,6 +59,23 @@ Set `logging.log_file` to write detailed logs to a file (default `logs/shiro.log
 `oracles.strict_predicates: true` (default) limits TLP/CODDTest to simple deterministic predicates to reduce false positives.
 Set it to `false` if you want broader coverage at the cost of more noisy cases.
 
+## DQP external hint injection
+DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` in its built-in SET_VAR candidates.
+You can also inject extra DQP hints from config via `oracles.dqp_external_hints`.
+
+Each entry can be either:
+- a full optimizer hint, for example `HASH_JOIN(t1, t2)` or `SET_VAR(tidb_opt_use_toja=OFF)`
+- a raw `var=value` assignment, which Shiro wraps as `SET_VAR(var=value)`
+
+Example:
+
+```yaml
+oracles:
+  dqp_external_hints:
+    - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
+    - "tidb_opt_partial_ordered_index_for_topn='DISABLE'"
+```
+
 ## GroundTruth oracle limits
 `oracles.groundtruth_max_rows` caps per-table sample size used by the GroundTruth join-count checker (default 50).
 Lower values reduce runtime overhead but may increase false negatives.

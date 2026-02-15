@@ -205,3 +205,35 @@ func TestNormalizeQPGThresholds(t *testing.T) {
 		t.Fatalf("unexpected override_ttl: %d", cfg.QPG.OverrideTTL)
 	}
 }
+
+func TestLoadDQPExternalHints(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `oracles:
+  dqp_external_hints:
+    - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
+    - "HASH_JOIN"
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.Oracles.DQPExternalHints) != 2 {
+		t.Fatalf("unexpected dqp external hints count: %d", len(cfg.Oracles.DQPExternalHints))
+	}
+	if cfg.Oracles.DQPExternalHints[0] != "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')" {
+		t.Fatalf("unexpected first dqp external hint: %s", cfg.Oracles.DQPExternalHints[0])
+	}
+	if cfg.Oracles.DQPExternalHints[1] != "HASH_JOIN" {
+		t.Fatalf("unexpected second dqp external hint: %s", cfg.Oracles.DQPExternalHints[1])
+	}
+}

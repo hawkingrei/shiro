@@ -177,6 +177,7 @@ type OracleConfig struct {
 	PredicateLevel     string            `yaml:"predicate_level"`
 	JoinOnPolicy       string            `yaml:"join_on_policy"`
 	JoinUsingProb      int               `yaml:"join_using_prob"`
+	DQPExternalHints   []string          `yaml:"dqp_external_hints"`
 	CertMinBaseRows    float64           `yaml:"cert_min_base_rows"`
 	GroundTruthMaxRows int               `yaml:"groundtruth_max_rows"`
 	ImpoMaxRows        int               `yaml:"impo_max_rows"`
