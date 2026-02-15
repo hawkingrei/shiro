@@ -126,142 +126,213 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		JoinCount:                     len(query.From.Joins),
 		JoinTypeSeq:                   joinTypeSequence(query),
 		JoinGraphSig:                  joinGraphSignature(query),
-		TemplateJoinPredicateStrategy: normalizeTemplateJoinPredicateStrategy(query.TemplateJoinPredicateStrategy),
-		HasSetOperations:              queryHasSetOperations(query),
-		HasDerivedTables:              queryHasDerivedTables(query),
+		TemplateJoinPredicateStrategy: NormalizeTemplateJoinPredicateStrategy(query.TemplateJoinPredicateStrategy),
+		HasSetOperations:              len(query.SetOps) > 0,
+		HasDerivedTables:              query.From.BaseQuery != nil,
 		HasRecursiveCTE:               query.WithRecursive,
 		HasFullJoinEmulation:          query.FullJoinEmulation,
 	}
-	for _, op := range query.SetOps {
-		if op.Query == nil {
-			continue
-		}
-		mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(op.Query))
+	for _, cte := range query.With {
+		observeSubqueryFeatures(&features, cte.Query, false)
 	}
 	if query.From.BaseQuery != nil {
-		features.HasSubquery = true
-		mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(query.From.BaseQuery))
+		observeSubqueryFeatures(&features, query.From.BaseQuery, true)
 	}
 	for _, item := range query.Items {
-		if ExprHasAggregate(item.Expr) {
-			features.HasAggregate = true
-		}
-		if exprHasWindow(item.Expr) {
-			features.HasWindow = true
-		}
-		if exprHasSubquery(item.Expr) {
-			features.HasSubquery = true
-		}
-		if exprHasQuantifiedSubquery(item.Expr) {
-			features.HasQuantifiedSubqueries = true
-		}
-		inSub, notInSub := exprHasInSubquery(item.Expr)
-		features.HasInSubquery = features.HasInSubquery || inSub
-		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
-		existsSub, notExistsSub := exprHasExistsSubquery(item.Expr)
-		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
-		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
-		inList, notInList := exprHasInList(item.Expr)
-		features.HasInList = features.HasInList || inList
-		features.HasNotInList = features.HasNotInList || notInList
+		observeExprFeatures(&features, item.Expr)
 	}
-	if query.Where != nil {
-		if exprHasWindow(query.Where) {
-			features.HasWindow = true
-		}
-		if exprHasSubquery(query.Where) {
-			features.HasSubquery = true
-		}
-		if exprHasQuantifiedSubquery(query.Where) {
-			features.HasQuantifiedSubqueries = true
-		}
-		inSub, notInSub := exprHasInSubquery(query.Where)
-		features.HasInSubquery = features.HasInSubquery || inSub
-		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
-		existsSub, notExistsSub := exprHasExistsSubquery(query.Where)
-		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
-		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
-		inList, notInList := exprHasInList(query.Where)
-		features.HasInList = features.HasInList || inList
-		features.HasNotInList = features.HasNotInList || notInList
-	}
-	if query.Having != nil {
-		if exprHasWindow(query.Having) {
-			features.HasWindow = true
-		}
-		if exprHasSubquery(query.Having) {
-			features.HasSubquery = true
-		}
-		if exprHasQuantifiedSubquery(query.Having) {
-			features.HasQuantifiedSubqueries = true
-		}
-		inSub, notInSub := exprHasInSubquery(query.Having)
-		features.HasInSubquery = features.HasInSubquery || inSub
-		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
-		existsSub, notExistsSub := exprHasExistsSubquery(query.Having)
-		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
-		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
-		inList, notInList := exprHasInList(query.Having)
-		features.HasInList = features.HasInList || inList
-		features.HasNotInList = features.HasNotInList || notInList
-	}
+	observeExprFeatures(&features, query.Where)
+	observeExprFeatures(&features, query.Having)
 	for _, expr := range query.GroupBy {
-		if exprHasWindow(expr) {
-			features.HasWindow = true
-		}
-		if exprHasSubquery(expr) {
-			features.HasSubquery = true
-		}
-		if exprHasQuantifiedSubquery(expr) {
-			features.HasQuantifiedSubqueries = true
-		}
-		inSub, notInSub := exprHasInSubquery(expr)
-		features.HasInSubquery = features.HasInSubquery || inSub
-		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
-		existsSub, notExistsSub := exprHasExistsSubquery(expr)
-		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
-		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
-		inList, notInList := exprHasInList(expr)
-		features.HasInList = features.HasInList || inList
-		features.HasNotInList = features.HasNotInList || notInList
+		observeExprFeatures(&features, expr)
 	}
 	for _, ob := range query.OrderBy {
-		if exprHasWindow(ob.Expr) {
-			features.HasWindow = true
+		observeExprFeatures(&features, ob.Expr)
+	}
+	for _, wd := range query.WindowDefs {
+		if wd.Frame != nil {
+			features.HasWindowFrame = true
 		}
-		if exprHasSubquery(ob.Expr) {
-			features.HasSubquery = true
+		for _, part := range wd.PartitionBy {
+			observeExprFeatures(&features, part)
 		}
-		if exprHasQuantifiedSubquery(ob.Expr) {
-			features.HasQuantifiedSubqueries = true
+		for _, ob := range wd.OrderBy {
+			observeExprFeatures(&features, ob.Expr)
 		}
-		inSub, notInSub := exprHasInSubquery(ob.Expr)
-		features.HasInSubquery = features.HasInSubquery || inSub
-		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
-		existsSub, notExistsSub := exprHasExistsSubquery(ob.Expr)
-		features.HasExistsSubquery = features.HasExistsSubquery || existsSub
-		features.HasNotExistsSubquery = features.HasNotExistsSubquery || notExistsSub
-		inList, notInList := exprHasInList(ob.Expr)
-		features.HasInList = features.HasInList || inList
-		features.HasNotInList = features.HasNotInList || notInList
 	}
 	for _, join := range query.From.Joins {
 		if join.Natural {
 			features.HasNaturalJoin = true
 		}
 		if join.TableQuery != nil {
-			features.HasSubquery = true
 			features.HasDerivedTables = true
-			mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(join.TableQuery))
+			observeSubqueryFeatures(&features, join.TableQuery, true)
 		}
-		if join.On != nil && exprHasWindow(join.On) {
-			features.HasWindow = true
+		if join.On != nil {
+			observeExprFeatures(&features, join.On)
 		}
 	}
-	features.HasWindowFrame = queryHasWindowFrame(query)
-	features.HasIntervalArith = queryHasIntervalArith(query)
-	features.HasQuantifiedSubqueries = features.HasQuantifiedSubqueries || queryHasQuantifiedSubquery(query)
+	for _, op := range query.SetOps {
+		observeSubqueryFeatures(&features, op.Query, false)
+	}
 	return features
+}
+
+func observeExprFeatures(features *QueryFeatures, expr Expr) {
+	if features == nil || expr == nil {
+		return
+	}
+	switch e := expr.(type) {
+	case ColumnExpr, LiteralExpr, ParamExpr:
+		return
+	case GroupByOrdinalExpr:
+		observeExprFeatures(features, e.Expr)
+	case UnaryExpr:
+		if strings.EqualFold(strings.TrimSpace(e.Op), "NOT") {
+			switch inner := e.Expr.(type) {
+			case ExistsExpr:
+				features.HasNotExistsSubquery = true
+				observeSubqueryFeatures(features, inner.Query, true)
+				return
+			case *ExistsExpr:
+				features.HasNotExistsSubquery = true
+				observeSubqueryFeatures(features, inner.Query, true)
+				return
+			case InExpr:
+				observeInExprFeatures(features, inner, true)
+				return
+			case *InExpr:
+				if inner != nil {
+					observeInExprFeatures(features, *inner, true)
+				}
+				return
+			}
+		}
+		observeExprFeatures(features, e.Expr)
+	case BinaryExpr:
+		observeExprFeatures(features, e.Left)
+		observeExprFeatures(features, e.Right)
+	case FuncExpr:
+		if isAggregateFunc(e.Name) {
+			features.HasAggregate = true
+		}
+		for _, arg := range e.Args {
+			observeExprFeatures(features, arg)
+		}
+	case CaseExpr:
+		for _, w := range e.Whens {
+			observeExprFeatures(features, w.When)
+			observeExprFeatures(features, w.Then)
+		}
+		observeExprFeatures(features, e.Else)
+	case SubqueryExpr:
+		observeSubqueryFeatures(features, e.Query, true)
+	case *SubqueryExpr:
+		if e != nil {
+			observeSubqueryFeatures(features, e.Query, true)
+		}
+	case ExistsExpr:
+		features.HasExistsSubquery = true
+		observeSubqueryFeatures(features, e.Query, true)
+	case *ExistsExpr:
+		if e != nil {
+			features.HasExistsSubquery = true
+			observeSubqueryFeatures(features, e.Query, true)
+		}
+	case InExpr:
+		observeInExprFeatures(features, e, false)
+	case *InExpr:
+		if e != nil {
+			observeInExprFeatures(features, *e, false)
+		}
+	case CompareSubqueryExpr:
+		features.HasQuantifiedSubqueries = true
+		observeExprFeatures(features, e.Left)
+		observeSubqueryFeatures(features, e.Query, true)
+	case *CompareSubqueryExpr:
+		if e != nil {
+			features.HasQuantifiedSubqueries = true
+			observeExprFeatures(features, e.Left)
+			observeSubqueryFeatures(features, e.Query, true)
+		}
+	case WindowExpr:
+		features.HasWindow = true
+		if e.Frame != nil {
+			features.HasWindowFrame = true
+		}
+		for _, arg := range e.Args {
+			observeExprFeatures(features, arg)
+		}
+		for _, part := range e.PartitionBy {
+			observeExprFeatures(features, part)
+		}
+		for _, ob := range e.OrderBy {
+			observeExprFeatures(features, ob.Expr)
+		}
+	case *WindowExpr:
+		if e != nil {
+			features.HasWindow = true
+			if e.Frame != nil {
+				features.HasWindowFrame = true
+			}
+			for _, arg := range e.Args {
+				observeExprFeatures(features, arg)
+			}
+			for _, part := range e.PartitionBy {
+				observeExprFeatures(features, part)
+			}
+			for _, ob := range e.OrderBy {
+				observeExprFeatures(features, ob.Expr)
+			}
+		}
+	case IntervalExpr, *IntervalExpr:
+		features.HasIntervalArith = true
+	}
+}
+
+func observeSubqueryFeatures(features *QueryFeatures, query *SelectQuery, markSubquery bool) {
+	if features == nil {
+		return
+	}
+	if markSubquery {
+		features.HasSubquery = true
+	}
+	if query == nil {
+		return
+	}
+	mergeQueryFeatureFlags(features, AnalyzeQueryFeatures(query))
+}
+
+func observeInExprFeatures(features *QueryFeatures, expr InExpr, negated bool) {
+	observeExprFeatures(features, expr.Left)
+	hasSubquery := false
+	for _, item := range expr.List {
+		switch sub := item.(type) {
+		case SubqueryExpr:
+			hasSubquery = true
+			observeSubqueryFeatures(features, sub.Query, true)
+		case *SubqueryExpr:
+			if sub != nil {
+				hasSubquery = true
+				observeSubqueryFeatures(features, sub.Query, true)
+			}
+		default:
+			observeExprFeatures(features, item)
+		}
+	}
+	if hasSubquery {
+		if negated {
+			features.HasNotInSubquery = true
+		} else {
+			features.HasInSubquery = true
+		}
+		return
+	}
+	if negated {
+		features.HasNotInList = true
+		return
+	}
+	features.HasInList = true
 }
 
 func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {

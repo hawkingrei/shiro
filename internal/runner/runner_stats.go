@@ -160,19 +160,13 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	if r.joinTypeSeqs == nil {
 		r.joinTypeSeqs = make(map[string]int64)
 	}
-	if r.joinGraphSigs == nil {
-		r.joinGraphSigs = make(map[string]int64)
-	}
-	if r.templateJoinPredicateStrategies == nil {
-		r.templateJoinPredicateStrategies = make(map[string]int64)
-	}
 	if features.JoinTypeSeq != "" {
 		r.joinTypeSeqs[features.JoinTypeSeq]++
 	}
 	if features.JoinGraphSig != "" {
 		r.joinGraphSigs[features.JoinGraphSig]++
 	}
-	if strategy := normalizeTemplateJoinPredicateStrategy(features.TemplateJoinPredicateStrategy); strategy != "" {
+	if strategy := generator.NormalizeTemplateJoinPredicateStrategy(features.TemplateJoinPredicateStrategy); strategy != "" {
 		r.templateJoinPredicateStrategies[strategy]++
 	}
 	if features.ViewCount > 0 {
@@ -389,17 +383,6 @@ func normalizeMinimizeStatus(status string) string {
 		return "in_progress"
 	}
 	return normalized
-}
-
-func normalizeTemplateJoinPredicateStrategy(strategy string) string {
-	switch strings.TrimSpace(strings.ToLower(strategy)) {
-	case "join_only":
-		return "join_only"
-	case "join_filter":
-		return "join_filter"
-	default:
-		return ""
-	}
 }
 
 func oracleSkipReason(result oracle.Result) string {

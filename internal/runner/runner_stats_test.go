@@ -90,8 +90,8 @@ func TestNormalizeTemplateJoinPredicateStrategy(t *testing.T) {
 		"unknown":     "",
 	}
 	for input, expect := range cases {
-		if got := normalizeTemplateJoinPredicateStrategy(input); got != expect {
-			t.Fatalf("normalizeTemplateJoinPredicateStrategy(%q)=%q want=%q", input, got, expect)
+		if got := generator.NormalizeTemplateJoinPredicateStrategy(input); got != expect {
+			t.Fatalf("NormalizeTemplateJoinPredicateStrategy(%q)=%q want=%q", input, got, expect)
 		}
 	}
 }

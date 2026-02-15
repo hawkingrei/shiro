@@ -1,6 +1,8 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: addressed PR #114 review follow-ups by reducing `AnalyzeQueryFeatures` redundant traversals via a primary single-pass walk, centralizing template strategy normalization in generator (reused by runner), and removing duplicate template-weight normalization from generator fallback logic; updated generator/runner tests accordingly (2026-02-15).
+Latest sync: reviewed latest local `logs/shiro.log` + `reports/*/summary.json` (2026-02-15): 17 captured cases (16 `skipped`, 1 `not_applicable`), all skipped cases had `minimize_reason=base_replay_not_reproducible`; GroundTruth remained skip-dominant with DSG mismatch reasons (`base_table`/`right_key`), while DQP stayed effective and template strategy counters (`join_filter`/`join_only`) were both active.
 Latest sync: GroundTruth now auto-aligns effective `maxRows` with TQS `wide_rows` in DSG mode (while still honoring baseline config floors), reducing `groundtruth:table_rows_exceeded` skips caused by cap mismatch; added regression coverage (2026-02-14).
 Latest sync: added runner-level QPG tests for threshold-triggered adaptive overrides and TTL-based override retirement, plus a CI-focused QPG config snippet in README (2026-02-14).
 Latest sync: centralized non-template QPG adaptive thresholds and override TTL into config (`qpg.no_*_threshold`, `qpg.override_ttl`), and updated runner QPG weight-override logic to consume config-driven values with normalization defaults (2026-02-14).
@@ -101,6 +103,7 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 2. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles. (done)
 3. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement. (done: recursive QueryFeatures detection + runner interval counters/ratios + regression tests)
 4. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
+5. Reduce GroundTruth DSG skip reasons (`dsg_key_mismatch_base_table` / `dsg_key_mismatch_right_key`) with additional join-shape/key-alignment constraints before oracle execution.
 
 ## PQS (Rigger OSDI20)
 

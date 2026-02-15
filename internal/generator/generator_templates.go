@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"strings"
+
 	"shiro/internal/schema"
 	"shiro/internal/util"
 )
@@ -286,12 +288,8 @@ func (g *Generator) pickTemplateJoinPredicateStrategy() string {
 func (g *Generator) templateJoinPredicateWeights() (joinOnlyWeight int, joinFilterWeight int) {
 	joinOnlyWeight = g.Config.Weights.Features.TemplateJoinOnlyWeight
 	joinFilterWeight = g.Config.Weights.Features.TemplateJoinFilterWeight
-	if joinOnlyWeight < 0 {
-		joinOnlyWeight = 0
-	}
-	if joinFilterWeight < 0 {
-		joinFilterWeight = 0
-	}
+	// Config loading already normalizes template weights. Keep only a
+	// lightweight fallback for callers that construct configs programmatically.
 	if joinOnlyWeight == 0 && joinFilterWeight == 0 {
 		joinOnlyWeight = templateJoinOnlyWeightDefault
 		joinFilterWeight = templateJoinFilterWeightDefault
@@ -299,8 +297,9 @@ func (g *Generator) templateJoinPredicateWeights() (joinOnlyWeight int, joinFilt
 	return joinOnlyWeight, joinFilterWeight
 }
 
-func normalizeTemplateJoinPredicateStrategy(strategy string) string {
-	switch strategy {
+// NormalizeTemplateJoinPredicateStrategy canonicalizes template strategy labels.
+func NormalizeTemplateJoinPredicateStrategy(strategy string) string {
+	switch strings.TrimSpace(strings.ToLower(strategy)) {
 	case templateJoinPredicateStrategyJoinOnly:
 		return templateJoinPredicateStrategyJoinOnly
 	case templateJoinPredicateStrategyJoinFilter:
