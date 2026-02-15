@@ -59,6 +59,34 @@ QPG also tracks operator-sequence signatures (plan operator lists) to nudge aggr
 JSON parsing accepts either `id` or `operator` keys and normalizes operator names for coverage accounting.
 QPG normalizes EXPLAIN text (table/column/index tokens, numeric literals) before hashing to reduce noise.
 
+### CI tuning snippet for QPG
+For short CI runs, you can tighten QPG trigger thresholds and keep override TTLs short:
+
+```yaml
+qpg:
+  enabled: true
+  explain_format: "brief"
+  mutation_prob: 35
+  no_join_threshold: 2
+  no_agg_threshold: 2
+  no_new_plan_threshold: 3
+  no_new_op_sig_threshold: 3
+  no_new_shape_threshold: 3
+  no_new_join_type_threshold: 2
+  no_new_join_order_threshold: 2
+  override_ttl: 3
+  template_override:
+    no_new_join_order_threshold: 2
+    no_new_shape_threshold: 3
+    no_agg_threshold: 2
+    no_new_plan_threshold: 3
+    join_weight_boost: 7
+    agg_weight_boost: 7
+    semi_weight_boost: 6
+    enabled_prob: 65
+    override_ttl: 3
+```
+
 ## Plan cache only
 Set `plan_cache_only: true` for a focused plan-cache run that executes only prepared statements.
 In normal mode, Shiro still runs prepared statements and applies the same plan-cache checks; this flag just isolates that workflow.

@@ -196,6 +196,43 @@ func TestAnalyzeQueryFeaturesWindow(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQueryFeaturesWindowFrameAndIntervalArith(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr: WindowExpr{
+					Name: "ROW_NUMBER",
+					OrderBy: []OrderBy{
+						{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}},
+					},
+					Frame: &WindowFrame{
+						Unit:  "ROWS",
+						Start: "UNBOUNDED PRECEDING",
+						End:   "CURRENT ROW",
+					},
+				},
+			},
+			{
+				Expr: FuncExpr{
+					Name: "DATE_ADD",
+					Args: []Expr{
+						ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "d0"}},
+						IntervalExpr{Value: 1, Unit: "DAY"},
+					},
+				},
+			},
+		},
+		From: FromClause{BaseTable: "t0"},
+	}
+	features := AnalyzeQueryFeatures(query)
+	if !features.HasWindowFrame {
+		t.Fatalf("expected HasWindowFrame true")
+	}
+	if !features.HasIntervalArith {
+		t.Fatalf("expected HasIntervalArith true")
+	}
+}
+
 func TestGroupByOrdinalExprBuild(t *testing.T) {
 	expr := GroupByOrdinalExpr{
 		Ordinal: 2,

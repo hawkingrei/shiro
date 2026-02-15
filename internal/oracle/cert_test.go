@@ -24,3 +24,19 @@ func TestCERTNoTablesSkip(t *testing.T) {
 		t.Fatalf("expected skip reason")
 	}
 }
+
+func TestCERTSelectConstraintsGuardrails(t *testing.T) {
+	c := certSelectConstraints()
+	if !c.RequireWhere {
+		t.Fatalf("expected RequireWhere")
+	}
+	if c.PredicateMode != generator.PredicateModeSimple {
+		t.Fatalf("unexpected predicate mode: %v", c.PredicateMode)
+	}
+	if !c.RequireDeterministic {
+		t.Fatalf("expected RequireDeterministic")
+	}
+	if !c.DisallowAggregate || !c.DisallowDistinct || !c.DisallowGroupBy || !c.DisallowHaving || !c.DisallowOrderBy || !c.DisallowSetOps || !c.DisallowWindow {
+		t.Fatalf("expected CERT guardrails to disallow aggregate/distinct/group/order/having/setops/window")
+	}
+}

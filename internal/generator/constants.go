@@ -191,5 +191,6 @@ const (
 	templateSemiAntiWeight          = 3
 	templateTablePickRetries        = 4
 	templateSemiAntiExtraFilterProb = 60
-	templateJoinOnlyPredicateProb   = 40
+	templateJoinOnlyWeightDefault   = 4
+	templateJoinFilterWeightDefault = 6
 )

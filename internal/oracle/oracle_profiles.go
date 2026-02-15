@@ -208,7 +208,7 @@ var Profiles = map[string]Profile{
 			WindowFuncs: BoolPtr(false),
 		},
 		AllowSubquery: BoolPtr(true),
-		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
+		PredicateMode: PredicateModePtr(generator.PredicateModeSimpleColumns),
 		JoinOnPolicy:  StringPtr("complex"),
 	},
 	"DQP": {
