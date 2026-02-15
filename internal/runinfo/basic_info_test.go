@@ -78,6 +78,40 @@ func TestFromEnvEmpty(t *testing.T) {
 	}
 }
 
+func TestFromEnvShiroCIOnly(t *testing.T) {
+	clearKnownEnv(t)
+	t.Setenv("SHIRO_CI", "true")
+
+	info := FromEnv()
+	if info == nil {
+		t.Fatalf("expected run info")
+	}
+	if !info.CI {
+		t.Fatalf("expected ci=true")
+	}
+	if info.Provider != "generic" {
+		t.Fatalf("provider=%q", info.Provider)
+	}
+}
+
+func TestFromEnvShiroCIExplicitFalse(t *testing.T) {
+	clearKnownEnv(t)
+	t.Setenv("SHIRO_CI", "false")
+	t.Setenv("SHIRO_CI_PROVIDER", "manual")
+	t.Setenv("SHIRO_CI_REPOSITORY", "hawkingrei/shiro")
+
+	info := FromEnv()
+	if info == nil {
+		t.Fatalf("expected run info")
+	}
+	if info.CI {
+		t.Fatalf("expected ci=false when SHIRO_CI=false is explicitly set")
+	}
+	if info.Provider != "manual" {
+		t.Fatalf("provider=%q", info.Provider)
+	}
+}
+
 func clearKnownEnv(t *testing.T) {
 	t.Helper()
 	keys := []string{

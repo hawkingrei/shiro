@@ -136,7 +136,9 @@ func logRunInfo(info *runinfo.BasicInfo) {
 	if info == nil || info.IsZero() {
 		return
 	}
-	util.Infof("run info: ci=%t provider=%s repo=%s branch=%s commit=%s workflow=%s job=%s run_id=%s run_number=%s event=%s pr=%s actor=%s build_url=%s",
+	const format = "run info: ci=%t provider=%s repo=%s branch=%s commit=%s " +
+		"workflow=%s job=%s run_id=%s run_number=%s event=%s pr=%s actor=%s build_url=%s"
+	util.Infof(format,
 		info.CI,
 		info.Provider,
 		info.Repository,

@@ -54,21 +54,6 @@ func (b BasicInfo) IsZero() bool {
 		b.BuildURL == "" {
 		return true
 	}
-	if b.CI &&
-		b.Provider == "generic" &&
-		b.Repository == "" &&
-		b.Branch == "" &&
-		b.Commit == "" &&
-		b.Workflow == "" &&
-		b.Job == "" &&
-		b.RunID == "" &&
-		b.RunNumber == "" &&
-		b.Event == "" &&
-		b.PullRequest == "" &&
-		b.Actor == "" &&
-		b.BuildURL == "" {
-		return true
-	}
 	return false
 }
 
@@ -143,9 +128,11 @@ func applyShiroOverrides(info *BasicInfo) {
 		return
 	}
 	explicit := false
-	if v, ok := lookupTrimmed("SHIRO_CI"); ok {
+	explicitCI := false
+	if v, ok := lookupTrimmed("SHIRO_CI"); ok && v != "" {
 		info.CI = isTruthy(v)
 		explicit = true
+		explicitCI = true
 	}
 	explicit = setFromEnv(&info.Provider, "SHIRO_CI_PROVIDER") || explicit
 	explicit = setFromEnv(&info.Repository, "SHIRO_CI_REPOSITORY") || explicit
@@ -159,7 +146,7 @@ func applyShiroOverrides(info *BasicInfo) {
 	explicit = setFromEnv(&info.PullRequest, "SHIRO_CI_PULL_REQUEST") || explicit
 	explicit = setFromEnv(&info.Actor, "SHIRO_CI_ACTOR") || explicit
 	explicit = setFromEnv(&info.BuildURL, "SHIRO_CI_BUILD_URL") || explicit
-	if explicit && !info.CI {
+	if explicit && !explicitCI && !info.CI {
 		info.CI = true
 	}
 }
@@ -183,12 +170,17 @@ func normalize(info *BasicInfo) {
 	if info.PullRequest == "" {
 		info.PullRequest = githubPullRequestFromRef(env("GITHUB_REF"))
 	}
-	if !info.CI && (info.Provider != "" || info.Repository != "" || info.RunID != "" || info.Commit != "") {
+	if !info.CI && (info.Provider != "" || info.Repository != "" || info.RunID != "" || info.Commit != "") && !shiroCIExplicitFalse() {
 		info.CI = true
 	}
 	if info.CI && info.Provider == "" {
 		info.Provider = "generic"
 	}
+}
+
+func shiroCIExplicitFalse() bool {
+	v, ok := lookupTrimmed("SHIRO_CI")
+	return ok && v != "" && !isTruthy(v)
 }
 
 func normalizeBranch(branch string) string {
