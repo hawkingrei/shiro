@@ -31,20 +31,26 @@ type QueryAnalysis struct {
 
 // QueryFeatures captures structural properties of a query.
 type QueryFeatures struct {
-	JoinCount            int
-	JoinTypeSeq          string
-	JoinGraphSig         string
-	HasSubquery          bool
-	HasInSubquery        bool
-	HasNotInSubquery     bool
-	HasExistsSubquery    bool
-	HasNotExistsSubquery bool
-	HasInList            bool
-	HasNotInList         bool
-	HasAggregate         bool
-	HasWindow            bool
-	HasNaturalJoin       bool
-	HasFullJoinEmulation bool
+	JoinCount                     int
+	JoinTypeSeq                   string
+	JoinGraphSig                  string
+	TemplateJoinPredicateStrategy string
+	HasSetOperations              bool
+	HasDerivedTables              bool
+	HasQuantifiedSubqueries       bool
+	HasSubquery                   bool
+	HasInSubquery                 bool
+	HasNotInSubquery              bool
+	HasExistsSubquery             bool
+	HasNotExistsSubquery          bool
+	HasInList                     bool
+	HasNotInList                  bool
+	HasAggregate                  bool
+	HasWindow                     bool
+	HasWindowFrame                bool
+	HasIntervalArith              bool
+	HasNaturalJoin                bool
+	HasFullJoinEmulation          bool
 	// HasRecursiveCTE is true when the query owns a WITH RECURSIVE clause.
 	HasRecursiveCTE        bool
 	ViewCount              int
@@ -117,11 +123,14 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		return QueryFeatures{}
 	}
 	features := QueryFeatures{
-		JoinCount:            len(query.From.Joins),
-		JoinTypeSeq:          joinTypeSequence(query),
-		JoinGraphSig:         joinGraphSignature(query),
-		HasRecursiveCTE:      query.WithRecursive,
-		HasFullJoinEmulation: query.FullJoinEmulation,
+		JoinCount:                     len(query.From.Joins),
+		JoinTypeSeq:                   joinTypeSequence(query),
+		JoinGraphSig:                  joinGraphSignature(query),
+		TemplateJoinPredicateStrategy: normalizeTemplateJoinPredicateStrategy(query.TemplateJoinPredicateStrategy),
+		HasSetOperations:              queryHasSetOperations(query),
+		HasDerivedTables:              queryHasDerivedTables(query),
+		HasRecursiveCTE:               query.WithRecursive,
+		HasFullJoinEmulation:          query.FullJoinEmulation,
 	}
 	for _, op := range query.SetOps {
 		if op.Query == nil {
@@ -143,6 +152,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		if exprHasSubquery(item.Expr) {
 			features.HasSubquery = true
 		}
+		if exprHasQuantifiedSubquery(item.Expr) {
+			features.HasQuantifiedSubqueries = true
+		}
 		inSub, notInSub := exprHasInSubquery(item.Expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
@@ -159,6 +171,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		}
 		if exprHasSubquery(query.Where) {
 			features.HasSubquery = true
+		}
+		if exprHasQuantifiedSubquery(query.Where) {
+			features.HasQuantifiedSubqueries = true
 		}
 		inSub, notInSub := exprHasInSubquery(query.Where)
 		features.HasInSubquery = features.HasInSubquery || inSub
@@ -177,6 +192,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		if exprHasSubquery(query.Having) {
 			features.HasSubquery = true
 		}
+		if exprHasQuantifiedSubquery(query.Having) {
+			features.HasQuantifiedSubqueries = true
+		}
 		inSub, notInSub := exprHasInSubquery(query.Having)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
@@ -193,6 +211,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		}
 		if exprHasSubquery(expr) {
 			features.HasSubquery = true
+		}
+		if exprHasQuantifiedSubquery(expr) {
+			features.HasQuantifiedSubqueries = true
 		}
 		inSub, notInSub := exprHasInSubquery(expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
@@ -211,6 +232,9 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		if exprHasSubquery(ob.Expr) {
 			features.HasSubquery = true
 		}
+		if exprHasQuantifiedSubquery(ob.Expr) {
+			features.HasQuantifiedSubqueries = true
+		}
 		inSub, notInSub := exprHasInSubquery(ob.Expr)
 		features.HasInSubquery = features.HasInSubquery || inSub
 		features.HasNotInSubquery = features.HasNotInSubquery || notInSub
@@ -227,16 +251,23 @@ func AnalyzeQueryFeatures(query *SelectQuery) QueryFeatures {
 		}
 		if join.TableQuery != nil {
 			features.HasSubquery = true
+			features.HasDerivedTables = true
 			mergeQueryFeatureFlags(&features, AnalyzeQueryFeatures(join.TableQuery))
 		}
 		if join.On != nil && exprHasWindow(join.On) {
 			features.HasWindow = true
 		}
 	}
+	features.HasWindowFrame = queryHasWindowFrame(query)
+	features.HasIntervalArith = queryHasIntervalArith(query)
+	features.HasQuantifiedSubqueries = features.HasQuantifiedSubqueries || queryHasQuantifiedSubquery(query)
 	return features
 }
 
 func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {
+	dst.HasSetOperations = dst.HasSetOperations || src.HasSetOperations
+	dst.HasDerivedTables = dst.HasDerivedTables || src.HasDerivedTables
+	dst.HasQuantifiedSubqueries = dst.HasQuantifiedSubqueries || src.HasQuantifiedSubqueries
 	dst.HasSubquery = dst.HasSubquery || src.HasSubquery
 	dst.HasInSubquery = dst.HasInSubquery || src.HasInSubquery
 	dst.HasNotInSubquery = dst.HasNotInSubquery || src.HasNotInSubquery
@@ -246,6 +277,8 @@ func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {
 	dst.HasNotInList = dst.HasNotInList || src.HasNotInList
 	dst.HasAggregate = dst.HasAggregate || src.HasAggregate
 	dst.HasWindow = dst.HasWindow || src.HasWindow
+	dst.HasWindowFrame = dst.HasWindowFrame || src.HasWindowFrame
+	dst.HasIntervalArith = dst.HasIntervalArith || src.HasIntervalArith
 	dst.HasNaturalJoin = dst.HasNaturalJoin || src.HasNaturalJoin
 	dst.HasFullJoinEmulation = dst.HasFullJoinEmulation || src.HasFullJoinEmulation
 	dst.HasRecursiveCTE = dst.HasRecursiveCTE || src.HasRecursiveCTE
@@ -530,6 +563,620 @@ func exprHasWindowQuery(query *SelectQuery) bool {
 	}
 	for _, op := range query.SetOps {
 		if op.Query != nil && exprHasWindowQuery(op.Query) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasSetOperations(expr Expr) bool {
+	switch e := expr.(type) {
+	case SubqueryExpr:
+		return queryHasSetOperations(e.Query)
+	case ExistsExpr:
+		return queryHasSetOperations(e.Query)
+	case UnaryExpr:
+		return exprHasSetOperations(e.Expr)
+	case BinaryExpr:
+		return exprHasSetOperations(e.Left) || exprHasSetOperations(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasSetOperations(w.When) || exprHasSetOperations(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasSetOperations(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasSetOperations(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasSetOperations(item) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		if exprHasSetOperations(e.Left) {
+			return true
+		}
+		return queryHasSetOperations(e.Query)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasSetOperations(arg) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasSetOperations(arg) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if exprHasSetOperations(part) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasSetOperations(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasSetOperations(e.Expr)
+	default:
+		return false
+	}
+}
+
+func queryHasSetOperations(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	if len(query.SetOps) > 0 {
+		return true
+	}
+	for _, item := range query.Items {
+		if exprHasSetOperations(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasSetOperations(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasSetOperations(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasSetOperations(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasSetOperations(ob.Expr) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && queryHasSetOperations(query.From.BaseQuery) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && queryHasSetOperations(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && exprHasSetOperations(join.On) {
+			return true
+		}
+	}
+	for _, cte := range query.With {
+		if queryHasSetOperations(cte.Query) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasDerivedTables(expr Expr) bool {
+	switch e := expr.(type) {
+	case SubqueryExpr:
+		return queryHasDerivedTables(e.Query)
+	case ExistsExpr:
+		return queryHasDerivedTables(e.Query)
+	case UnaryExpr:
+		return exprHasDerivedTables(e.Expr)
+	case BinaryExpr:
+		return exprHasDerivedTables(e.Left) || exprHasDerivedTables(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasDerivedTables(w.When) || exprHasDerivedTables(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasDerivedTables(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasDerivedTables(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasDerivedTables(item) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		if exprHasDerivedTables(e.Left) {
+			return true
+		}
+		return queryHasDerivedTables(e.Query)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasDerivedTables(arg) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasDerivedTables(arg) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if exprHasDerivedTables(part) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasDerivedTables(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasDerivedTables(e.Expr)
+	default:
+		return false
+	}
+}
+
+func queryHasDerivedTables(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	if query.From.BaseQuery != nil {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil {
+			return true
+		}
+	}
+	for _, item := range query.Items {
+		if exprHasDerivedTables(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasDerivedTables(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasDerivedTables(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasDerivedTables(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasDerivedTables(ob.Expr) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if queryHasDerivedTables(op.Query) {
+			return true
+		}
+	}
+	for _, cte := range query.With {
+		if queryHasDerivedTables(cte.Query) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasQuantifiedSubquery(expr Expr) bool {
+	switch e := expr.(type) {
+	case CompareSubqueryExpr:
+		return true
+	case SubqueryExpr:
+		return queryHasQuantifiedSubquery(e.Query)
+	case ExistsExpr:
+		return queryHasQuantifiedSubquery(e.Query)
+	case UnaryExpr:
+		return exprHasQuantifiedSubquery(e.Expr)
+	case BinaryExpr:
+		return exprHasQuantifiedSubquery(e.Left) || exprHasQuantifiedSubquery(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasQuantifiedSubquery(w.When) || exprHasQuantifiedSubquery(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasQuantifiedSubquery(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasQuantifiedSubquery(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasQuantifiedSubquery(item) {
+				return true
+			}
+		}
+		return false
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasQuantifiedSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasQuantifiedSubquery(arg) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if exprHasQuantifiedSubquery(part) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasQuantifiedSubquery(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasQuantifiedSubquery(e.Expr)
+	default:
+		return false
+	}
+}
+
+func queryHasQuantifiedSubquery(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if exprHasQuantifiedSubquery(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasQuantifiedSubquery(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasQuantifiedSubquery(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasQuantifiedSubquery(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasQuantifiedSubquery(ob.Expr) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && queryHasQuantifiedSubquery(query.From.BaseQuery) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && queryHasQuantifiedSubquery(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && exprHasQuantifiedSubquery(join.On) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if op.Query != nil && queryHasQuantifiedSubquery(op.Query) {
+			return true
+		}
+	}
+	for _, cte := range query.With {
+		if queryHasQuantifiedSubquery(cte.Query) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasWindowFrame(expr Expr) bool {
+	switch e := expr.(type) {
+	case WindowExpr:
+		if e.Frame != nil {
+			return true
+		}
+		for _, arg := range e.Args {
+			if exprHasWindowFrame(arg) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if exprHasWindowFrame(part) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasWindowFrame(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	case SubqueryExpr:
+		return queryHasWindowFrame(e.Query)
+	case ExistsExpr:
+		return queryHasWindowFrame(e.Query)
+	case UnaryExpr:
+		return exprHasWindowFrame(e.Expr)
+	case BinaryExpr:
+		return exprHasWindowFrame(e.Left) || exprHasWindowFrame(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasWindowFrame(w.When) || exprHasWindowFrame(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasWindowFrame(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasWindowFrame(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasWindowFrame(item) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		if exprHasWindowFrame(e.Left) {
+			return true
+		}
+		return queryHasWindowFrame(e.Query)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasWindowFrame(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasWindowFrame(e.Expr)
+	default:
+		return false
+	}
+}
+
+func queryHasWindowFrame(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, def := range query.WindowDefs {
+		if def.Frame != nil {
+			return true
+		}
+		for _, part := range def.PartitionBy {
+			if exprHasWindowFrame(part) {
+				return true
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if exprHasWindowFrame(ob.Expr) {
+				return true
+			}
+		}
+	}
+	for _, item := range query.Items {
+		if exprHasWindowFrame(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasWindowFrame(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasWindowFrame(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasWindowFrame(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasWindowFrame(ob.Expr) {
+			return true
+		}
+	}
+	if query.From.BaseQuery != nil && queryHasWindowFrame(query.From.BaseQuery) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && queryHasWindowFrame(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && exprHasWindowFrame(join.On) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if op.Query != nil && queryHasWindowFrame(op.Query) {
+			return true
+		}
+	}
+	for _, cte := range query.With {
+		if queryHasWindowFrame(cte.Query) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprHasIntervalArith(expr Expr) bool {
+	switch e := expr.(type) {
+	case IntervalExpr:
+		return true
+	case SubqueryExpr:
+		return queryHasIntervalArith(e.Query)
+	case ExistsExpr:
+		return queryHasIntervalArith(e.Query)
+	case UnaryExpr:
+		return exprHasIntervalArith(e.Expr)
+	case BinaryExpr:
+		return exprHasIntervalArith(e.Left) || exprHasIntervalArith(e.Right)
+	case CaseExpr:
+		for _, w := range e.Whens {
+			if exprHasIntervalArith(w.When) || exprHasIntervalArith(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return exprHasIntervalArith(e.Else)
+		}
+		return false
+	case InExpr:
+		if exprHasIntervalArith(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasIntervalArith(item) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		if exprHasIntervalArith(e.Left) {
+			return true
+		}
+		return queryHasIntervalArith(e.Query)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasIntervalArith(arg) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasIntervalArith(arg) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if exprHasIntervalArith(part) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasIntervalArith(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return exprHasIntervalArith(e.Expr)
+	default:
+		return false
+	}
+}
+
+func queryHasIntervalArith(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, item := range query.Items {
+		if exprHasIntervalArith(item.Expr) {
+			return true
+		}
+	}
+	if query.Where != nil && exprHasIntervalArith(query.Where) {
+		return true
+	}
+	if query.Having != nil && exprHasIntervalArith(query.Having) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if exprHasIntervalArith(expr) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if exprHasIntervalArith(ob.Expr) {
+			return true
+		}
+	}
+	for _, def := range query.WindowDefs {
+		for _, part := range def.PartitionBy {
+			if exprHasIntervalArith(part) {
+				return true
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if exprHasIntervalArith(ob.Expr) {
+				return true
+			}
+		}
+	}
+	if query.From.BaseQuery != nil && queryHasIntervalArith(query.From.BaseQuery) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if join.TableQuery != nil && queryHasIntervalArith(join.TableQuery) {
+			return true
+		}
+		if join.On != nil && exprHasIntervalArith(join.On) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if op.Query != nil && queryHasIntervalArith(op.Query) {
+			return true
+		}
+	}
+	for _, cte := range query.With {
+		if queryHasIntervalArith(cte.Query) {
 			return true
 		}
 	}

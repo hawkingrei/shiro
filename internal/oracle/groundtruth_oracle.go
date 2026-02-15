@@ -21,6 +21,7 @@ type GroundTruth struct{}
 func (o GroundTruth) Name() string { return "GroundTruth" }
 
 const groundTruthPickRetries = 12
+const groundTruthDefaultMaxRows = 50
 
 // Run evaluates join counts using an in-memory join and compares with the DB count.
 func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
@@ -41,13 +42,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 			"groundtruth_key_missing_reason": keyReason,
 		}}
 	}
-	maxRows := gen.Config.Oracles.GroundTruthMaxRows
-	if maxRows <= 0 {
-		maxRows = 50
-	}
-	if gen.Config.MaxRowsPerTable > 0 && maxRows < gen.Config.MaxRowsPerTable {
-		maxRows = gen.Config.MaxRowsPerTable
-	}
+	maxRows := groundTruthEffectiveMaxRows(gen)
 	if gen.Truth != nil {
 		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
 			return o.runWithTruth(ctx, exec, truth, query, state, gen.Config.Features.DSG, maxRows)
@@ -147,8 +142,7 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 	if truth == nil {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:truth_missing"}}
 	}
-	edges := groundtruth.JoinEdgesFromQuery(query, state)
-	edges = groundtruth.RefineJoinEdgesWithSQL(query.SQLString(), state, edges, len(query.From.Joins))
+	edges := groundTruthJoinEdges(query, state)
 	if len(edges) != len(query.From.Joins) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
 	}
@@ -224,8 +218,7 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 				continue
 			}
 		}
-		edges := groundtruth.JoinEdgesFromQuery(query, state)
-		edges = groundtruth.RefineJoinEdgesWithSQL(query.SQLString(), state, edges, len(query.From.Joins))
+		edges := groundTruthJoinEdges(query, state)
 		if len(edges) != len(query.From.Joins) {
 			sawEdgeMismatch = true
 			continue
@@ -263,6 +256,39 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 		return nil, nil, "groundtruth:empty_query", "", ""
 	}
 	return nil, nil, "groundtruth:key_missing", "no_equal_candidates:no_columns", ""
+}
+
+func groundTruthJoinEdges(query *generator.SelectQuery, state *schema.State) []groundtruth.JoinEdge {
+	if query == nil {
+		return nil
+	}
+	expected := len(query.From.Joins)
+	queryEdges := groundtruth.JoinEdgesFromQuery(query, state)
+	if expected <= 0 {
+		return queryEdges
+	}
+	sqlText := query.SQLString()
+	sqlEdges := groundtruth.JoinEdgesFromSQL(sqlText, state)
+	if len(sqlEdges) != expected {
+		return queryEdges
+	}
+	if groundTruthMissingEdgeKeys(sqlEdges, expected) <= groundTruthMissingEdgeKeys(queryEdges, expected) {
+		return sqlEdges
+	}
+	return queryEdges
+}
+
+func groundTruthMissingEdgeKeys(edges []groundtruth.JoinEdge, expected int) int {
+	if len(edges) != expected {
+		return expected
+	}
+	missing := 0
+	for _, edge := range edges {
+		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
+			missing++
+		}
+	}
+	return missing
 }
 
 func groundTruthDSGPrecheck(query *generator.SelectQuery, state *schema.State) (skipReason string, reason string) {
@@ -421,7 +447,7 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 
 func groundTruthCaps(maxRows int) (tableCap int, joinCap int) {
 	if maxRows <= 0 {
-		maxRows = 50
+		maxRows = groundTruthDefaultMaxRows
 	}
 	joinCap = maxRows * maxRows
 	if joinCap < maxRows {
@@ -431,6 +457,23 @@ func groundTruthCaps(maxRows int) (tableCap int, joinCap int) {
 		joinCap = 10_000
 	}
 	return maxRows, joinCap
+}
+
+func groundTruthEffectiveMaxRows(gen *generator.Generator) int {
+	if gen == nil {
+		return groundTruthDefaultMaxRows
+	}
+	maxRows := gen.Config.Oracles.GroundTruthMaxRows
+	if maxRows <= 0 {
+		maxRows = groundTruthDefaultMaxRows
+	}
+	if gen.Config.MaxRowsPerTable > 0 && maxRows < gen.Config.MaxRowsPerTable {
+		maxRows = gen.Config.MaxRowsPerTable
+	}
+	if gen.Config.Features.DSG && gen.Config.TQS.Enabled && gen.Config.TQS.WideRows > 0 && maxRows < gen.Config.TQS.WideRows {
+		maxRows = gen.Config.TQS.WideRows
+	}
+	return maxRows
 }
 
 func exactSkipReason(reason string) string {

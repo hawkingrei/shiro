@@ -120,22 +120,24 @@ type OracleWeights struct {
 
 // FeatureWeights sets feature generation weights.
 type FeatureWeights struct {
-	JoinCount       int `yaml:"join_count"`
-	CTECount        int `yaml:"cte_count"`
-	CTECountMax     int `yaml:"cte_count_max"`
-	SubqCount       int `yaml:"subquery_count"`
-	AggProb         int `yaml:"aggregate_prob"`
-	DecimalAggProb  int `yaml:"decimal_agg_prob"`
-	GroupByProb     int `yaml:"group_by_prob"`
-	HavingProb      int `yaml:"having_prob"`
-	OrderByProb     int `yaml:"order_by_prob"`
-	LimitProb       int `yaml:"limit_prob"`
-	DistinctProb    int `yaml:"distinct_prob"`
-	WindowProb      int `yaml:"window_prob"`
-	PartitionProb   int `yaml:"partition_prob"`
-	NotExistsProb   int `yaml:"not_exists_prob"`
-	NotInProb       int `yaml:"not_in_prob"`
-	IndexPrefixProb int `yaml:"index_prefix_prob"`
+	JoinCount                int `yaml:"join_count"`
+	CTECount                 int `yaml:"cte_count"`
+	CTECountMax              int `yaml:"cte_count_max"`
+	SubqCount                int `yaml:"subquery_count"`
+	AggProb                  int `yaml:"aggregate_prob"`
+	DecimalAggProb           int `yaml:"decimal_agg_prob"`
+	GroupByProb              int `yaml:"group_by_prob"`
+	HavingProb               int `yaml:"having_prob"`
+	OrderByProb              int `yaml:"order_by_prob"`
+	LimitProb                int `yaml:"limit_prob"`
+	DistinctProb             int `yaml:"distinct_prob"`
+	WindowProb               int `yaml:"window_prob"`
+	PartitionProb            int `yaml:"partition_prob"`
+	NotExistsProb            int `yaml:"not_exists_prob"`
+	NotInProb                int `yaml:"not_in_prob"`
+	IndexPrefixProb          int `yaml:"index_prefix_prob"`
+	TemplateJoinOnlyWeight   int `yaml:"template_join_only_weight"`
+	TemplateJoinFilterWeight int `yaml:"template_join_filter_weight"`
 }
 
 // Logging controls stdout logging behavior.
@@ -194,12 +196,34 @@ type EETRewriteWeights struct {
 
 // QPGConfig configures query plan guidance.
 type QPGConfig struct {
-	Enabled             bool   `yaml:"enabled"`
-	ExplainFormat       string `yaml:"explain_format"`
-	MutationProb        int    `yaml:"mutation_prob"`
-	SeenSQLTTLSeconds   int    `yaml:"seen_sql_ttl_seconds"`
-	SeenSQLMax          int    `yaml:"seen_sql_max"`
-	SeenSQLSweepSeconds int    `yaml:"seen_sql_sweep_seconds"`
+	Enabled                 bool                      `yaml:"enabled"`
+	ExplainFormat           string                    `yaml:"explain_format"`
+	MutationProb            int                       `yaml:"mutation_prob"`
+	SeenSQLTTLSeconds       int                       `yaml:"seen_sql_ttl_seconds"`
+	SeenSQLMax              int                       `yaml:"seen_sql_max"`
+	SeenSQLSweepSeconds     int                       `yaml:"seen_sql_sweep_seconds"`
+	NoJoinThreshold         int                       `yaml:"no_join_threshold"`
+	NoAggThreshold          int                       `yaml:"no_agg_threshold"`
+	NoNewPlanThreshold      int                       `yaml:"no_new_plan_threshold"`
+	NoNewOpSigThreshold     int                       `yaml:"no_new_op_sig_threshold"`
+	NoNewShapeThreshold     int                       `yaml:"no_new_shape_threshold"`
+	NoNewJoinTypeThreshold  int                       `yaml:"no_new_join_type_threshold"`
+	NoNewJoinOrderThreshold int                       `yaml:"no_new_join_order_threshold"`
+	OverrideTTL             int                       `yaml:"override_ttl"`
+	TemplateOverride        QPGTemplateOverrideConfig `yaml:"template_override"`
+}
+
+// QPGTemplateOverrideConfig configures template-level QPG adaptive overrides.
+type QPGTemplateOverrideConfig struct {
+	NoNewJoinOrderThreshold int `yaml:"no_new_join_order_threshold"`
+	NoNewShapeThreshold     int `yaml:"no_new_shape_threshold"`
+	NoAggThreshold          int `yaml:"no_agg_threshold"`
+	NoNewPlanThreshold      int `yaml:"no_new_plan_threshold"`
+	JoinWeightBoost         int `yaml:"join_weight_boost"`
+	AggWeightBoost          int `yaml:"agg_weight_boost"`
+	SemiWeightBoost         int `yaml:"semi_weight_boost"`
+	EnabledProb             int `yaml:"enabled_prob"`
+	OverrideTTL             int `yaml:"override_ttl"`
 }
 
 // KQEConfig controls lightweight join-coverage guidance.
@@ -278,6 +302,27 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
+const (
+	qpgNoJoinThresholdDefault         = 3
+	qpgNoAggThresholdDefault          = 3
+	qpgNoNewPlanThresholdDefault      = 5
+	qpgNoNewOpSigThresholdDefault     = 4
+	qpgNoNewShapeThresholdDefault     = 4
+	qpgNoNewJoinTypeThresholdDefault  = 3
+	qpgNoNewJoinOrderThresholdDefault = 3
+	qpgOverrideTTLDefault             = 5
+
+	qpgTemplateNoNewJoinOrderThresholdDefault = 3
+	qpgTemplateNoNewShapeThresholdDefault     = 4
+	qpgTemplateNoAggThresholdDefault          = 3
+	qpgTemplateNoNewPlanThresholdDefault      = 5
+	qpgTemplateJoinWeightBoostDefault         = 6
+	qpgTemplateAggWeightBoostDefault          = 6
+	qpgTemplateSemiWeightBoostDefault         = 5
+	qpgTemplateEnabledProbDefault             = 55
+	qpgTemplateOverrideTTLDefault             = 5
+)
+
 func normalizeConfig(cfg *Config) {
 	if cfg.Adaptive.Enabled && !cfg.Adaptive.AdaptActions && !cfg.Adaptive.AdaptOracles && !cfg.Adaptive.AdaptDML && !cfg.Adaptive.AdaptFeatures {
 		cfg.Adaptive.AdaptOracles = true
@@ -301,6 +346,70 @@ func normalizeConfig(cfg *Config) {
 		if cfg.Weights.Actions.Query <= 0 {
 			cfg.Weights.Actions.Query = 1
 		}
+	}
+	if cfg.Weights.Features.TemplateJoinOnlyWeight < 0 {
+		cfg.Weights.Features.TemplateJoinOnlyWeight = 0
+	}
+	if cfg.Weights.Features.TemplateJoinFilterWeight < 0 {
+		cfg.Weights.Features.TemplateJoinFilterWeight = 0
+	}
+	if cfg.Weights.Features.TemplateJoinOnlyWeight == 0 && cfg.Weights.Features.TemplateJoinFilterWeight == 0 {
+		cfg.Weights.Features.TemplateJoinOnlyWeight = 4
+		cfg.Weights.Features.TemplateJoinFilterWeight = 6
+	}
+	if cfg.QPG.NoJoinThreshold <= 0 {
+		cfg.QPG.NoJoinThreshold = qpgNoJoinThresholdDefault
+	}
+	if cfg.QPG.NoAggThreshold <= 0 {
+		cfg.QPG.NoAggThreshold = qpgNoAggThresholdDefault
+	}
+	if cfg.QPG.NoNewPlanThreshold <= 0 {
+		cfg.QPG.NoNewPlanThreshold = qpgNoNewPlanThresholdDefault
+	}
+	if cfg.QPG.NoNewOpSigThreshold <= 0 {
+		cfg.QPG.NoNewOpSigThreshold = qpgNoNewOpSigThresholdDefault
+	}
+	if cfg.QPG.NoNewShapeThreshold <= 0 {
+		cfg.QPG.NoNewShapeThreshold = qpgNoNewShapeThresholdDefault
+	}
+	if cfg.QPG.NoNewJoinTypeThreshold <= 0 {
+		cfg.QPG.NoNewJoinTypeThreshold = qpgNoNewJoinTypeThresholdDefault
+	}
+	if cfg.QPG.NoNewJoinOrderThreshold <= 0 {
+		cfg.QPG.NoNewJoinOrderThreshold = qpgNoNewJoinOrderThresholdDefault
+	}
+	if cfg.QPG.OverrideTTL <= 0 {
+		cfg.QPG.OverrideTTL = qpgOverrideTTLDefault
+	}
+	if cfg.QPG.TemplateOverride.NoNewJoinOrderThreshold <= 0 {
+		cfg.QPG.TemplateOverride.NoNewJoinOrderThreshold = qpgTemplateNoNewJoinOrderThresholdDefault
+	}
+	if cfg.QPG.TemplateOverride.NoNewShapeThreshold <= 0 {
+		cfg.QPG.TemplateOverride.NoNewShapeThreshold = qpgTemplateNoNewShapeThresholdDefault
+	}
+	if cfg.QPG.TemplateOverride.NoAggThreshold <= 0 {
+		cfg.QPG.TemplateOverride.NoAggThreshold = qpgTemplateNoAggThresholdDefault
+	}
+	if cfg.QPG.TemplateOverride.NoNewPlanThreshold <= 0 {
+		cfg.QPG.TemplateOverride.NoNewPlanThreshold = qpgTemplateNoNewPlanThresholdDefault
+	}
+	if cfg.QPG.TemplateOverride.JoinWeightBoost <= 0 {
+		cfg.QPG.TemplateOverride.JoinWeightBoost = qpgTemplateJoinWeightBoostDefault
+	}
+	if cfg.QPG.TemplateOverride.AggWeightBoost <= 0 {
+		cfg.QPG.TemplateOverride.AggWeightBoost = qpgTemplateAggWeightBoostDefault
+	}
+	if cfg.QPG.TemplateOverride.SemiWeightBoost <= 0 {
+		cfg.QPG.TemplateOverride.SemiWeightBoost = qpgTemplateSemiWeightBoostDefault
+	}
+	if cfg.QPG.TemplateOverride.EnabledProb <= 0 {
+		cfg.QPG.TemplateOverride.EnabledProb = qpgTemplateEnabledProbDefault
+	}
+	if cfg.QPG.TemplateOverride.EnabledProb > 100 {
+		cfg.QPG.TemplateOverride.EnabledProb = 100
+	}
+	if cfg.QPG.TemplateOverride.OverrideTTL <= 0 {
+		cfg.QPG.TemplateOverride.OverrideTTL = qpgTemplateOverrideTTLDefault
 	}
 }
 
@@ -410,7 +519,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 3, Query: 6},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, EET: 2, DQP: 3, PQS: 2, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
-			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 3, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30},
+			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 3, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30, TemplateJoinOnlyWeight: 4, TemplateJoinFilterWeight: 6},
 		},
 		Logging: Logging{
 			ReportIntervalSeconds: 30,
@@ -435,12 +544,31 @@ func defaultConfig() Config {
 		},
 		Adaptive: Adaptive{Enabled: true, UCBExploration: 1.5, WindowSize: 50000},
 		QPG: QPGConfig{
-			Enabled:             false,
-			ExplainFormat:       "brief",
-			MutationProb:        30,
-			SeenSQLTTLSeconds:   120,
-			SeenSQLMax:          8192,
-			SeenSQLSweepSeconds: 600,
+			Enabled:                 false,
+			ExplainFormat:           "brief",
+			MutationProb:            30,
+			SeenSQLTTLSeconds:       120,
+			SeenSQLMax:              8192,
+			SeenSQLSweepSeconds:     600,
+			NoJoinThreshold:         qpgNoJoinThresholdDefault,
+			NoAggThreshold:          qpgNoAggThresholdDefault,
+			NoNewPlanThreshold:      qpgNoNewPlanThresholdDefault,
+			NoNewOpSigThreshold:     qpgNoNewOpSigThresholdDefault,
+			NoNewShapeThreshold:     qpgNoNewShapeThresholdDefault,
+			NoNewJoinTypeThreshold:  qpgNoNewJoinTypeThresholdDefault,
+			NoNewJoinOrderThreshold: qpgNoNewJoinOrderThresholdDefault,
+			OverrideTTL:             qpgOverrideTTLDefault,
+			TemplateOverride: QPGTemplateOverrideConfig{
+				NoNewJoinOrderThreshold: qpgTemplateNoNewJoinOrderThresholdDefault,
+				NoNewShapeThreshold:     qpgTemplateNoNewShapeThresholdDefault,
+				NoAggThreshold:          qpgTemplateNoAggThresholdDefault,
+				NoNewPlanThreshold:      qpgTemplateNoNewPlanThresholdDefault,
+				JoinWeightBoost:         qpgTemplateJoinWeightBoostDefault,
+				AggWeightBoost:          qpgTemplateAggWeightBoostDefault,
+				SemiWeightBoost:         qpgTemplateSemiWeightBoostDefault,
+				EnabledProb:             qpgTemplateEnabledProbDefault,
+				OverrideTTL:             qpgTemplateOverrideTTLDefault,
+			},
 		},
 		KQE: KQEConfig{
 			Enabled: true,

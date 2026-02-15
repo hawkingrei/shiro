@@ -38,12 +38,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	if o.Tolerance == 0 {
 		o.Tolerance = 0.1
 	}
-	constraints := generator.SelectQueryConstraints{
-		RequireWhere:         true,
-		PredicateMode:        generator.PredicateModeSimple,
-		RequireDeterministic: true,
-		MaxTries:             10,
-	}
+	constraints := certSelectConstraints()
 	if profile := ProfileByName("CERT"); profile != nil {
 		applyProfileToSpec(&constraints, profile)
 		if profile.PredicateMode != nil {
@@ -238,6 +233,22 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}}
+}
+
+func certSelectConstraints() generator.SelectQueryConstraints {
+	return generator.SelectQueryConstraints{
+		RequireWhere:         true,
+		PredicateMode:        generator.PredicateModeSimple,
+		RequireDeterministic: true,
+		DisallowAggregate:    true,
+		DisallowDistinct:     true,
+		DisallowGroupBy:      true,
+		DisallowHaving:       true,
+		DisallowOrderBy:      true,
+		DisallowSetOps:       true,
+		DisallowWindow:       true,
+		MaxTries:             10,
+	}
 }
 
 func certBaseTables(tables []schema.Table, state *schema.State) []schema.Table {

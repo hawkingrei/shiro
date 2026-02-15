@@ -51,6 +51,7 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		Constraints: generator.SelectQueryConstraints{
 			RequireWhere:         true,
 			RequireDeterministic: true,
+			PredicateMode:        generator.PredicateModeSimpleColumns,
 			DisallowLimit:        true,
 			DisallowSetOps:       true,
 		},

@@ -3,6 +3,8 @@ package runner
 import (
 	"reflect"
 	"testing"
+
+	"shiro/internal/generator"
 )
 
 func TestCollectGroundTruthDSGMismatchReasons(t *testing.T) {
@@ -39,5 +41,140 @@ func TestCollectGroundTruthDSGMismatchReasonsEmpty(t *testing.T) {
 		"GroundTruth": {SkipReasons: map[string]int64{"groundtruth:key_missing": 1}},
 	}); got != nil {
 		t.Fatalf("expected nil for no dsg mismatch reasons, got %v", got)
+	}
+}
+
+func TestNormalizeMinimizeStatus(t *testing.T) {
+	cases := map[string]string{
+		"":            "unknown",
+		"  ":          "unknown",
+		"in_progress": "in_progress",
+		"in-progress": "in_progress",
+		"inprogress":  "in_progress",
+		"SUCCESS":     "success",
+	}
+	for input, expect := range cases {
+		if got := normalizeMinimizeStatus(input); got != expect {
+			t.Fatalf("normalizeMinimizeStatus(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
+func TestDiffCountMap(t *testing.T) {
+	current := map[string]int64{
+		"skipped":     5,
+		"success":     2,
+		"in_progress": 1,
+	}
+	previous := map[string]int64{
+		"skipped":     3,
+		"success":     2,
+		"in_progress": 0,
+	}
+	got := diffCountMap(current, previous)
+	want := map[string]int64{
+		"skipped":     2,
+		"in_progress": 1,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("diffCountMap() got=%v want=%v", got, want)
+	}
+}
+
+func TestNormalizeTemplateJoinPredicateStrategy(t *testing.T) {
+	cases := map[string]string{
+		"":            "",
+		"join_only":   "join_only",
+		"JOIN_ONLY":   "join_only",
+		"join_filter": "join_filter",
+		"unknown":     "",
+	}
+	for input, expect := range cases {
+		if got := normalizeTemplateJoinPredicateStrategy(input); got != expect {
+			t.Fatalf("normalizeTemplateJoinPredicateStrategy(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
+func TestObserveReproducibilitySummary(t *testing.T) {
+	r := &Runner{
+		capturedMinimizeStatus:  make(map[string]int64),
+		capturedMinimizeReasons: make(map[string]int64),
+	}
+	r.observeReproducibilitySummary("in-progress", "")
+	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
+	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
+	if r.capturedCases != 3 {
+		t.Fatalf("capturedCases=%d want=3", r.capturedCases)
+	}
+	if r.capturedMinimizeStatus["in_progress"] != 1 {
+		t.Fatalf("in_progress=%d want=1", r.capturedMinimizeStatus["in_progress"])
+	}
+	if r.capturedMinimizeStatus["skipped"] != 2 {
+		t.Fatalf("skipped=%d want=2", r.capturedMinimizeStatus["skipped"])
+	}
+	if r.capturedMinimizeReasons["base_replay_not_reproducible"] != 2 {
+		t.Fatalf("base_replay_not_reproducible=%d want=2", r.capturedMinimizeReasons["base_replay_not_reproducible"])
+	}
+}
+
+func TestObserveJoinSignatureTemplateStrategy(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{TemplateJoinPredicateStrategy: "join_filter"}, "")
+	r.observeJoinSignature(&generator.QueryFeatures{TemplateJoinPredicateStrategy: "JOIN_ONLY"}, "")
+	r.observeJoinSignature(&generator.QueryFeatures{TemplateJoinPredicateStrategy: "invalid"}, "")
+	if r.templateJoinPredicateStrategies["join_filter"] != 1 {
+		t.Fatalf("join_filter=%d want=1", r.templateJoinPredicateStrategies["join_filter"])
+	}
+	if r.templateJoinPredicateStrategies["join_only"] != 1 {
+		t.Fatalf("join_only=%d want=1", r.templateJoinPredicateStrategies["join_only"])
+	}
+	if _, ok := r.templateJoinPredicateStrategies["invalid"]; ok {
+		t.Fatalf("invalid strategy should not be recorded")
+	}
+}
+
+func TestObserveJoinSignatureWindowFrameAndIntervalArith(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{
+		HasWindow:        true,
+		HasWindowFrame:   true,
+		HasIntervalArith: true,
+	}, "")
+	if r.genSQLWindow != 1 {
+		t.Fatalf("genSQLWindow=%d want=1", r.genSQLWindow)
+	}
+	if r.genSQLWindowFrame != 1 {
+		t.Fatalf("genSQLWindowFrame=%d want=1", r.genSQLWindowFrame)
+	}
+	if r.genSQLIntervalArith != 1 {
+		t.Fatalf("genSQLIntervalArith=%d want=1", r.genSQLIntervalArith)
+	}
+}
+
+func TestObserveJoinSignatureSetOpDerivedQuantified(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{
+		HasSetOperations:        true,
+		HasDerivedTables:        true,
+		HasQuantifiedSubqueries: true,
+	}, "")
+	if r.genSQLSetOperations != 1 {
+		t.Fatalf("genSQLSetOperations=%d want=1", r.genSQLSetOperations)
+	}
+	if r.genSQLDerivedTables != 1 {
+		t.Fatalf("genSQLDerivedTables=%d want=1", r.genSQLDerivedTables)
+	}
+	if r.genSQLQuantifiedSubquery != 1 {
+		t.Fatalf("genSQLQuantifiedSubquery=%d want=1", r.genSQLQuantifiedSubquery)
 	}
 }
