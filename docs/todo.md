@@ -2,6 +2,17 @@
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
 Latest sync: report UI now resolves labels/issues from Worker metadata with embedded/cache fallback so tags/issues remain visible without entering a write token, and case detail now renders Min Repro SQL from `replay_sql` with minimize status context when available; validated via `npm run compile`, `npm run lint`, and `npm test` under `web/` (2026-02-15).
+Latest sync: fixed PR #114 CI lint regression by deleting stale unreferenced feature-detection helpers in `internal/generator/features.go` (left after the single-pass `AnalyzeQueryFeatures` refactor); verified with local `golangci-lint run --timeout=5m` plus targeted generator/runner tests (2026-02-15).
+Latest sync: addressed PR #114 review follow-ups by reducing `AnalyzeQueryFeatures` redundant traversals via a primary single-pass walk, centralizing template strategy normalization in generator (reused by runner), and removing duplicate template-weight normalization from generator fallback logic; updated generator/runner tests accordingly (2026-02-15).
+Latest sync: reviewed latest local `logs/shiro.log` + `reports/*/summary.json` (2026-02-15): 17 captured cases (16 `skipped`, 1 `not_applicable`), all skipped cases had `minimize_reason=base_replay_not_reproducible`; GroundTruth remained skip-dominant with DSG mismatch reasons (`base_table`/`right_key`), while DQP stayed effective and template strategy counters (`join_filter`/`join_only`) were both active.
+Latest sync: GroundTruth now auto-aligns effective `maxRows` with TQS `wide_rows` in DSG mode (while still honoring baseline config floors), reducing `groundtruth:table_rows_exceeded` skips caused by cap mismatch; added regression coverage (2026-02-14).
+Latest sync: added runner-level QPG tests for threshold-triggered adaptive overrides and TTL-based override retirement, plus a CI-focused QPG config snippet in README (2026-02-14).
+Latest sync: centralized non-template QPG adaptive thresholds and override TTL into config (`qpg.no_*_threshold`, `qpg.override_ttl`), and updated runner QPG weight-override logic to consume config-driven values with normalization defaults (2026-02-14).
+Latest sync: centralized QPG template-override tuning into config (`qpg.template_override`) with defaults/normalization for thresholds, boost weights, enabled probability, and TTL; runner now reads these config values instead of hard-coded constants (2026-02-14).
+Latest sync: completed observability rollout for `set_operations` / `derived_tables` / `quantified_subqueries`: QueryFeatures now detects these flags across nested subqueries/CTEs, runner interval logs expose per-interval counts/ratios, and generator/runner regression tests were added (2026-02-14).
+Latest sync: added generator observability for `window_frame` and `interval_arith` features (feature detection + runner interval counters/ratios), with regression tests for QueryFeatures and runner stats accounting (2026-02-14).
+Latest sync: strengthened CERT build-time guardrails by disallowing aggregate/distinct/group-by/having/order-by/set-op/window shapes (to avoid `ONLY_FULL_GROUP_BY`/ordering-related noise), and tightened TLP/DQP predicate shaping to simple-column mode so predicate-guard skips are reduced without relaxing semantic checks; added regression tests (2026-02-14).
+Latest sync: split template join-predicate shaping into explicit `join_only` vs `join_filter` strategies with configurable feature weights (`template_join_only_weight` / `template_join_filter_weight`) and interval observability; GroundTruth now uses a shared edge-building path that prefers SQL AST extraction when it provides equal/better key coverage, and both pick/run paths are wired through it with regression tests (2026-02-14).
 Latest sync: reviewed fresh local logs/reports after oracle fixes (2026-02-14): DQP showed no `sql_error_1054` and stayed effective, EET `no_transform` skip dropped in the DQE interval, but GroundTruth remained skip-dominant (`dsg_key_mismatch_right_key`/`base_table`) with effective ratio 0 and captured cases still minimized as non-reproducible.
 Latest sync: completed follow-ups from the 2026-02-14 logs/reports review: GroundTruth now adds DSG prechecks + right-key availability checks with higher pick retries, EET now falls back across rewrite kinds to reduce `no_transform`, and DQP now skips invalid-scope queries (`dqp:scope_invalid`) with NATURAL RIGHT JOIN scope regression coverage (2026-02-14).
 Latest sync: reviewed local `logs/shiro.log` + `reports/case_*/summary.json` (2026-02-14): GroundTruth effective ratio repeatedly dropped to 0 due to `dsg_key_mismatch_right_key`/`empty_query`; EET skips were dominated by `eet:no_transform`; recent captured cases were mostly non-reproducible during minimize (`base_replay_not_reproducible`).
@@ -90,17 +101,11 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 
 ## Generator / Oracles
 
-1. CERT: add stronger guardrails for DISTINCT/ORDER BY/ONLY_FULL_GROUP_BY.
-2. DQP/TLP: reduce predicate_guard frequency without weakening semantic assumptions.
-3. DQP: expand plan-hint coverage and add optimizer variables if needed. (Added SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern.)
-4. Consider increasing `groundtruth_max_rows` to reduce `groundtruth:table_rows_exceeded` skips.
-5. Consider lowering DSG per-table row counts to stay under the GroundTruth cap.
-6. Split join-only vs join+filter predicates into explicit strategies with separate weights and observability.
-7. Wire GroundTruth join key extraction into oracle execution for JoinEdge building.
-8. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles. (done)
-9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
-10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
-11. Add per-feature observability counters for `window_frame` and `interval_arith` (natural join, full join emulation, recursive CTE counters are done).
+1. DQP: expand plan-hint coverage and add optimizer variables if needed. (Added SET_VAR hints for tidb_enable_outer_join_reorder and tidb_enable_inl_join_inner_multi_pattern.)
+2. Refactor per-oracle generator overrides into data-driven capability profiles to reduce duplicated toggles. (done)
+3. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement. (done: recursive QueryFeatures detection + runner interval counters/ratios + regression tests)
+4. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
+5. Reduce GroundTruth DSG skip reasons (`dsg_key_mismatch_base_table` / `dsg_key_mismatch_right_key`) with additional join-shape/key-alignment constraints before oracle execution.
 
 ## PQS (Rigger OSDI20)
 
@@ -121,11 +126,10 @@ Latest sync: centralized minimizer default rounds into a shared constant to avoi
 11. Frontend CI now runs compile/lint/test in a dedicated workflow job; consider adding end-to-end smoke checks against a fixture `reports.json` payload.
 12. Serve the report UI directly from Worker assets for single-domain deployment. (done)
 13. Configure Worker observability settings in wrangler.jsonc. (done)
-17. Add a run-level reproducibility summary (captured/skipped/in-progress counts with top `minimize_reason`) so non-reproducible case spikes are visible without scanning raw logs.
 
 ## Coverage / Guidance
 
-1. Centralize tuning knobs for template sampling weights and QPG template overrides (enable prob/weights/TTLs/thresholds).
+1. Centralize tuning knobs for template sampling weights and QPG template overrides (enable prob/weights/TTLs/thresholds). (done: template join strategy weights and `qpg.template_override` thresholds/weights/probability/TTL are config-driven)
 
 ## Architecture / Refactor
 

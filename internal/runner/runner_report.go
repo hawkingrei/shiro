@@ -269,6 +269,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			minimizeReason = reason
 		}
 	}
+	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason)
 	if result.Err != nil {
 		util.Errorf(
 			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s err=%v",

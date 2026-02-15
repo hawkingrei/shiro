@@ -47,6 +47,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		MaxTries:        dqpBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireDeterministic: true,
+			PredicateMode:        generator.PredicateModeSimpleColumns,
 			DisallowLimit:        true,
 			DisallowWindow:       true,
 		},

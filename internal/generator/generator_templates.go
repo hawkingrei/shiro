@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"strings"
+
 	"shiro/internal/schema"
 	"shiro/internal/util"
 )
@@ -11,6 +13,11 @@ type templateSpec struct {
 	weight int
 	build  func() *SelectQuery
 }
+
+const (
+	templateJoinPredicateStrategyJoinOnly   = "join_only"
+	templateJoinPredicateStrategyJoinFilter = "join_filter"
+)
 
 // TemplateWeights configures how often and which templates are used when generating queries.
 // All values are non-negative integers. Higher values increase the relative likelihood that
@@ -233,7 +240,9 @@ func (g *Generator) applyTemplateSemiAntiPredicate(query *SelectQuery, tables []
 }
 
 func (g *Generator) applyTemplateJoinPredicate(query *SelectQuery, tables []schema.Table) {
-	query.Where = g.templateJoinPredicate(tables)
+	where, strategy := g.templateJoinPredicate(tables)
+	query.Where = where
+	query.TemplateJoinPredicateStrategy = strategy
 }
 
 func (g *Generator) applyTemplateGroupBy(query *SelectQuery, tables []schema.Table) bool {
@@ -258,14 +267,44 @@ func (g *Generator) applyTemplateHaving(query *SelectQuery, tables []schema.Tabl
 	query.Having = g.GenerateHavingPredicate(query.GroupBy, tables)
 }
 
-func (g *Generator) templateJoinPredicate(tables []schema.Table) Expr {
-	if g.shouldUseJoinOnlyPredicate() {
-		return nil
+func (g *Generator) templateJoinPredicate(tables []schema.Table) (Expr, string) {
+	switch g.pickTemplateJoinPredicateStrategy() {
+	case templateJoinPredicateStrategyJoinOnly:
+		return nil, templateJoinPredicateStrategyJoinOnly
+	default:
+		return g.templatePredicate(tables), templateJoinPredicateStrategyJoinFilter
 	}
-	return g.templatePredicate(tables)
 }
 
-// TODO: Split join-only vs join+filter into distinct strategies with richer controls.
-func (g *Generator) shouldUseJoinOnlyPredicate() bool {
-	return util.Chance(g.Rand, templateJoinOnlyPredicateProb)
+func (g *Generator) pickTemplateJoinPredicateStrategy() string {
+	joinOnlyWeight, joinFilterWeight := g.templateJoinPredicateWeights()
+	pick := util.PickWeighted(g.Rand, []int{joinOnlyWeight, joinFilterWeight})
+	if pick == 0 {
+		return templateJoinPredicateStrategyJoinOnly
+	}
+	return templateJoinPredicateStrategyJoinFilter
+}
+
+func (g *Generator) templateJoinPredicateWeights() (joinOnlyWeight int, joinFilterWeight int) {
+	joinOnlyWeight = g.Config.Weights.Features.TemplateJoinOnlyWeight
+	joinFilterWeight = g.Config.Weights.Features.TemplateJoinFilterWeight
+	// Config loading already normalizes template weights. Keep only a
+	// lightweight fallback for callers that construct configs programmatically.
+	if joinOnlyWeight == 0 && joinFilterWeight == 0 {
+		joinOnlyWeight = templateJoinOnlyWeightDefault
+		joinFilterWeight = templateJoinFilterWeightDefault
+	}
+	return joinOnlyWeight, joinFilterWeight
+}
+
+// NormalizeTemplateJoinPredicateStrategy canonicalizes template strategy labels.
+func NormalizeTemplateJoinPredicateStrategy(strategy string) string {
+	switch strings.TrimSpace(strings.ToLower(strategy)) {
+	case templateJoinPredicateStrategyJoinOnly:
+		return templateJoinPredicateStrategyJoinOnly
+	case templateJoinPredicateStrategyJoinFilter:
+		return templateJoinPredicateStrategyJoinFilter
+	default:
+		return ""
+	}
 }

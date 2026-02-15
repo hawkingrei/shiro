@@ -146,26 +146,6 @@ type qpgState struct {
 	seenSQLSweep       int64
 }
 
-const (
-	qpgNoJoinThreshold         = 3
-	qpgNoAggThreshold          = 3
-	qpgNoNewPlanThreshold      = 5
-	qpgNoNewOpSigThreshold     = 4
-	qpgNoNewShapeThreshold     = 4
-	qpgNoNewJoinTypeThreshold  = 3
-	qpgNoNewJoinOrderThreshold = 3
-	qpgOverrideTTL             = 5
-	qpgTemplateNoNewJoinOrder  = 3
-	qpgTemplateNoNewShape      = 4
-	qpgTemplateNoAgg           = 3
-	qpgTemplateNoNewPlan       = 5
-	qpgTemplateJoinWeightBoost = 6
-	qpgTemplateAggWeightBoost  = 6
-	qpgTemplateSemiWeightBoost = 5
-	qpgTemplateEnabledProb     = 55
-	qpgTemplateOverrideTTL     = 5
-)
-
 type qpgObservation struct {
 	newPlan     bool
 	newOp       bool
@@ -402,6 +382,7 @@ func (r *Runner) applyQPGWeights() bool {
 	if !r.cfg.QPG.Enabled || r.qpgState == nil {
 		return false
 	}
+	tuning := r.cfg.QPG
 	base := generator.AdaptiveWeights{
 		JoinCount:       r.cfg.Weights.Features.JoinCount,
 		SubqCount:       r.cfg.Weights.Features.SubqCount,
@@ -415,13 +396,13 @@ func (r *Runner) applyQPGWeights() bool {
 	r.qpgMu.Lock()
 	if r.qpgState.overrideTTL <= 0 {
 		setOverride := false
-		if r.qpgState.noJoin >= qpgNoJoinThreshold {
+		if r.qpgState.noJoin >= tuning.NoJoinThreshold {
 			joinCount := max(r.cfg.Weights.Features.JoinCount, 3)
 			r.qpgState.override = &generator.AdaptiveWeights{JoinCount: min(joinCount, r.cfg.MaxJoinTables)}
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noAgg >= qpgNoAggThreshold {
+		if r.qpgState.noAgg >= tuning.NoAggThreshold {
 			agg := max(r.cfg.Weights.Features.AggProb, 60)
 			override := r.qpgState.override
 			if override == nil {
@@ -429,10 +410,10 @@ func (r *Runner) applyQPGWeights() bool {
 			}
 			override.AggProb = agg
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewPlan >= qpgNoNewPlanThreshold {
+		if r.qpgState.noNewPlan >= tuning.NoNewPlanThreshold {
 			subq := max(r.cfg.Weights.Features.SubqCount, 3)
 			override := r.qpgState.override
 			if override == nil {
@@ -440,10 +421,10 @@ func (r *Runner) applyQPGWeights() bool {
 			}
 			override.SubqCount = subq
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewOpSig >= qpgNoNewOpSigThreshold {
+		if r.qpgState.noNewOpSig >= tuning.NoNewOpSigThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -451,10 +432,10 @@ func (r *Runner) applyQPGWeights() bool {
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			override.AggProb = max(r.cfg.Weights.Features.AggProb, 60)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewShape >= qpgNoNewShapeThreshold {
+		if r.qpgState.noNewShape >= tuning.NoNewShapeThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -462,20 +443,20 @@ func (r *Runner) applyQPGWeights() bool {
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewJoinType >= qpgNoNewJoinTypeThreshold {
+		if r.qpgState.noNewJoinType >= tuning.NoNewJoinTypeThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
 			}
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
-		if r.qpgState.noNewJoinOrder >= qpgNoNewJoinOrderThreshold {
+		if r.qpgState.noNewJoinOrder >= tuning.NoNewJoinOrderThreshold {
 			override := r.qpgState.override
 			if override == nil {
 				override = &generator.AdaptiveWeights{}
@@ -483,7 +464,7 @@ func (r *Runner) applyQPGWeights() bool {
 			override.JoinCount = max(r.cfg.Weights.Features.JoinCount, 4)
 			override.SubqCount = max(r.cfg.Weights.Features.SubqCount, 3)
 			r.qpgState.override = override
-			r.qpgState.overrideTTL = qpgOverrideTTL
+			r.qpgState.overrideTTL = tuning.OverrideTTL
 			setOverride = true
 		}
 		if setOverride && r.cfg.Logging.Verbose && r.qpgState.override != nil {
@@ -519,29 +500,30 @@ func (r *Runner) applyQPGTemplateWeights() bool {
 		r.clearTemplateWeights()
 		return false
 	}
+	tuning := r.cfg.QPG.TemplateOverride
 	base := generator.DefaultTemplateWeights()
 	r.qpgMu.Lock()
 	if r.qpgState.templateTTL <= 0 {
 		setOverride := false
 		override := base
-		if r.qpgState.noNewJoinOrder >= qpgTemplateNoNewJoinOrder || r.qpgState.noNewShape >= qpgTemplateNoNewShape {
-			override.JoinReorder = max(base.JoinReorder, qpgTemplateJoinWeightBoost)
-			override.EnabledProb = max(base.EnabledProb, qpgTemplateEnabledProb)
+		if r.qpgState.noNewJoinOrder >= tuning.NoNewJoinOrderThreshold || r.qpgState.noNewShape >= tuning.NoNewShapeThreshold {
+			override.JoinReorder = max(base.JoinReorder, tuning.JoinWeightBoost)
+			override.EnabledProb = max(base.EnabledProb, tuning.EnabledProb)
 			setOverride = true
 		}
-		if r.qpgState.noAgg >= qpgTemplateNoAgg {
-			override.AggPushdown = max(base.AggPushdown, qpgTemplateAggWeightBoost)
-			override.EnabledProb = max(override.EnabledProb, qpgTemplateEnabledProb)
+		if r.qpgState.noAgg >= tuning.NoAggThreshold {
+			override.AggPushdown = max(base.AggPushdown, tuning.AggWeightBoost)
+			override.EnabledProb = max(override.EnabledProb, tuning.EnabledProb)
 			setOverride = true
 		}
-		if r.qpgState.noNewPlan >= qpgTemplateNoNewPlan {
-			override.SemiAnti = max(base.SemiAnti, qpgTemplateSemiWeightBoost)
-			override.EnabledProb = max(override.EnabledProb, qpgTemplateEnabledProb)
+		if r.qpgState.noNewPlan >= tuning.NoNewPlanThreshold {
+			override.SemiAnti = max(base.SemiAnti, tuning.SemiWeightBoost)
+			override.EnabledProb = max(override.EnabledProb, tuning.EnabledProb)
 			setOverride = true
 		}
 		if setOverride {
 			r.qpgState.templateOverride = &override
-			r.qpgState.templateTTL = qpgTemplateOverrideTTL
+			r.qpgState.templateTTL = tuning.OverrideTTL
 			if r.cfg.Logging.Verbose {
 				sig := fmt.Sprintf("%d/%d/%d/%d", override.JoinReorder, override.AggPushdown, override.SemiAnti, override.EnabledProb)
 				if sig != r.qpgState.lastTemplate {
