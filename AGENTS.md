@@ -22,6 +22,7 @@ Links:
 
 ## Recent updates
 
+- Fixed PR #114 CI lint regression by removing stale, now-unreferenced `AnalyzeQueryFeatures` legacy helper functions from `internal/generator/features.go` after the single-pass refactor; validated with local `golangci-lint run --timeout=5m` and targeted generator/runner tests (2026-02-15).
 - Addressed PR #114 review follow-ups: `AnalyzeQueryFeatures` now uses a primary single-pass expression walk (with recursive subquery/CTE merge) to avoid repeated full-query traversals, template strategy normalization is centralized in generator and reused by runner, and template-weight fallback logic now avoids duplicating config-level normalization; added/updated related generator+runner tests (2026-02-15).
 - Reviewed the latest local run (`logs/shiro.log` + 17 `reports/*/summary.json`): all skipped captured cases remained minimize non-reproducible (`base_replay_not_reproducible`), GroundTruth stayed skip-dominant with DSG mismatch reasons (`base_table`/`right_key`), while DQP remained effective and QPG/template strategy counters (`join_filter` + `join_only`) were active (2026-02-15).
 - Added runner-level QPG regression tests covering threshold-triggered adaptive overrides and TTL-based override retirement, and documented a CI-oriented QPG config snippet in README for short-run tuning (2026-02-14).

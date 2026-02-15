@@ -1,6 +1,7 @@
 # TODO
 
 This file tracks current tasks and should stay aligned with `docs/notes/follow-ups.md` to avoid stale plans.
+Latest sync: fixed PR #114 CI lint regression by deleting stale unreferenced feature-detection helpers in `internal/generator/features.go` (left after the single-pass `AnalyzeQueryFeatures` refactor); verified with local `golangci-lint run --timeout=5m` plus targeted generator/runner tests (2026-02-15).
 Latest sync: addressed PR #114 review follow-ups by reducing `AnalyzeQueryFeatures` redundant traversals via a primary single-pass walk, centralizing template strategy normalization in generator (reused by runner), and removing duplicate template-weight normalization from generator fallback logic; updated generator/runner tests accordingly (2026-02-15).
 Latest sync: reviewed latest local `logs/shiro.log` + `reports/*/summary.json` (2026-02-15): 17 captured cases (16 `skipped`, 1 `not_applicable`), all skipped cases had `minimize_reason=base_replay_not_reproducible`; GroundTruth remained skip-dominant with DSG mismatch reasons (`base_table`/`right_key`), while DQP stayed effective and template strategy counters (`join_filter`/`join_only`) were both active.
 Latest sync: GroundTruth now auto-aligns effective `maxRows` with TQS `wide_rows` in DSG mode (while still honoring baseline config floors), reducing `groundtruth:table_rows_exceeded` skips caused by cap mismatch; added regression coverage (2026-02-14).
