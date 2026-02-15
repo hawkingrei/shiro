@@ -12,6 +12,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/db"
+	"shiro/internal/runinfo"
 	"shiro/internal/runner"
 	"shiro/internal/util"
 
@@ -35,6 +36,7 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	util.Infof("starting shiro with %d worker(s)", cfg.Workers)
+	logRunInfo(cfg.RunInfo)
 	if absErr != nil {
 		util.Infof("config path: %s", *configPath)
 	} else {
@@ -128,4 +130,27 @@ func setGlobalTimeZoneOnConn(exec *db.DB) error {
 	util.Infof("timezone: local=%s offset=%s", time.Local.String(), tz)
 	_, err := exec.ExecContext(context.Background(), fmt.Sprintf("SET GLOBAL time_zone='%s'", tz))
 	return err
+}
+
+func logRunInfo(info *runinfo.BasicInfo) {
+	if info == nil || info.IsZero() {
+		return
+	}
+	const format = "run info: ci=%t provider=%s repo=%s branch=%s commit=%s " +
+		"workflow=%s job=%s run_id=%s run_number=%s event=%s pr=%s actor=%s build_url=%s"
+	util.Infof(format,
+		info.CI,
+		info.Provider,
+		info.Repository,
+		info.Branch,
+		info.Commit,
+		info.Workflow,
+		info.Job,
+		info.RunID,
+		info.RunNumber,
+		info.Event,
+		info.PullRequest,
+		info.Actor,
+		info.BuildURL,
+	)
 }

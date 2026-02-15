@@ -4,39 +4,42 @@ import (
 	"os"
 	"strings"
 
+	"shiro/internal/runinfo"
+
 	"gopkg.in/yaml.v3"
 )
 
 // Config captures all runtime options for the fuzz runner.
 type Config struct {
-	DSN                 string          `yaml:"dsn"`
-	Database            string          `yaml:"database"`
-	Seed                int64           `yaml:"seed"`
-	Iterations          int             `yaml:"iterations"`
-	Workers             int             `yaml:"workers"`
-	PlanCacheOnly       bool            `yaml:"plan_cache_only"`
-	PlanCacheProb       int             `yaml:"plan_cache_prob"`
-	NonPreparedProb     int             `yaml:"non_prepared_plan_cache_prob"`
-	PlanCacheMeaningful bool            `yaml:"plan_cache_meaningful_predicates"`
-	MaxTables           int             `yaml:"max_tables"`
-	MaxJoinTables       int             `yaml:"max_join_tables"`
-	MaxColumns          int             `yaml:"max_columns"`
-	MaxRowsPerTable     int             `yaml:"max_rows_per_table"`
-	MaxDataDumpRows     int             `yaml:"max_data_dump_rows"`
-	MaxInsertStatements int             `yaml:"max_insert_statements"`
-	StatementTimeoutMs  int             `yaml:"statement_timeout_ms"`
-	PlanReplayer        PlanReplayer    `yaml:"plan_replayer"`
-	Storage             StorageConfig   `yaml:"storage"`
-	Features            Features        `yaml:"features"`
-	Weights             Weights         `yaml:"weights"`
-	Adaptive            Adaptive        `yaml:"adaptive"`
-	Logging             Logging         `yaml:"logging"`
-	Oracles             OracleConfig    `yaml:"oracles"`
-	QPG                 QPGConfig       `yaml:"qpg"`
-	KQE                 KQEConfig       `yaml:"kqe"`
-	TQS                 TQSConfig       `yaml:"tqs"`
-	Signature           SignatureConfig `yaml:"signature"`
-	Minimize            MinimizeConfig  `yaml:"minimize"`
+	DSN                 string             `yaml:"dsn"`
+	Database            string             `yaml:"database"`
+	Seed                int64              `yaml:"seed"`
+	Iterations          int                `yaml:"iterations"`
+	Workers             int                `yaml:"workers"`
+	PlanCacheOnly       bool               `yaml:"plan_cache_only"`
+	PlanCacheProb       int                `yaml:"plan_cache_prob"`
+	NonPreparedProb     int                `yaml:"non_prepared_plan_cache_prob"`
+	PlanCacheMeaningful bool               `yaml:"plan_cache_meaningful_predicates"`
+	MaxTables           int                `yaml:"max_tables"`
+	MaxJoinTables       int                `yaml:"max_join_tables"`
+	MaxColumns          int                `yaml:"max_columns"`
+	MaxRowsPerTable     int                `yaml:"max_rows_per_table"`
+	MaxDataDumpRows     int                `yaml:"max_data_dump_rows"`
+	MaxInsertStatements int                `yaml:"max_insert_statements"`
+	StatementTimeoutMs  int                `yaml:"statement_timeout_ms"`
+	PlanReplayer        PlanReplayer       `yaml:"plan_replayer"`
+	Storage             StorageConfig      `yaml:"storage"`
+	Features            Features           `yaml:"features"`
+	Weights             Weights            `yaml:"weights"`
+	Adaptive            Adaptive           `yaml:"adaptive"`
+	Logging             Logging            `yaml:"logging"`
+	Oracles             OracleConfig       `yaml:"oracles"`
+	QPG                 QPGConfig          `yaml:"qpg"`
+	KQE                 KQEConfig          `yaml:"kqe"`
+	TQS                 TQSConfig          `yaml:"tqs"`
+	Signature           SignatureConfig    `yaml:"signature"`
+	Minimize            MinimizeConfig     `yaml:"minimize"`
+	RunInfo             *runinfo.BasicInfo `yaml:"-"`
 }
 
 // PlanReplayer controls plan replayer dumping and download.
@@ -299,6 +302,7 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	normalizeConfig(&cfg)
+	cfg.RunInfo = runinfo.FromEnv()
 	return cfg, nil
 }
 

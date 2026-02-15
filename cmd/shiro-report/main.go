@@ -19,6 +19,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/report"
+	"shiro/internal/runinfo"
 	"shiro/internal/util"
 
 	"cloud.google.com/go/storage"
@@ -66,6 +67,7 @@ type CaseEntry struct {
 	SQL                          []string               `json:"sql"`
 	PlanReplay                   string                 `json:"plan_replayer"`
 	UploadLocation               string                 `json:"upload_location"`
+	RunInfo                      *runinfo.BasicInfo     `json:"run_info,omitempty"`
 	Details                      map[string]any         `json:"details"`
 	Files                        map[string]FileContent `json:"files"`
 }
@@ -364,6 +366,7 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 		SQL:                          summary.SQL,
 		PlanReplay:                   summary.PlanReplay,
 		UploadLocation:               summary.UploadLocation,
+		RunInfo:                      summary.RunInfo,
 		Details:                      summary.Details,
 		Files:                        files,
 	}, nil
@@ -706,6 +709,7 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 		SQL:                          summary.SQL,
 		PlanReplay:                   summary.PlanReplay,
 		UploadLocation:               summary.UploadLocation,
+		RunInfo:                      summary.RunInfo,
 		Details:                      summary.Details,
 		Files:                        files,
 	}, nil

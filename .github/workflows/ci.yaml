@@ -52,6 +52,20 @@ jobs:
   test:
     needs: web
     runs-on: ubuntu-latest
+    env:
+      SHIRO_CI: "true"
+      SHIRO_CI_PROVIDER: "github_actions"
+      SHIRO_CI_REPOSITORY: ${{ github.repository }}
+      SHIRO_CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+      SHIRO_CI_COMMIT: ${{ github.sha }}
+      SHIRO_CI_WORKFLOW: ${{ github.workflow }}
+      SHIRO_CI_JOB: ${{ github.job }}
+      SHIRO_CI_RUN_ID: ${{ github.run_id }}
+      SHIRO_CI_RUN_NUMBER: ${{ github.run_number }}
+      SHIRO_CI_EVENT: ${{ github.event_name }}
+      SHIRO_CI_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
+      SHIRO_CI_ACTOR: ${{ github.actor }}
+      SHIRO_CI_BUILD_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
