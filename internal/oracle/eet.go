@@ -29,6 +29,7 @@ type EET struct{}
 func (o EET) Name() string { return "EET" }
 
 const eetBuildMaxTries = 10
+const eetTransformRetryMax = 3
 
 func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 	policy := predicatePolicyFor(gen)
@@ -66,54 +67,69 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		},
 	}
 
-	query, details := buildQueryWithSpec(gen, spec)
-	if query == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: details}
-	}
-	query = query.Clone()
-	if state != nil {
-		rewriteUsingToOn(query, state)
-	}
-	if queryHasUsingQualifiedRefs(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
-	}
-	if gen != nil && !gen.ValidateQueryScope(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:scope_invalid"}}
-	}
-	if len(query.OrderBy) > 0 {
-		if orderByAllConstant(query.OrderBy, len(query.Items)) {
-			if query.Limit != nil {
-				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
-			}
-			// Constant ORDER BY does not affect signature without LIMIT; drop it to keep EET coverage.
-			query.OrderBy = nil
-		} else if orderByDistinctKeys(query.OrderBy, len(query.Items)) < 2 {
-			if query.Limit != nil {
-				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_insufficient_columns"}}
-			}
-			// Non-deterministic ORDER BY is irrelevant to signature without LIMIT; drop it instead of skipping.
-			query.OrderBy = nil
+	var (
+		query          *generator.SelectQuery
+		baseSQL        string
+		transformedSQL string
+		details        map[string]any
+	)
+	for attempt := 0; attempt < eetTransformRetryMax; attempt++ {
+		query, details = buildQueryWithSpec(gen, spec)
+		if query == nil {
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
-	}
-	if !eetDistinctOrderByCompatible(query) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:distinct_order_by"}}
-	}
-	if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
-			"skip_reason":     skipReason,
-			"precheck_reason": reason,
-		}}
-	}
+		query = query.Clone()
+		if state != nil {
+			rewriteUsingToOn(query, state)
+		}
+		if queryHasUsingQualifiedRefs(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:using_qualified_ref"}}
+		}
+		if gen != nil && !gen.ValidateQueryScope(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:scope_invalid"}}
+		}
+		if len(query.OrderBy) > 0 {
+			if orderByAllConstant(query.OrderBy, len(query.Items)) {
+				if query.Limit != nil {
+					return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_constant"}}
+				}
+				// Constant ORDER BY does not affect signature without LIMIT; drop it to keep EET coverage.
+				query.OrderBy = nil
+			} else if orderByDistinctKeys(query.OrderBy, len(query.Items)) < 2 {
+				if query.Limit != nil {
+					return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:order_by_insufficient_columns"}}
+				}
+				// Non-deterministic ORDER BY is irrelevant to signature without LIMIT; drop it instead of skipping.
+				query.OrderBy = nil
+			}
+		}
+		if !eetDistinctOrderByCompatible(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:distinct_order_by"}}
+		}
+		if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+				"skip_reason":     skipReason,
+				"precheck_reason": reason,
+			}}
+		}
 
-	baseSQL := query.SQLString()
-	transformedSQL, details, err := applyEETTransform(baseSQL, gen)
-	if err != nil {
-		details["error_reason"] = "eet:parse_error"
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
-	}
-	if strings.TrimSpace(transformedSQL) == "" || transformedSQL == baseSQL {
-		details["skip_reason"] = "eet:no_transform"
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Details: details}
+		baseSQL = query.SQLString()
+		var err error
+		transformedSQL, details, err = applyEETTransform(baseSQL, gen)
+		if err != nil {
+			details["error_reason"] = "eet:parse_error"
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
+		}
+		if strings.TrimSpace(transformedSQL) == "" || transformedSQL == baseSQL {
+			if _, ok := details["skip_reason"]; !ok {
+				details["skip_reason"] = "eet:no_transform"
+			}
+			if attempt+1 < eetTransformRetryMax && eetShouldRetryNoTransform(details) {
+				continue
+			}
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Details: details}
+		}
+		break
 	}
 
 	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
@@ -166,6 +182,19 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+}
+
+func eetShouldRetryNoTransform(details map[string]any) bool {
+	if len(details) == 0 {
+		return false
+	}
+	reason, _ := details["skip_reason"].(string)
+	switch reason {
+	case "eet:no_transform", "eet:no_rewrite_kind", "eet:rewrite_no_boolean_target", "eet:rewrite_no_literal_target":
+		return true
+	default:
+		return false
+	}
 }
 
 func eetSignatureErrorDetails(err error, stage string) (reason string, classification string) {

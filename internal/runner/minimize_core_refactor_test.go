@@ -87,3 +87,27 @@ func containsLiteral(sqls []string, target string) bool {
 	}
 	return false
 }
+
+func TestReplayConsensus(t *testing.T) {
+	results := []bool{true, false, true}
+	idx := 0
+	ok := replayConsensus(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, 3, 2)
+	if !ok {
+		t.Fatalf("expected 2/3 success to pass consensus")
+	}
+
+	idx = 0
+	failures := []bool{false, true, false}
+	ok = replayConsensus(func() bool {
+		v := failures[idx]
+		idx++
+		return v
+	}, 3, 2)
+	if ok {
+		t.Fatalf("expected 1/3 success to fail consensus")
+	}
+}

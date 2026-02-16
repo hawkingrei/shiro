@@ -258,6 +258,53 @@ func TestBuildCombinedHints(t *testing.T) {
 	}
 }
 
+func TestDQPHintReward(t *testing.T) {
+	if dqpHintReward(false) >= dqpHintReward(true) {
+		t.Fatalf("expected mismatch reward to be higher")
+	}
+}
+
+func TestDQPReplaySetVarAssignment(t *testing.T) {
+	cases := []struct {
+		name string
+		hint string
+		want string
+		ok   bool
+	}{
+		{
+			name: "set_var_only",
+			hint: "SET_VAR(tidb_opt_use_toja=ON)",
+			want: "tidb_opt_use_toja=ON",
+			ok:   true,
+		},
+		{
+			name: "combined_set_var_first",
+			hint: "SET_VAR(tidb_opt_use_toja=OFF), HASH_JOIN(t1, t2)",
+			want: "tidb_opt_use_toja=OFF",
+			ok:   true,
+		},
+		{
+			name: "combined_set_var_later",
+			hint: "HASH_JOIN(t1, t2), SET_VAR(tidb_opt_partial_ordered_index_for_topn='DISABLE')",
+			want: "tidb_opt_partial_ordered_index_for_topn='DISABLE'",
+			ok:   true,
+		},
+		{
+			name: "no_set_var",
+			hint: "HASH_JOIN(t1, t2)",
+			want: "",
+			ok:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		got, ok := dqpReplaySetVarAssignment(tc.hint)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("%s: dqpReplaySetVarAssignment(%q)=(%q,%v), want (%q,%v)", tc.name, tc.hint, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestFindTopLevelSelectIndex(t *testing.T) {
 	sql := "WITH cte AS (SELECT c1 FROM t1) SELECT c1 FROM cte WHERE c1 IN (SELECT c1 FROM t2)"
 	idx := findTopLevelSelectIndex(sql)

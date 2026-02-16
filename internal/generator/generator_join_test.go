@@ -33,6 +33,21 @@ func TestCollectJoinColumnsDSGFallback(t *testing.T) {
 	}
 }
 
+func TestDSGAllowedJoinKeyTableOffset(t *testing.T) {
+	if !dsgAllowedJoinKey("t1", "k0") {
+		t.Fatalf("expected t1.k0 to be allowed")
+	}
+	if dsgAllowedJoinKey("t1", "k1") {
+		t.Fatalf("expected t1.k1 to be rejected")
+	}
+	if !dsgAllowedJoinKey("t2", "k1") {
+		t.Fatalf("expected t2.k1 to be allowed")
+	}
+	if dsgAllowedJoinKey("t2", "k2") {
+		t.Fatalf("expected t2.k2 to be rejected")
+	}
+}
+
 func TestJoinConditionFromUsingFallback(t *testing.T) {
 	left := []schema.Table{
 		{Name: "t0", Columns: []schema.Column{{Name: "a", Type: schema.TypeInt}}},

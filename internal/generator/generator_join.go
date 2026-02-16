@@ -143,7 +143,7 @@ func dsgAllowedJoinKey(tableName, colName string) bool {
 	if colName == "k0" {
 		return true
 	}
-	return colName == "k"+strconv.Itoa(idx)
+	return colName == "k"+strconv.Itoa(idx-1)
 }
 
 func hasJoinEdges(adj [][]int) bool {

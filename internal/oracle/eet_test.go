@@ -267,6 +267,32 @@ func TestEETDistinctOrderByCompatible(t *testing.T) {
 	}
 }
 
+func TestEETShouldRetryNoTransform(t *testing.T) {
+	retryable := []string{
+		"eet:no_transform",
+		"eet:no_rewrite_kind",
+		"eet:rewrite_no_boolean_target",
+		"eet:rewrite_no_literal_target",
+	}
+	for _, reason := range retryable {
+		if !eetShouldRetryNoTransform(map[string]any{"skip_reason": reason}) {
+			t.Fatalf("expected %s to be retryable", reason)
+		}
+	}
+	nonRetryable := []string{
+		"eet:scope_invalid",
+		"eet:distinct_order_by",
+	}
+	for _, reason := range nonRetryable {
+		if eetShouldRetryNoTransform(map[string]any{"skip_reason": reason}) {
+			t.Fatalf("expected %s to be non-retryable", reason)
+		}
+	}
+	if eetShouldRetryNoTransform(nil) {
+		t.Fatalf("nil details should not be retryable")
+	}
+}
+
 func TestEETIsDistinctOrderByErr(t *testing.T) {
 	err := &mysql.MySQLError{
 		Number:  3065,
