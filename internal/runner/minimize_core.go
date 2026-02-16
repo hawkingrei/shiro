@@ -192,17 +192,17 @@ func reduceCaseErrorCandidate(
 }
 
 func replayConsensus(run func() bool, attempts int, required int) bool {
+	if required <= 0 {
+		return true
+	}
 	if run == nil {
 		return false
 	}
 	if attempts <= 0 {
-		attempts = 1
+		return false
 	}
-	if required <= 0 {
-		required = attempts
-	}
-	if required > attempts {
-		required = attempts
+	if attempts < required {
+		return false
 	}
 	success := 0
 	remaining := attempts

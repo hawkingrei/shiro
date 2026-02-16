@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"shiro/internal/db"
@@ -22,6 +23,12 @@ type DQP struct {
 func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
+
+var (
+	replaySetVarNamePattern      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	replaySetVarUnquotedPattern  = regexp.MustCompile(`^[a-zA-Z0-9_.+-]+$`)
+	replaySetVarSingleQuotedExpr = regexp.MustCompile(`^'[a-zA-Z0-9_.+-]+'$`)
+)
 
 // Run generates a join query, executes the base signature, then tries variants:
 // - join hints (HASH_JOIN/MERGE_JOIN/INL_*)
@@ -347,12 +354,39 @@ func dqpReplaySetVarAssignment(hint string) (string, bool) {
 			continue
 		}
 		body := strings.TrimSpace(trimmed[len("SET_VAR(") : len(trimmed)-1])
-		if body == "" || strings.Contains(body, "*/") || !strings.Contains(body, "=") {
+		assignment, ok := normalizeReplaySetVarAssignment(body)
+		if !ok {
 			continue
 		}
-		return body, true
+		return assignment, true
 	}
 	return "", false
+}
+
+func normalizeReplaySetVarAssignment(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+	if strings.Contains(trimmed, "*/") ||
+		strings.Contains(trimmed, "/*") ||
+		strings.Contains(trimmed, "--") ||
+		strings.Contains(trimmed, ";") {
+		return "", false
+	}
+	if strings.Count(trimmed, "=") != 1 {
+		return "", false
+	}
+	parts := strings.SplitN(trimmed, "=", 2)
+	name := strings.TrimSpace(parts[0])
+	value := strings.TrimSpace(parts[1])
+	if !replaySetVarNamePattern.MatchString(name) {
+		return "", false
+	}
+	if !replaySetVarUnquotedPattern.MatchString(value) && !replaySetVarSingleQuotedExpr.MatchString(value) {
+		return "", false
+	}
+	return name + "=" + value, true
 }
 
 func splitTopLevelHintList(hints string) []string {

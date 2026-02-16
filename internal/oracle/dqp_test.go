@@ -295,12 +295,82 @@ func TestDQPReplaySetVarAssignment(t *testing.T) {
 			want: "",
 			ok:   false,
 		},
+		{
+			name: "reject_statement_injection",
+			hint: "SET_VAR(tidb_opt_use_toja=ON;DROP TABLE t1)",
+			want: "",
+			ok:   false,
+		},
+		{
+			name: "reject_comment_injection",
+			hint: "SET_VAR(tidb_opt_use_toja=ON/*x*/)",
+			want: "",
+			ok:   false,
+		},
+		{
+			name: "reject_multiple_assignments",
+			hint: "SET_VAR(tidb_opt_use_toja=ON,tidb_opt_fix_control='123:ON')",
+			want: "",
+			ok:   false,
+		},
+		{
+			name: "reject_unsafe_name",
+			hint: "SET_VAR(@@tidb_opt_use_toja=ON)",
+			want: "",
+			ok:   false,
+		},
 	}
 
 	for _, tc := range cases {
 		got, ok := dqpReplaySetVarAssignment(tc.hint)
 		if got != tc.want || ok != tc.ok {
 			t.Fatalf("%s: dqpReplaySetVarAssignment(%q)=(%q,%v), want (%q,%v)", tc.name, tc.hint, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestNormalizeReplaySetVarAssignment(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+		ok   bool
+	}{
+		{
+			name: "valid_unquoted",
+			raw:  "tidb_opt_use_toja=ON",
+			want: "tidb_opt_use_toja=ON",
+			ok:   true,
+		},
+		{
+			name: "valid_single_quoted",
+			raw:  "tidb_opt_partial_ordered_index_for_topn='DISABLE'",
+			want: "tidb_opt_partial_ordered_index_for_topn='DISABLE'",
+			ok:   true,
+		},
+		{
+			name: "reject_semicolon",
+			raw:  "tidb_opt_use_toja=ON;DROP TABLE t1",
+			want: "",
+			ok:   false,
+		},
+		{
+			name: "reject_comment",
+			raw:  "tidb_opt_use_toja=ON/*x*/",
+			want: "",
+			ok:   false,
+		},
+		{
+			name: "reject_double_equals",
+			raw:  "tidb_opt_use_toja=ON=OFF",
+			want: "",
+			ok:   false,
+		},
+	}
+	for _, tc := range cases {
+		got, ok := normalizeReplaySetVarAssignment(tc.raw)
+		if got != tc.want || ok != tc.ok {
+			t.Fatalf("%s: normalizeReplaySetVarAssignment(%q)=(%q,%v), want (%q,%v)", tc.name, tc.raw, got, ok, tc.want, tc.ok)
 		}
 	}
 }
