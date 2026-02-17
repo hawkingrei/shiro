@@ -608,7 +608,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	}
 	restoreOracleOverrides := r.applyOracleOverrides(oracleName)
 	defer restoreOracleOverrides()
-	var reward float64
+	var queryReward float64
 	qctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	r.gen.ResetBuilderStats()
@@ -637,26 +637,39 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		r.observeKQELite(r.gen.LastFeatures)
 	}
 	r.applyResultMetrics(result)
+	oracleReward := oracleBanditImmediateReward(result, skipReason)
 	if result.OK {
 		r.maybeObservePlan(ctx, result)
 		if isPanicError(result.Err) {
 			r.handleResult(ctx, result)
-			reward = 1
+			queryReward = 1
 		}
-		r.updateOracleBandit(oracleIdx, reward)
-		r.updateFeatureBandits(reward)
+		r.updateOracleBandit(oracleIdx, oracleReward)
+		r.updateFeatureBandits(queryReward)
 		r.tickQPG()
 		r.tickKQELite()
-		return reward > 0
+		return queryReward > 0
 	}
 	r.handleResult(ctx, result)
-	reward = 1
-	r.updateOracleBandit(oracleIdx, reward)
-	r.updateFeatureBandits(reward)
+	queryReward = 1
+	r.updateOracleBandit(oracleIdx, oracleReward)
+	r.updateFeatureBandits(queryReward)
 	r.maybeObservePlan(ctx, result)
 	r.tickQPG()
 	r.tickKQELite()
 	return true
+}
+
+func oracleBanditImmediateReward(result oracle.Result, skipReason string) float64 {
+	if !result.OK || isPanicError(result.Err) {
+		return 1.0
+	}
+	if skipReason != "" || result.Err != nil {
+		return 0.0
+	}
+	// Keep a small positive reward for successful non-skip runs so the
+	// oracle-level bandit can learn execution effectiveness, not only bugs.
+	return 0.2
 }
 
 func missingTableName(err error) (string, bool) {

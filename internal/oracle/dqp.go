@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"shiro/internal/db"
@@ -22,6 +23,12 @@ type DQP struct {
 func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
+
+var (
+	replaySetVarNamePattern      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	replaySetVarUnquotedPattern  = regexp.MustCompile(`^[a-zA-Z0-9_.+-]+$`)
+	replaySetVarSingleQuotedExpr = regexp.MustCompile(`^'[a-zA-Z0-9_.+-]+'$`)
+)
 
 // Run generates a join query, executes the base signature, then tries variants:
 // - join hints (HASH_JOIN/MERGE_JOIN/INL_*)
@@ -97,11 +104,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			continue
 		}
 		mismatch := variantSig != baseSig
-		reward := 1.0
-		if mismatch {
-			reward = 0
-		}
-		updateHintBandit(variant.hint, reward, gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
+		updateHintBandit(variant.hint, dqpHintReward(mismatch), gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 		if mismatch {
 			expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
 			actualExplain, actualExplainErr := explainSQL(ctx, exec, variant.signatureSQL)
@@ -114,6 +117,9 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
 				"actual_explain_err":   errString(actualExplainErr),
+			}
+			if setVarAssignment, ok := dqpReplaySetVarAssignment(variant.hint); ok {
+				details["replay_set_var"] = setVarAssignment
 			}
 			return Result{
 				OK:       false,
@@ -327,6 +333,105 @@ func normalizeSetVarHint(raw string) (hint string, isSetVar bool, valid bool) {
 		return "SET_VAR(" + trimmed + ")", true, true
 	}
 	return "", false, false
+}
+
+func dqpHintReward(mismatch bool) float64 {
+	if mismatch {
+		// Prefer variants that expose optimizer-dependent result differences.
+		return 1.0
+	}
+	return 0.2
+}
+
+func dqpReplaySetVarAssignment(hint string) (string, bool) {
+	for _, token := range splitTopLevelHintList(hint) {
+		trimmed := strings.TrimSpace(token)
+		if trimmed == "" {
+			continue
+		}
+		upper := strings.ToUpper(trimmed)
+		if !strings.HasPrefix(upper, "SET_VAR(") || !strings.HasSuffix(trimmed, ")") {
+			continue
+		}
+		body := strings.TrimSpace(trimmed[len("SET_VAR(") : len(trimmed)-1])
+		assignment, ok := normalizeReplaySetVarAssignment(body)
+		if !ok {
+			continue
+		}
+		return assignment, true
+	}
+	return "", false
+}
+
+func normalizeReplaySetVarAssignment(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+	if strings.Contains(trimmed, "*/") ||
+		strings.Contains(trimmed, "/*") ||
+		strings.Contains(trimmed, "--") ||
+		strings.Contains(trimmed, ";") {
+		return "", false
+	}
+	if strings.Count(trimmed, "=") != 1 {
+		return "", false
+	}
+	parts := strings.SplitN(trimmed, "=", 2)
+	name := strings.TrimSpace(parts[0])
+	value := strings.TrimSpace(parts[1])
+	if !replaySetVarNamePattern.MatchString(name) {
+		return "", false
+	}
+	if !replaySetVarUnquotedPattern.MatchString(value) && !replaySetVarSingleQuotedExpr.MatchString(value) {
+		return "", false
+	}
+	return name + "=" + value, true
+}
+
+func splitTopLevelHintList(hints string) []string {
+	if strings.TrimSpace(hints) == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	depth := 0
+	inString := false
+	escape := false
+	start := 0
+	for i := 0; i < len(hints); i++ {
+		ch := hints[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '\'' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '\'':
+			inString = true
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				out = append(out, hints[start:i])
+				start = i + 1
+			}
+		}
+	}
+	out = append(out, hints[start:])
+	return out
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {

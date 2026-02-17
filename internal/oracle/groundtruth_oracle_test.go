@@ -101,7 +101,7 @@ func TestGroundTruthDSGSkipReason(t *testing.T) {
 			LeftTable:  "t0",
 			RightTable: "t1",
 			LeftKeys:   []string{"k0"},
-			RightKeys:  []string{"k1"},
+			RightKeys:  []string{"k0"},
 		},
 	}
 	if skip, reason := groundTruthDSGSkipReason("t0", edges); skip != "" || reason != "" {
@@ -123,10 +123,10 @@ func TestGroundTruthDSGSkipReason(t *testing.T) {
 	if reason := groundTruthDSGMismatchReason("x0", invalidKey); reason != "base_table" {
 		t.Fatalf("expected base_table, got %q", reason)
 	}
-	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "x1", RightTable: "t1", LeftKeys: []string{"k0"}, RightKeys: []string{"k1"}}}); reason != "left_table" {
+	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "x1", RightTable: "t1", LeftKeys: []string{"k0"}, RightKeys: []string{"k0"}}}); reason != "left_table" {
 		t.Fatalf("expected left_table, got %q", reason)
 	}
-	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "t0", RightTable: "t1", LeftKeys: nil, RightKeys: []string{"k1"}}}); reason != "left_keys_missing" {
+	if reason := groundTruthDSGMismatchReason("t0", []groundtruth.JoinEdge{{LeftTable: "t0", RightTable: "t1", LeftKeys: nil, RightKeys: []string{"k0"}}}); reason != "left_keys_missing" {
 		t.Fatalf("expected left_keys_missing, got %q", reason)
 	}
 }
@@ -145,7 +145,7 @@ func TestGroundTruthDSGPrecheck(t *testing.T) {
 				Name: "t1",
 				Columns: []schema.Column{
 					{Name: "id", Type: schema.TypeInt},
-					{Name: "k1", Type: schema.TypeInt},
+					{Name: "k0", Type: schema.TypeInt},
 				},
 			},
 		},
@@ -155,7 +155,7 @@ func TestGroundTruthDSGPrecheck(t *testing.T) {
 		From: generator.FromClause{
 			BaseTable: "t0",
 			Joins: []generator.Join{
-				{Type: generator.JoinInner, Table: "t1", Using: []string{"k1"}},
+				{Type: generator.JoinInner, Table: "t1", Using: []string{"k0"}},
 			},
 		},
 	}
@@ -182,7 +182,7 @@ func TestGroundTruthDSGRightKeysAvailable(t *testing.T) {
 			{
 				Name: "t1",
 				Columns: []schema.Column{
-					{Name: "k1", Type: schema.TypeInt},
+					{Name: "k0", Type: schema.TypeInt},
 				},
 			},
 		},
@@ -192,7 +192,7 @@ func TestGroundTruthDSGRightKeysAvailable(t *testing.T) {
 			LeftTable:  "t0",
 			RightTable: "t1",
 			LeftKeys:   []string{"k0"},
-			RightKeys:  []string{"k1"},
+			RightKeys:  []string{"k0"},
 		},
 	}
 	if !groundTruthDSGRightKeysAvailable(state, edges) {
@@ -201,6 +201,20 @@ func TestGroundTruthDSGRightKeysAvailable(t *testing.T) {
 	edges[0].RightKeys = []string{"k9"}
 	if groundTruthDSGRightKeysAvailable(state, edges) {
 		t.Fatalf("expected missing right keys to be detected")
+	}
+}
+
+func TestDSGTableKeyName(t *testing.T) {
+	key, ok := dsgTableKeyName("t1")
+	if !ok || key != "k0" {
+		t.Fatalf("t1 key = (%q,%v), want (k0,true)", key, ok)
+	}
+	key, ok = dsgTableKeyName("t2")
+	if !ok || key != "k1" {
+		t.Fatalf("t2 key = (%q,%v), want (k1,true)", key, ok)
+	}
+	if _, ok := dsgTableKeyName("x2"); ok {
+		t.Fatalf("expected non-t* table to be invalid")
 	}
 }
 

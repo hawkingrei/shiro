@@ -541,13 +541,21 @@ func validDSGTruthKey(base, table, key string) bool {
 	if table == base {
 		return true
 	}
-	idx, ok := parseTableIndex(table)
-	if !ok || idx <= 0 {
+	tableKey, ok := dsgTableKeyName(table)
+	if !ok {
 		return false
 	}
-	// For DSG dimension tables (t{idx}, idx > 0), allow the shared key k0
-	// or the table key k{idx}.
-	return key == "k0" || key == fmt.Sprintf("k%d", idx)
+	// For DSG dimension table tN (N >= 1), allow the shared key k0
+	// or the table-local key k(N-1).
+	return key == "k0" || key == tableKey
+}
+
+func dsgTableKeyName(table string) (string, bool) {
+	idx, ok := parseTableIndex(table)
+	if !ok || idx <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("k%d", idx-1), true
 }
 
 func parseTableIndex(name string) (int, bool) {

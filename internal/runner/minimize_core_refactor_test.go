@@ -87,3 +87,40 @@ func containsLiteral(sqls []string, target string) bool {
 	}
 	return false
 }
+
+func TestReplayConsensus(t *testing.T) {
+	results := []bool{true, false, true}
+	idx := 0
+	ok := replayConsensus(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, 3, 2)
+	if !ok {
+		t.Fatalf("expected 2/3 success to pass consensus")
+	}
+
+	idx = 0
+	failures := []bool{false, true, false}
+	ok = replayConsensus(func() bool {
+		v := failures[idx]
+		idx++
+		return v
+	}, 3, 2)
+	if ok {
+		t.Fatalf("expected 1/3 success to fail consensus")
+	}
+
+	if !replayConsensus(nil, 0, 0) {
+		t.Fatalf("required<=0 should pass immediately")
+	}
+	if replayConsensus(nil, 3, 1) {
+		t.Fatalf("nil callback should fail when success is required")
+	}
+	if replayConsensus(func() bool { return true }, 1, 2) {
+		t.Fatalf("attempts less than required should fail")
+	}
+	if replayConsensus(func() bool { return true }, 0, 1) {
+		t.Fatalf("non-positive attempts should fail when success is required")
+	}
+}

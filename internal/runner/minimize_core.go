@@ -36,6 +36,9 @@ type minimizeOutput struct {
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
 const minimizePassLimit = 3
 const minimizeDefaultRounds = 8
+const minimizeBaseReplayAttempts = 3
+const minimizeBaseReplayRequired = 2
+
 // sqlSliceWeightStmtMultiplier keeps statement count dominant in minimization scoring.
 const sqlSliceWeightStmtMultiplier = 100000
 
@@ -70,7 +73,9 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	origCase := append([]string{}, result.SQL...)
 
 	origInserts = expandInsertStatements(origInserts)
-	if !test(origInserts, origCase) {
+	if !replayConsensus(func() bool {
+		return test(origInserts, origCase)
+	}, minimizeBaseReplayAttempts, minimizeBaseReplayRequired) {
 		return minimizeOutput{
 			status: "skipped",
 			reason: minimizeReasonBaseReplayNotReproducible,
@@ -184,6 +189,36 @@ func reduceCaseErrorCandidate(
 		}
 	}
 	return currentInserts, currentCase
+}
+
+func replayConsensus(run func() bool, attempts int, required int) bool {
+	if required <= 0 {
+		return true
+	}
+	if run == nil {
+		return false
+	}
+	if attempts <= 0 {
+		return false
+	}
+	if attempts < required {
+		return false
+	}
+	success := 0
+	remaining := attempts
+	for i := 0; i < attempts; i++ {
+		if run() {
+			success++
+		}
+		remaining--
+		if success >= required {
+			return true
+		}
+		if success+remaining < required {
+			return false
+		}
+	}
+	return false
 }
 
 func reduceReplaySpecCandidate(
