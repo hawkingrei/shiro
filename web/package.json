@@ -19,7 +19,7 @@
     "react": "19.2.4",
     "react-diff-viewer-continued": "^4.1.2",
     "react-dom": "19.2.4",
-    "sql-formatter": "^15.7.1"
+    "sql-formatter": "^15.7.2"
   },
   "devDependencies": {
     "@types/node": "25.2.3",
