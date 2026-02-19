@@ -231,7 +231,7 @@ func dqpExprAlwaysFalse(expr generator.Expr) bool {
 	return ok && !v
 }
 
-func dqpExprConstBool(expr generator.Expr) (bool, bool) {
+func dqpExprConstBool(expr generator.Expr) (value bool, ok bool) {
 	switch e := expr.(type) {
 	case nil:
 		return false, false
@@ -311,7 +311,7 @@ func dqpLiteralValue(expr generator.Expr) (any, bool) {
 	}
 }
 
-func dqpLiteralAsBool(v any) (bool, bool) {
+func dqpLiteralAsBool(v any) (value bool, ok bool) {
 	switch x := v.(type) {
 	case nil:
 		return false, true
