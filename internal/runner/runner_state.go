@@ -118,6 +118,12 @@ func (r *Runner) applyRuntimeToggles() {
 	} else if r.baseTQSEnabled && r.baseDQEWeight > 0 {
 		util.Detailf("tqs config adjusted: disable TQS because DQE is enabled")
 	}
+	if !tqsEnabled {
+		r.tqsHistory = nil
+		if r.gen != nil {
+			r.gen.SetTQSWalker(nil)
+		}
+	}
 	if r.gen != nil {
 		r.gen.Config = r.cfg
 	}

@@ -111,8 +111,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		if len(query.GroupBy) > 0 && util.Chance(g.Rand, g.groupByOrdinalProb()) {
 			query.GroupBy = g.wrapGroupByOrdinals(query.GroupBy)
 		}
-		if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
-			query.GroupByWithRollup = true
+		if g.applyGroupByExtension(query) {
 			g.maybeAppendGroupingSelectItem(query)
 		}
 	}
@@ -310,14 +309,9 @@ func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []sche
 		withGroupBy := g.Config.Features.GroupBy && util.Chance(g.Rand, g.Config.Weights.Features.GroupByProb)
 		if withGroupBy {
 			query.GroupBy = g.GenerateGroupBy(rhsTables)
-			if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
-				query.GroupByWithRollup = true
-			}
+			g.applyGroupByExtension(query)
 		}
 		query.Items = g.GenerateAggregateSelectList(rhsTables, query.GroupBy)
-		if query.GroupByWithRollup {
-			g.maybeAppendGroupingSelectItem(query)
-		}
 		if len(query.Items) != len(baseItems) {
 			query.Items = g.buildSetOperationItems(baseItems, rhsTables)
 		}
@@ -406,6 +400,8 @@ func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subq
 	queryFeatures.SubqueryAttempts = g.subqueryAttempts
 	queryFeatures.SubqueryBuilt = g.subqueryBuilt
 	queryFeatures.SubqueryFailed = g.subqueryFailed
+	queryFeatures.FullJoinEmulationAttempted = g.fullJoinEmulationAttempted
+	queryFeatures.FullJoinEmulationRejectReason = g.fullJoinEmulationReject
 	g.LastFeatures = &queryFeatures
 	g.setQueryAnalysisWithFeatures(query, queryFeatures)
 }

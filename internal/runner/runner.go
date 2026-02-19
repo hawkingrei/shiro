@@ -59,6 +59,8 @@ type Runner struct {
 	genSQLIntervalArith      int64
 	genSQLNaturalJoin        int64
 	genSQLFullJoinEmulation  int64
+	genSQLFullJoinAttempted  int64
+	genSQLFullJoinRejected   map[string]int64
 	genSQLRecursiveCTE       int64
 	// sqlInSubquery tracks IN(subquery) occurrences aggregated from plan-cache SQL parsing.
 	sqlInSubquery int64
@@ -112,6 +114,14 @@ type Runner struct {
 	capturedCases                   int64
 	capturedMinimizeStatus          map[string]int64
 	capturedMinimizeReasons         map[string]int64
+	minimizeInFlight                int64
+	throughputLowSampleStreak       int64
+	throughputGuardTTL              int64
+	throughputGuardActivations      int64
+	dqpTimeoutCooldownTTL           int64
+	oracleTimeoutCounts             map[string]int64
+	infraUnhealthyTTL               int64
+	infraErrorCounts                map[string]int64
 	qpgState                        *qpgState
 	kqeState                        *kqeState
 	tqsHistory                      *tqs.History
@@ -199,12 +209,15 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		joinTypeSeqs:                    make(map[string]int64),
 		joinGraphSigs:                   make(map[string]int64),
 		templateJoinPredicateStrategies: make(map[string]int64),
+		genSQLFullJoinRejected:          make(map[string]int64),
 		subqueryDisallowReasons:         make(map[string]int64),
 		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
 		builderStats:                    make(map[string]*builderAttemptStats),
 		oracleStats:                     make(map[string]*oracleFunnel),
 		capturedMinimizeStatus:          make(map[string]int64),
 		capturedMinimizeReasons:         make(map[string]int64),
+		oracleTimeoutCounts:             make(map[string]int64),
+		infraErrorCounts:                make(map[string]int64),
 		baseActions:                     cfg.Weights.Actions,
 		baseDMLWeights:                  cfg.Weights.DML,
 		baseDQEWeight:                   cfg.Weights.Oracles.DQE,
@@ -316,6 +329,8 @@ func (r *Runner) initState(ctx context.Context) error {
 		return r.initStateDSG(ctx)
 	}
 	r.gen.SetTruth(nil)
+	r.gen.SetTQSWalker(nil)
+	r.tqsHistory = nil
 	initialTables := 2
 	for i := 0; i < initialTables; i++ {
 		tbl := r.gen.GenerateTable()
@@ -449,7 +464,7 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
 		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
-		if r.tqsHistory != nil {
+		if r.cfg.TQS.Enabled && r.tqsHistory != nil {
 			r.tqsHistory.Refresh(r.state)
 		}
 	case "create_index":
@@ -609,10 +624,12 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	restoreOracleOverrides := r.applyOracleOverrides(oracleName)
 	defer restoreOracleOverrides()
 	var queryReward float64
-	qctx, cancel := r.withTimeout(ctx)
+	qctx, cancel := r.withTimeoutForOracle(ctx, oracleName)
 	defer cancel()
 	r.gen.ResetBuilderStats()
 	result := r.oracles[oracleIdx].Run(qctx, r.exec, r.gen, r.state)
+	r.observeOracleTimeoutControl(oracleName, result.Err)
+	r.observeInfraErrorControl(result.Err)
 	builderStats := r.gen.BuilderStats()
 	r.observeBuilderStats(oracleName, builderStats)
 	if result.Err != nil {
@@ -625,6 +642,9 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 			result.Err = nil
 		}
 	}
+	_ = downgradeMissingColumnFalsePositive(&result)
+	_ = downgradeGroundTruthLowConfidenceFalsePositive(&result)
+	_ = downgradeDQPTimeoutFalsePositive(&result)
 	annotateResultForReporting(&result)
 	skipReason := oracleSkipReason(result)
 	isPanic := isPanicError(result.Err)
@@ -664,8 +684,20 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 	if !result.OK || isPanicError(result.Err) {
 		return 1.0
 	}
-	if skipReason != "" || result.Err != nil {
-		return 0.0
+	if result.Err != nil {
+		if isTimeoutError(result.Err) {
+			return 0.0
+		}
+		if _, ok := classifyInfraIssue(result.Err); ok {
+			return 0.0
+		}
+		return 0.05
+	}
+	if skipReason != "" {
+		if strings.Contains(skipReason, ":timeout") || isInfraReason(skipReason) {
+			return 0.0
+		}
+		return 0.05
 	}
 	// Keep a small positive reward for successful non-skip runs so the
 	// oracle-level bandit can learn execution effectiveness, not only bugs.

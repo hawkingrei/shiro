@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"strings"
+
 	"shiro/internal/config"
 	"shiro/internal/generator"
 	"shiro/internal/util"
@@ -40,28 +42,54 @@ func (r *Runner) initBandits() {
 }
 
 func (r *Runner) oracleWeightByName(name string) int {
+	base := 0
 	switch name {
 	case "NoREC":
-		return r.cfg.Weights.Oracles.NoREC
+		base = r.cfg.Weights.Oracles.NoREC
 	case "TLP":
-		return r.cfg.Weights.Oracles.TLP
+		base = r.cfg.Weights.Oracles.TLP
 	case "EET":
-		return r.cfg.Weights.Oracles.EET
+		base = r.cfg.Weights.Oracles.EET
 	case "DQP":
-		return r.cfg.Weights.Oracles.DQP
+		base = r.cfg.Weights.Oracles.DQP
 	case "PQS":
-		return r.cfg.Weights.Oracles.PQS
+		base = r.cfg.Weights.Oracles.PQS
 	case "CODDTest":
-		return r.cfg.Weights.Oracles.CODDTest
+		base = r.cfg.Weights.Oracles.CODDTest
 	case "DQE":
-		return r.cfg.Weights.Oracles.DQE
+		base = r.cfg.Weights.Oracles.DQE
 	case "Impo":
-		return r.cfg.Weights.Oracles.Impo
+		base = r.cfg.Weights.Oracles.Impo
 	case "GroundTruth":
-		return r.cfg.Weights.Oracles.GroundTruth
+		base = r.cfg.Weights.Oracles.GroundTruth
 	default:
 		return 0
 	}
+	if base <= 0 {
+		return base
+	}
+	if name == "DQP" && r.isDQPTimeoutCooldownActive() {
+		return 0
+	}
+	if r.isInfraUnhealthyActive() {
+		switch name {
+		case "DQP", "GroundTruth":
+			return 0
+		case "TLP", "DQE":
+			return min(base, 1)
+		default:
+			return min(base, 2)
+		}
+	}
+	if r.isThroughputGuardActive() {
+		switch name {
+		case "DQP":
+			return min(base, 1)
+		case "GroundTruth":
+			return min(base, 2)
+		}
+	}
+	return base
 }
 
 func (r *Runner) nonCertWeights() []int {
@@ -175,11 +203,62 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 		}
 		skipRatio := float64(stat.Skips) / float64(stat.Runs)
 		reward -= 0.2 * skipRatio
+		timeoutRatio := timeoutReasonRatio(stat)
+		infraRatio := infraReasonRatio(stat)
+		reward -= 0.4 * timeoutRatio
+		reward -= 0.6 * infraRatio
 		if reward < 0 {
 			reward = 0
 		}
 		rewardPerRun := reward / float64(stat.Runs)
 		r.oracleBandit.UpdateBatch(banditIdx, rewardPerRun, int(stat.Runs))
+	}
+}
+
+func timeoutReasonRatio(stat oracleFunnel) float64 {
+	if stat.Runs <= 0 {
+		return 0
+	}
+	var timeoutCount int64
+	for reason, count := range stat.SkipReasons {
+		if strings.Contains(reason, ":timeout") {
+			timeoutCount += count
+		}
+	}
+	for reason, count := range stat.ErrorReasons {
+		if strings.Contains(reason, ":timeout") {
+			timeoutCount += count
+		}
+	}
+	return float64(timeoutCount) / float64(stat.Runs)
+}
+
+func infraReasonRatio(stat oracleFunnel) float64 {
+	if stat.Runs <= 0 {
+		return 0
+	}
+	var infraCount int64
+	for reason, count := range stat.SkipReasons {
+		if isInfraReason(reason) {
+			infraCount += count
+		}
+	}
+	for reason, count := range stat.ErrorReasons {
+		if isInfraReason(reason) {
+			infraCount += count
+		}
+	}
+	return float64(infraCount) / float64(stat.Runs)
+}
+
+func isInfraReason(reason string) bool {
+	switch {
+	case strings.Contains(reason, "region_unavailable"),
+		strings.Contains(reason, "schema_out_of_date"),
+		strings.Contains(reason, "tikv_connectivity"):
+		return true
+	default:
+		return false
 	}
 }
 

@@ -154,6 +154,19 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	if features.HasFullJoinEmulation {
 		r.genSQLFullJoinEmulation++
 	}
+	if features.FullJoinEmulationAttempted {
+		r.genSQLFullJoinAttempted++
+		if !features.HasFullJoinEmulation {
+			reason := strings.TrimSpace(features.FullJoinEmulationRejectReason)
+			if reason == "" {
+				reason = "unknown"
+			}
+			if r.genSQLFullJoinRejected == nil {
+				r.genSQLFullJoinRejected = make(map[string]int64)
+			}
+			r.genSQLFullJoinRejected[reason]++
+		}
+	}
 	if features.HasRecursiveCTE {
 		r.genSQLRecursiveCTE++
 	}
@@ -527,6 +540,7 @@ func (r *Runner) startStatsLogger() func() {
 		var lastGenIntervalArith int64
 		var lastGenNaturalJoin int64
 		var lastGenFullJoinEmulation int64
+		var lastGenFullJoinAttempted int64
 		var lastGenRecursiveCTE int64
 		var lastInSubqueryVariant int64
 		var lastNotInSubqueryVariant int64
@@ -568,12 +582,15 @@ func (r *Runner) startStatsLogger() func() {
 		lastSubqueryDisallowReasons := make(map[string]int64)
 		lastCapturedMinimizeStatus := make(map[string]int64)
 		lastCapturedMinimizeReasons := make(map[string]int64)
+		lastOracleTimeoutCounts := make(map[string]int64)
+		lastInfraErrorCounts := make(map[string]int64)
 		lastSubqueryOracleStats := make(map[string]subqueryOracleStats)
 		lastImpoSkipReasons := make(map[string]int64)
 		lastImpoSkipErrCodes := make(map[string]int64)
 		lastImpoReasonTotals := make(map[string]int64)
 		lastImpoMutationCounts := make(map[string]int64)
 		lastImpoMutationExecCounts := make(map[string]int64)
+		lastGenFullJoinRejected := make(map[string]int64)
 		lastOracleStats := make(map[string]oracleFunnel)
 		lastBuilderStats := make(map[string]builderAttemptStats)
 		var lastOraclePickTotal int64
@@ -607,6 +624,7 @@ func (r *Runner) startStatsLogger() func() {
 				genIntervalArith := r.genSQLIntervalArith
 				genNaturalJoin := r.genSQLNaturalJoin
 				genFullJoinEmulation := r.genSQLFullJoinEmulation
+				genFullJoinAttempted := r.genSQLFullJoinAttempted
 				genRecursiveCTE := r.genSQLRecursiveCTE
 				inSubqueryVariant := r.sqlInSubqueryVariant
 				notInSubqueryVariant := r.sqlNotInSubqueryVariant
@@ -625,6 +643,7 @@ func (r *Runner) startStatsLogger() func() {
 				gtJoinRows := r.groundtruthSkipJoinRows
 				gtTableRows := r.groundtruthSkipTblRows
 				capturedCases := r.capturedCases
+				minimizeInFlight := r.minimizeInFlight
 				joinCounts := make(map[int]int64, len(r.joinCounts))
 				for k, v := range r.joinCounts {
 					joinCounts[k] = v
@@ -661,6 +680,14 @@ func (r *Runner) startStatsLogger() func() {
 				for k, v := range r.capturedMinimizeReasons {
 					capturedMinimizeReasons[k] = v
 				}
+				oracleTimeoutCounts := make(map[string]int64, len(r.oracleTimeoutCounts))
+				for k, v := range r.oracleTimeoutCounts {
+					oracleTimeoutCounts[k] = v
+				}
+				infraErrorCounts := make(map[string]int64, len(r.infraErrorCounts))
+				for k, v := range r.infraErrorCounts {
+					infraErrorCounts[k] = v
+				}
 				subqueryOracleStatsByName := make(map[string]subqueryOracleStats, len(r.subqueryOracleStats))
 				for name, stats := range r.subqueryOracleStats {
 					if stats == nil {
@@ -696,6 +723,10 @@ func (r *Runner) startStatsLogger() func() {
 				impoMutationExecCounts := make(map[string]int64, len(r.impoMutationExecCounts))
 				for k, v := range r.impoMutationExecCounts {
 					impoMutationExecCounts[k] = v
+				}
+				genFullJoinRejected := make(map[string]int64, len(r.genSQLFullJoinRejected))
+				for k, v := range r.genSQLFullJoinRejected {
+					genFullJoinRejected[k] = v
 				}
 				oracleStats := make(map[string]oracleFunnel, len(r.oracleStats))
 				for name, stat := range r.oracleStats {
@@ -775,6 +806,7 @@ func (r *Runner) startStatsLogger() func() {
 				deltaGenIntervalArith := genIntervalArith - lastGenIntervalArith
 				deltaGenNaturalJoin := genNaturalJoin - lastGenNaturalJoin
 				deltaGenFullJoinEmulation := genFullJoinEmulation - lastGenFullJoinEmulation
+				deltaGenFullJoinAttempted := genFullJoinAttempted - lastGenFullJoinAttempted
 				deltaGenRecursiveCTE := genRecursiveCTE - lastGenRecursiveCTE
 				deltaInSubqueryVariant := inSubqueryVariant - lastInSubqueryVariant
 				deltaNotInSubqueryVariant := notInSubqueryVariant - lastNotInSubqueryVariant
@@ -803,6 +835,10 @@ func (r *Runner) startStatsLogger() func() {
 				deltaSubqueryFailed := subqueryFailed - lastSubqueryFailed
 				deltaCapturedStatus := diffCountMap(capturedMinimizeStatus, lastCapturedMinimizeStatus)
 				deltaCapturedReasons := diffCountMap(capturedMinimizeReasons, lastCapturedMinimizeReasons)
+				deltaOracleTimeoutCounts := diffCountMap(oracleTimeoutCounts, lastOracleTimeoutCounts)
+				lastOracleTimeoutCounts = oracleTimeoutCounts
+				deltaInfraErrorCounts := diffCountMap(infraErrorCounts, lastInfraErrorCounts)
+				lastInfraErrorCounts = infraErrorCounts
 				deltaJoinCounts := make(map[int]int64, len(joinCounts))
 				for k, v := range joinCounts {
 					prev := lastJoinCounts[k]
@@ -851,6 +887,8 @@ func (r *Runner) startStatsLogger() func() {
 					}
 				}
 				lastImpoMutationExecCounts = impoMutationExecCounts
+				deltaGenFullJoinRejected := diffCountMap(genFullJoinRejected, lastGenFullJoinRejected)
+				lastGenFullJoinRejected = genFullJoinRejected
 				lastPredicatePairsTotal = predicatePairsTotal
 				lastPredicatePairsJoin = predicatePairsJoin
 				lastSubqueryAllowed = subqueryAllowed
@@ -884,6 +922,7 @@ func (r *Runner) startStatsLogger() func() {
 				lastGenIntervalArith = genIntervalArith
 				lastGenNaturalJoin = genNaturalJoin
 				lastGenFullJoinEmulation = genFullJoinEmulation
+				lastGenFullJoinAttempted = genFullJoinAttempted
 				lastGenRecursiveCTE = genRecursiveCTE
 				lastInSubqueryVariant = inSubqueryVariant
 				lastNotInSubqueryVariant = notInSubqueryVariant
@@ -904,9 +943,20 @@ func (r *Runner) startStatsLogger() func() {
 				lastCapturedCases = capturedCases
 				lastCapturedMinimizeStatus = capturedMinimizeStatus
 				lastCapturedMinimizeReasons = capturedMinimizeReasons
+				controlState := r.updateThroughputControlsForInterval(deltaTotal)
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
 					tqsStats = r.tqsHistory.Stats()
+				}
+				if controlState.GuardActivated {
+					util.Warnf(
+						"throughput_guard activated low_sample_streak=%d guard_ttl=%d min_sql_total=%d",
+						controlState.LowSampleStreak,
+						controlState.GuardTTL,
+						minSQLTotalPerInterval,
+					)
+				} else if controlState.GuardRecovered {
+					util.Infof("throughput_guard recovered")
 				}
 				if deltaParseCalls > 0 || deltaParseVariantCalls > 0 {
 					util.Infof(
@@ -919,12 +969,14 @@ func (r *Runner) startStatsLogger() func() {
 				if deltaTotal > 0 {
 					sqlValidRatio := float64(deltaValid) / float64(deltaTotal)
 					deltaInvalidSQL := deltaTotal - deltaValid
+					sqlPerSecond := float64(deltaTotal) / interval.Seconds()
 					util.Infof(
-						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d in_subquery_variant=%d not_in_subquery_variant=%d",
+						"sql_valid/total last interval: %d/%d (%.3f) invalid=%d qps=%.2f exists=%d not_exists=%d in=%d not_in=%d in_subquery=%d not_in_subquery=%d in_subquery_variant=%d not_in_subquery_variant=%d low_sample=%t low_sample_streak=%d guard_ttl=%d dqp_cooldown_ttl=%d infra_unhealthy=%t infra_ttl=%d",
 						deltaValid,
 						deltaTotal,
 						sqlValidRatio,
 						deltaInvalidSQL,
+						sqlPerSecond,
 						deltaExists,
 						deltaNotEx,
 						deltaIn,
@@ -933,7 +985,27 @@ func (r *Runner) startStatsLogger() func() {
 						deltaNotInSubquery,
 						deltaInSubqueryVariant,
 						deltaNotInSubqueryVariant,
+						controlState.LowSample,
+						controlState.LowSampleStreak,
+						controlState.GuardTTL,
+						controlState.DQPCooldownTTL,
+						controlState.InfraUnhealthy,
+						controlState.InfraUnhealthyTTL,
 					)
+					if len(deltaOracleTimeoutCounts) > 0 {
+						util.Infof(
+							"oracle_timeout_reasons last interval top=%d: %s",
+							topOracleReasonsN,
+							formatTopJoinSigs(deltaOracleTimeoutCounts, topOracleReasonsN),
+						)
+					}
+					if len(deltaInfraErrorCounts) > 0 {
+						util.Warnf(
+							"infra_error_reasons last interval top=%d: %s",
+							topOracleReasonsN,
+							formatTopJoinSigs(deltaInfraErrorCounts, topOracleReasonsN),
+						)
+					}
 					if deltaValid > 0 {
 						util.Infof(
 							"sql_feature_ratio last interval: exists=%.3f not_exists=%.3f in_subquery=%.3f not_in_subquery=%.3f",
@@ -984,6 +1056,23 @@ func (r *Runner) startStatsLogger() func() {
 							ratio(deltaGenFullJoinEmulation, deltaGenTotal),
 							ratio(deltaGenRecursiveCTE, deltaGenTotal),
 						)
+						if deltaGenFullJoinAttempted > 0 || len(deltaGenFullJoinRejected) > 0 {
+							rejected := countMapTotal(deltaGenFullJoinRejected)
+							util.Infof(
+								"full_join_emulation_attempt last interval: attempted=%d emitted=%d rejected=%d emit_ratio=%.3f",
+								deltaGenFullJoinAttempted,
+								deltaGenFullJoinEmulation,
+								rejected,
+								ratio(deltaGenFullJoinEmulation, deltaGenFullJoinAttempted),
+							)
+							if len(deltaGenFullJoinRejected) > 0 {
+								util.Infof(
+									"full_join_emulation_reject_reasons last interval top=%d: %s",
+									topOracleReasonsN,
+									formatTopJoinSigs(deltaGenFullJoinRejected, topOracleReasonsN),
+								)
+							}
+						}
 					}
 					var impoInvalidRatio float64
 					var impoBaseExecRatio float64
@@ -1028,13 +1117,15 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					util.Infof(
-						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f predicate_join_pairs=%d/%d",
+						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f predicate_join_pairs=%d/%d inflight_minimize=%d stalled_reason=%s",
 						sqlValidRatio,
 						impoInvalidRatio,
 						impoBaseExecRatio,
 						predicateJoinRatio,
 						deltaPredicatePairsJoin,
 						deltaPredicatePairsTotal,
+						minimizeInFlight,
+						stalledReason(controlState.LowSample, controlState.InfraUnhealthy, minimizeInFlight, deltaOracleTimeoutCounts),
 					)
 					deltaSubqueryDisallowReasons := make(map[string]int64, len(subqueryDisallowReasons))
 					for reason, total := range subqueryDisallowReasons {
@@ -1419,6 +1510,7 @@ func (r *Runner) startStatsLogger() func() {
 						)
 					}
 					if tqsStats.Nodes > 0 {
+						lastTQSCovered, lastTQSSteps, lastTQSEdges = normalizeTQSBaseline(tqsStats, lastTQSCovered, lastTQSSteps, lastTQSEdges)
 						coveredDelta := tqsStats.Covered - lastTQSCovered
 						stepsDelta := tqsStats.Steps - lastTQSSteps
 						edgeDelta := tqsStats.Edges - lastTQSEdges
@@ -1705,6 +1797,21 @@ func diffCountMap(current map[string]int64, previous map[string]int64) map[strin
 	return out
 }
 
+func countMapTotal(values map[string]int64) int64 {
+	var total int64
+	for _, v := range values {
+		total += v
+	}
+	return total
+}
+
+func normalizeTQSBaseline(stats tqs.Stats, lastCovered int, lastSteps int64, lastEdges int) (covered int, steps int64, edges int) {
+	if stats.Covered < lastCovered || stats.Steps < lastSteps || stats.Edges < lastEdges {
+		return 0, 0, 0
+	}
+	return lastCovered, lastSteps, lastEdges
+}
+
 func collectGroundTruthDSGMismatchReasons(deltaFunnel map[string]oracleFunnel) map[string]int64 {
 	if len(deltaFunnel) == 0 {
 		return nil
@@ -1760,6 +1867,22 @@ func formatOracleFunnel(stats map[string]oracleFunnel) string {
 		parts = append(parts, fmt.Sprintf("%s=run/%d eff/%d skip/%d err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Effective, stat.Skips, stat.Errors, stat.Mismatches, stat.Panics, stat.Reports))
 	}
 	return strings.Join(parts, " ")
+}
+
+func stalledReason(lowSample bool, infraUnhealthy bool, minimizeInFlight int64, deltaOracleTimeoutCounts map[string]int64) string {
+	if !lowSample && !infraUnhealthy {
+		return ""
+	}
+	if infraUnhealthy {
+		return "infra_unhealthy"
+	}
+	if minimizeInFlight > 0 {
+		return "minimize"
+	}
+	if countMapTotal(deltaOracleTimeoutCounts) > 0 {
+		return "oracle_timeout"
+	}
+	return "low_sql_throughput"
 }
 
 func compactSQL(sqlText string, limit int) string {

@@ -124,6 +124,9 @@ const (
 	NaturalJoinProb = 25
 	// FullJoinEmulationProb is the chance to rewrite a 2-table join into FULL OUTER emulation.
 	FullJoinEmulationProb = 20
+	// FullJoinCandidateProb is the chance to keep a 2-table join candidate
+	// when full-join emulation is enabled.
+	FullJoinCandidateProb = 25
 	// RecursiveCTEProb is the chance to build a recursive CTE as the first CTE.
 	RecursiveCTEProb = 20
 	// ViewPickProb is the chance to pick a view for single-table queries.
@@ -132,6 +135,10 @@ const (
 	ViewJoinReplaceProb = 20
 	// GroupByRollupProb is the chance to append WITH ROLLUP when GROUP BY is present.
 	GroupByRollupProb = 30
+	// GroupByCubeProb is the chance to emit GROUP BY CUBE when GROUP BY is present.
+	GroupByCubeProb = 20
+	// GroupByGroupingSetsProb is the chance to emit GROUPING SETS when GROUP BY is present.
+	GroupByGroupingSetsProb = 20
 	// WindowFrameProb is the chance to append a frame clause to window definitions.
 	WindowFrameProb = 50
 	// NamedWindowProb is the chance to emit a WINDOW named specification.

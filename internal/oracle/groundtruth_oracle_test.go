@@ -40,6 +40,50 @@ func TestShouldSkipGroundTruth(t *testing.T) {
 	}
 }
 
+func TestGroundTruthHasOnlyInnerJoins(t *testing.T) {
+	inner := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1"},
+				{Type: generator.JoinInner, Table: "t2"},
+			},
+		},
+	}
+	if !groundTruthHasOnlyInnerJoins(inner) {
+		t.Fatalf("expected inner joins to be accepted")
+	}
+
+	left := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinLeft, Table: "t1"},
+			},
+		},
+	}
+	if groundTruthHasOnlyInnerJoins(left) {
+		t.Fatalf("expected non-inner join to be rejected")
+	}
+}
+
+func TestGroundTruthEdgesAllInner(t *testing.T) {
+	inner := []groundtruth.JoinEdge{
+		{JoinType: groundtruth.JoinInner},
+		{JoinType: groundtruth.JoinInner},
+	}
+	if !groundTruthEdgesAllInner(inner) {
+		t.Fatalf("expected all-inner edges to be accepted")
+	}
+	withLeft := []groundtruth.JoinEdge{
+		{JoinType: groundtruth.JoinInner},
+		{JoinType: groundtruth.JoinLeft},
+	}
+	if groundTruthEdgesAllInner(withLeft) {
+		t.Fatalf("expected non-inner edge to be rejected")
+	}
+}
+
 func TestJoinSignature(t *testing.T) {
 	query := &generator.SelectQuery{
 		From: generator.FromClause{
@@ -269,6 +313,57 @@ func TestGroundTruthJoinEdgesPrefersSQLASTForAliases(t *testing.T) {
 	}
 }
 
+func TestPickPreferredGroundTruthEdgesPrefersDSGValidSet(t *testing.T) {
+	queryEdges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKeys:   []string{"k0"},
+		RightKeys:  []string{"k0"},
+	}}
+	sqlEdges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKeys:   []string{"k0"},
+		RightKeys:  []string{"k9"},
+	}}
+	chosen := pickPreferredGroundTruthEdges("t0", 1, queryEdges, sqlEdges)
+	if chosen[0].RightKeyList()[0] != "k0" {
+		t.Fatalf("expected DSG-valid query edges, got %v", chosen[0].RightKeyList())
+	}
+
+	chosen = pickPreferredGroundTruthEdges("t0", 1, sqlEdges, queryEdges)
+	if chosen[0].RightKeyList()[0] != "k0" {
+		t.Fatalf("expected DSG-valid SQL edges, got %v", chosen[0].RightKeyList())
+	}
+}
+
+func TestPickPreferredGroundTruthEdgesPrefersAllInnerSet(t *testing.T) {
+	innerEdges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		JoinType:   groundtruth.JoinInner,
+		LeftKeys:   []string{"k0"},
+		RightKeys:  []string{"k0"},
+	}}
+	leftEdges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		JoinType:   groundtruth.JoinLeft,
+		LeftKeys:   []string{"k0"},
+		RightKeys:  []string{"k0"},
+	}}
+
+	chosen := pickPreferredGroundTruthEdges("t0", 1, innerEdges, leftEdges)
+	if chosen[0].JoinType != groundtruth.JoinInner {
+		t.Fatalf("expected all-inner edge set, got join type %v", chosen[0].JoinType)
+	}
+
+	chosen = pickPreferredGroundTruthEdges("t0", 1, leftEdges, innerEdges)
+	if chosen[0].JoinType != groundtruth.JoinInner {
+		t.Fatalf("expected all-inner SQL edge set, got join type %v", chosen[0].JoinType)
+	}
+}
+
 func TestGroundTruthEffectiveMaxRows(t *testing.T) {
 	if got := groundTruthEffectiveMaxRows(nil); got != groundTruthDefaultMaxRows {
 		t.Fatalf("nil generator maxRows=%d want=%d", got, groundTruthDefaultMaxRows)
@@ -293,5 +388,29 @@ func TestGroundTruthEffectiveMaxRows(t *testing.T) {
 	gen.Config.Features.DSG = false
 	if got := groundTruthEffectiveMaxRows(gen); got != 60 {
 		t.Fatalf("non-dsg maxRows=%d want=60", got)
+	}
+}
+
+func TestGroundTruthShouldFallbackDSG(t *testing.T) {
+	if !groundTruthShouldFallbackDSG("right_key") {
+		t.Fatalf("expected right_key mismatch to be fallback-eligible")
+	}
+	if !groundTruthShouldFallbackDSG("base_table") {
+		t.Fatalf("expected base_table mismatch to be fallback-eligible")
+	}
+	if groundTruthShouldFallbackDSG("") {
+		t.Fatalf("expected empty mismatch reason to stay strict")
+	}
+}
+
+func TestGroundTruthConfidence(t *testing.T) {
+	if got := groundTruthConfidence(false, true, ""); got != "" {
+		t.Fatalf("non-DSG confidence=%q want empty", got)
+	}
+	if got := groundTruthConfidence(true, true, ""); got != groundTruthConfidenceStrictDSG {
+		t.Fatalf("strict confidence=%q want=%q", got, groundTruthConfidenceStrictDSG)
+	}
+	if got := groundTruthConfidence(true, false, "right_key"); got != groundTruthConfidenceFallbackDSG {
+		t.Fatalf("fallback confidence=%q want=%q", got, groundTruthConfidenceFallbackDSG)
 	}
 }

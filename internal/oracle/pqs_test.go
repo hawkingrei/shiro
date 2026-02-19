@@ -543,6 +543,30 @@ func TestPQSLiteralValueBool(t *testing.T) {
 	}
 }
 
+func TestPQSPivotFallbackTablesNil(t *testing.T) {
+	if got := pqsPivotFallbackTables(nil, nil); got != nil {
+		t.Fatalf("expected nil fallback table slice")
+	}
+}
+
+func TestPQSPivotFallbackTablesPermutation(t *testing.T) {
+	gen := newPQSTestGenerator(t, 42)
+	tables := []schema.Table{{Name: "t0"}, {Name: "t1"}, {Name: "t2"}}
+	got := pqsPivotFallbackTables(gen, tables)
+	if len(got) != len(tables) {
+		t.Fatalf("unexpected fallback table count: got=%d want=%d", len(got), len(tables))
+	}
+	seen := make(map[string]int, len(got))
+	for _, tbl := range got {
+		seen[tbl.Name]++
+	}
+	for _, tbl := range tables {
+		if seen[tbl.Name] != 1 {
+			t.Fatalf("expected table %s to appear exactly once, seen=%d", tbl.Name, seen[tbl.Name])
+		}
+	}
+}
+
 func newPQSTestGenerator(t *testing.T, seed int64) *generator.Generator {
 	t.Helper()
 	cfg, err := config.Load("../../config.example.yaml")

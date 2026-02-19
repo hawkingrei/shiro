@@ -196,6 +196,8 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 	if len(tables) == 0 {
 		return nil, map[string]any{"skip_reason": "pqs:no_tables"}, nil
 	}
+	joinAttempted := len(tables) >= 2
+	fallbackAttempts := 0
 	if len(tables) >= 2 {
 		pivot, err := fetchPQSJoinPivotRow(ctx, exec, gen, tables)
 		if err != nil {
@@ -216,7 +218,49 @@ func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator,
 		}
 		return pivot, nil, nil
 	}
-	return nil, map[string]any{"skip_reason": "pqs:no_rows"}, nil
+	for _, tbl := range pqsPivotFallbackTables(gen, tables) {
+		fallbackAttempts++
+		pivot, err := fetchPQSPivotRowByQuery(ctx, exec, []schema.Table{tbl}, "")
+		if err != nil {
+			return nil, pqsPivotErrorDetails(err), err
+		}
+		if pivot != nil {
+			return pivot, map[string]any{"pqs_pivot_fallback": "table_scan"}, nil
+		}
+	}
+	for _, tbl := range pqsPivotFallbackTables(gen, tables) {
+		fallbackAttempts++
+		pivot, err := fetchPQSPivotRowByRand(ctx, exec, tbl)
+		if err != nil {
+			return nil, pqsPivotErrorDetails(err), err
+		}
+		if pivot != nil {
+			return pivot, map[string]any{"pqs_pivot_fallback": "table_rand"}, nil
+		}
+	}
+	return nil, map[string]any{
+		"skip_reason":                  "pqs:no_rows",
+		"pqs_pivot_join_attempted":     joinAttempted,
+		"pqs_pivot_pick_tries":         pqsPivotPickTries,
+		"pqs_pivot_join_tries":         pqsJoinPickTries,
+		"pqs_pivot_attempt_tables":     len(tables),
+		"pqs_pivot_fallback_attempts":  fallbackAttempts,
+		"pqs_pivot_fallback_exhausted": true,
+	}, nil
+}
+
+func pqsPivotFallbackTables(gen *generator.Generator, tables []schema.Table) []schema.Table {
+	if len(tables) == 0 {
+		return nil
+	}
+	out := append([]schema.Table(nil), tables...)
+	if gen == nil || len(out) <= 1 {
+		return out
+	}
+	gen.Rand.Shuffle(len(out), func(i, j int) {
+		out[i], out[j] = out[j], out[i]
+	})
+	return out
 }
 
 func fetchPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator, tbl schema.Table) (*pqsPivotRow, error) {

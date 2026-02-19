@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"shiro/internal/util"
@@ -45,4 +46,17 @@ func (r *Runner) execSQL(ctx context.Context, sql string) error {
 
 func (r *Runner) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, time.Duration(r.cfg.StatementTimeoutMs)*time.Millisecond)
+}
+
+func (r *Runner) withTimeoutForOracle(ctx context.Context, oracleName string) (context.Context, context.CancelFunc) {
+	timeoutMs := r.cfg.StatementTimeoutMs
+	if r.isInfraUnhealthyActive() && (timeoutMs <= 0 || timeoutMs > infraOracleTimeoutCapMs) {
+		timeoutMs = infraOracleTimeoutCapMs
+	}
+	if strings.EqualFold(strings.TrimSpace(oracleName), "DQP") {
+		if timeoutMs <= 0 || timeoutMs > dqpOracleTimeoutCapMs {
+			timeoutMs = dqpOracleTimeoutCapMs
+		}
+	}
+	return context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 }

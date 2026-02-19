@@ -105,6 +105,20 @@ func TestApplyEETTransformJoinOn(t *testing.T) {
 	}
 }
 
+func TestApplyEETTransformSetOpsSkip(t *testing.T) {
+	sql := "SELECT a AS a FROM t WHERE a > 1 UNION ALL SELECT a AS a FROM t WHERE a > 2"
+	out, details, err := applyEETTransform(sql, nil)
+	if err != nil {
+		t.Fatalf("transform err: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected empty transformed sql for set-ops, got: %s", out)
+	}
+	if details["skip_reason"] != "eet:set_ops" {
+		t.Fatalf("expected eet:set_ops skip reason, got: %v", details["skip_reason"])
+	}
+}
+
 func TestApplyEETTransformColumnIdentity(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -264,6 +278,80 @@ func TestEETDistinctOrderByCompatible(t *testing.T) {
 	}
 	if eetDistinctOrderByCompatible(query) {
 		t.Fatalf("expected non-selected DISTINCT ORDER BY expression to be incompatible")
+	}
+}
+
+func TestEETHasUnstableWindowRankWithWindowName(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name:       "row_number",
+					WindowName: "w1",
+				},
+				Alias: "c0",
+			},
+		},
+		WindowDefs: []generator.WindowDef{
+			{
+				Name:        "w1",
+				PartitionBy: []generator.Expr{generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+				OrderBy: []generator.OrderBy{
+					{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+				},
+			},
+		},
+	}
+	if !eetHasUnstableWindowRank(query) {
+		t.Fatalf("expected unstable row_number window to be detected")
+	}
+}
+
+func TestEETHasUnstableWindowRankWithTieBreaker(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "row_number",
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+	}
+	if eetHasUnstableWindowRank(query) {
+		t.Fatalf("expected stable row_number window with explicit tie-breaker")
+	}
+}
+
+func TestEETHasUnstableWindowRankIgnoresNonRankWindow(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "avg",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "v0"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+	}
+	if eetHasUnstableWindowRank(query) {
+		t.Fatalf("expected non-rank window to bypass unstable-order guard")
 	}
 }
 

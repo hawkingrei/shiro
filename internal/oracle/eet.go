@@ -51,6 +51,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		MaxTries:        eetBuildMaxTries,
 		Constraints: generator.SelectQueryConstraints{
 			RequireDeterministic: true,
+			DisallowSetOps:       true,
 			QueryGuardReason: func(query *generator.SelectQuery) (bool, string) {
 				if !eetQueryHasPredicate(query) {
 					return false, "constraint:query_guard"
@@ -64,6 +65,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		SkipReasonOverrides: map[string]string{
 			"constraint:nondeterministic": "eet:nondeterministic",
 			"constraint:predicate_guard":  "eet:predicate_guard",
+			"constraint:set_ops":          "eet:set_ops",
 		},
 	}
 
@@ -105,6 +107,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 		if !eetDistinctOrderByCompatible(query) {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:distinct_order_by"}}
+		}
+		if eetHasUnstableWindowRank(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:window_rank_unstable_order"}}
 		}
 		if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
@@ -247,6 +252,10 @@ func applyEETTransform(sqlText string, gen *generator.Generator) (string, map[st
 	}
 	sel, ok := stmt.(*ast.SelectStmt)
 	if !ok {
+		if _, isSetOpr := stmt.(*ast.SetOprStmt); isSetOpr {
+			details["skip_reason"] = "eet:set_ops"
+			return "", details, nil
+		}
 		details["skip_reason"] = "eet:non_select"
 		return "", details, nil
 	}
@@ -360,6 +369,186 @@ func eetDistinctOrderByCompatible(query *generator.SelectQuery) bool {
 		return false
 	}
 	return true
+}
+
+func eetHasUnstableWindowRank(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	windowDefs := make(map[string]generator.WindowDef, len(query.WindowDefs))
+	for _, def := range query.WindowDefs {
+		name := strings.ToLower(strings.TrimSpace(def.Name))
+		if name == "" {
+			continue
+		}
+		windowDefs[name] = def
+	}
+	for _, item := range query.Items {
+		if eetExprHasUnstableWindowRank(item.Expr, windowDefs) {
+			return true
+		}
+	}
+	if query.Where != nil && eetExprHasUnstableWindowRank(query.Where, windowDefs) {
+		return true
+	}
+	if query.Having != nil && eetExprHasUnstableWindowRank(query.Having, windowDefs) {
+		return true
+	}
+	for _, expr := range query.GroupBy {
+		if eetExprHasUnstableWindowRank(expr, windowDefs) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if eetExprHasUnstableWindowRank(ob.Expr, windowDefs) {
+			return true
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.On != nil && eetExprHasUnstableWindowRank(join.On, windowDefs) {
+			return true
+		}
+	}
+	return false
+}
+
+func eetExprHasUnstableWindowRank(expr generator.Expr, defs map[string]generator.WindowDef) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case generator.WindowExpr:
+		if eetWindowRankUnstable(e, defs) {
+			return true
+		}
+		for _, arg := range e.Args {
+			if eetExprHasUnstableWindowRank(arg, defs) {
+				return true
+			}
+		}
+		for _, part := range e.PartitionBy {
+			if eetExprHasUnstableWindowRank(part, defs) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if eetExprHasUnstableWindowRank(ob.Expr, defs) {
+				return true
+			}
+		}
+		return false
+	case generator.UnaryExpr:
+		return eetExprHasUnstableWindowRank(e.Expr, defs)
+	case generator.BinaryExpr:
+		return eetExprHasUnstableWindowRank(e.Left, defs) || eetExprHasUnstableWindowRank(e.Right, defs)
+	case generator.FuncExpr:
+		for _, arg := range e.Args {
+			if eetExprHasUnstableWindowRank(arg, defs) {
+				return true
+			}
+		}
+		return false
+	case generator.CaseExpr:
+		for _, w := range e.Whens {
+			if eetExprHasUnstableWindowRank(w.When, defs) || eetExprHasUnstableWindowRank(w.Then, defs) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return eetExprHasUnstableWindowRank(e.Else, defs)
+		}
+		return false
+	case generator.InExpr:
+		if eetExprHasUnstableWindowRank(e.Left, defs) {
+			return true
+		}
+		for _, item := range e.List {
+			if eetExprHasUnstableWindowRank(item, defs) {
+				return true
+			}
+		}
+		return false
+	case generator.SubqueryExpr:
+		return eetHasUnstableWindowRank(e.Query)
+	case generator.ExistsExpr:
+		return eetHasUnstableWindowRank(e.Query)
+	case generator.GroupByOrdinalExpr:
+		if e.Expr == nil {
+			return false
+		}
+		return eetExprHasUnstableWindowRank(e.Expr, defs)
+	default:
+		return false
+	}
+}
+
+func eetWindowRankUnstable(expr generator.WindowExpr, defs map[string]generator.WindowDef) bool {
+	if !eetRankWindowFunction(expr.Name) {
+		return false
+	}
+	partitionBy, orderBy := eetResolveWindowSpec(expr, defs)
+	if len(orderBy) == 0 {
+		return true
+	}
+	allConstant := true
+	for _, ob := range orderBy {
+		if !exprIsConstant(ob.Expr) {
+			allConstant = false
+			break
+		}
+	}
+	if allConstant {
+		return true
+	}
+	partitionKeys := make(map[string]struct{}, len(partitionBy))
+	for _, expr := range partitionBy {
+		key := eetExprKey(expr)
+		if key == "" {
+			continue
+		}
+		partitionKeys[key] = struct{}{}
+	}
+	if len(partitionKeys) == 0 {
+		return false
+	}
+	for _, ob := range orderBy {
+		key := eetExprKey(ob.Expr)
+		if key == "" {
+			return false
+		}
+		if _, ok := partitionKeys[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func eetResolveWindowSpec(expr generator.WindowExpr, defs map[string]generator.WindowDef) (partitionBy []generator.Expr, orderBy []generator.OrderBy) {
+	partitionBy = expr.PartitionBy
+	orderBy = expr.OrderBy
+	name := strings.ToLower(strings.TrimSpace(expr.WindowName))
+	if name == "" {
+		return partitionBy, orderBy
+	}
+	def, ok := defs[name]
+	if !ok {
+		return partitionBy, orderBy
+	}
+	if len(partitionBy) == 0 {
+		partitionBy = def.PartitionBy
+	}
+	if len(orderBy) == 0 {
+		orderBy = def.OrderBy
+	}
+	return partitionBy, orderBy
+}
+
+func eetRankWindowFunction(name string) bool {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "ROW_NUMBER", "RANK", "DENSE_RANK":
+		return true
+	default:
+		return false
+	}
 }
 
 func eetExprKey(expr generator.Expr) string {

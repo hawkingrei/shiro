@@ -51,6 +51,8 @@ type QueryFeatures struct {
 	HasIntervalArith              bool
 	HasNaturalJoin                bool
 	HasFullJoinEmulation          bool
+	FullJoinEmulationAttempted    bool
+	FullJoinEmulationRejectReason string
 	// HasRecursiveCTE is true when the query owns a WITH RECURSIVE clause.
 	HasRecursiveCTE        bool
 	ViewCount              int
@@ -352,6 +354,10 @@ func mergeQueryFeatureFlags(dst *QueryFeatures, src QueryFeatures) {
 	dst.HasIntervalArith = dst.HasIntervalArith || src.HasIntervalArith
 	dst.HasNaturalJoin = dst.HasNaturalJoin || src.HasNaturalJoin
 	dst.HasFullJoinEmulation = dst.HasFullJoinEmulation || src.HasFullJoinEmulation
+	dst.FullJoinEmulationAttempted = dst.FullJoinEmulationAttempted || src.FullJoinEmulationAttempted
+	if dst.FullJoinEmulationRejectReason == "" {
+		dst.FullJoinEmulationRejectReason = src.FullJoinEmulationRejectReason
+	}
 	dst.HasRecursiveCTE = dst.HasRecursiveCTE || src.HasRecursiveCTE
 }
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"shiro/internal/generator"
+	"shiro/internal/tqs"
 )
 
 func TestCollectGroundTruthDSGMismatchReasons(t *testing.T) {
@@ -78,6 +79,30 @@ func TestDiffCountMap(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("diffCountMap() got=%v want=%v", got, want)
+	}
+}
+
+func TestNormalizeTQSBaselineResetOnRewind(t *testing.T) {
+	stats := tqs.Stats{
+		Covered: 5,
+		Steps:   10,
+		Edges:   8,
+	}
+	covered, steps, edges := normalizeTQSBaseline(stats, 9, 12, 10)
+	if covered != 0 || steps != 0 || edges != 0 {
+		t.Fatalf("expected baseline reset, got covered=%d steps=%d edges=%d", covered, steps, edges)
+	}
+}
+
+func TestNormalizeTQSBaselineKeepForwardProgress(t *testing.T) {
+	stats := tqs.Stats{
+		Covered: 9,
+		Steps:   12,
+		Edges:   10,
+	}
+	covered, steps, edges := normalizeTQSBaseline(stats, 9, 12, 10)
+	if covered != 9 || steps != 12 || edges != 10 {
+		t.Fatalf("expected baseline unchanged, got covered=%d steps=%d edges=%d", covered, steps, edges)
 	}
 }
 
@@ -176,5 +201,50 @@ func TestObserveJoinSignatureSetOpDerivedQuantified(t *testing.T) {
 	}
 	if r.genSQLQuantifiedSubquery != 1 {
 		t.Fatalf("genSQLQuantifiedSubquery=%d want=1", r.genSQLQuantifiedSubquery)
+	}
+}
+
+func TestObserveJoinSignatureFullJoinAttemptReject(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+		genSQLFullJoinRejected:          make(map[string]int64),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{
+		FullJoinEmulationAttempted:    true,
+		FullJoinEmulationRejectReason: "probability_gate",
+	}, "")
+	if r.genSQLFullJoinAttempted != 1 {
+		t.Fatalf("genSQLFullJoinAttempted=%d want=1", r.genSQLFullJoinAttempted)
+	}
+	if r.genSQLFullJoinRejected["probability_gate"] != 1 {
+		t.Fatalf("probability_gate=%d want=1", r.genSQLFullJoinRejected["probability_gate"])
+	}
+}
+
+func TestObserveJoinSignatureFullJoinAttemptEmitted(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+		genSQLFullJoinRejected:          make(map[string]int64),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{
+		HasFullJoinEmulation:       true,
+		FullJoinEmulationAttempted: true,
+	}, "")
+	if r.genSQLFullJoinAttempted != 1 {
+		t.Fatalf("genSQLFullJoinAttempted=%d want=1", r.genSQLFullJoinAttempted)
+	}
+	if r.genSQLFullJoinEmulation != 1 {
+		t.Fatalf("genSQLFullJoinEmulation=%d want=1", r.genSQLFullJoinEmulation)
+	}
+	if len(r.genSQLFullJoinRejected) != 0 {
+		t.Fatalf("expected no reject reason for emitted full join, got %v", r.genSQLFullJoinRejected)
+	}
+}
+
+func TestCountMapTotal(t *testing.T) {
+	if got := countMapTotal(map[string]int64{"a": 2, "b": 3}); got != 5 {
+		t.Fatalf("countMapTotal=%d want=5", got)
 	}
 }

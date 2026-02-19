@@ -40,6 +40,7 @@ func (g *Generator) pickTables() []schema.Table {
 				}
 			}
 		}
+		count = g.maybePreferFullJoinCandidate(count, limit)
 	}
 	if g.minJoinTables > 0 && count < g.minJoinTables {
 		if maxTables >= g.minJoinTables {
@@ -65,6 +66,26 @@ func (g *Generator) pickTables() []schema.Table {
 		picked = append(picked, g.State.Tables[idx])
 	}
 	return picked
+}
+
+func (g *Generator) maybePreferFullJoinCandidate(count int, limit int) int {
+	return g.maybePreferFullJoinCandidateWithProb(count, limit, FullJoinCandidateProb)
+}
+
+func (g *Generator) maybePreferFullJoinCandidateWithProb(count int, limit int, prob int) int {
+	if g == nil {
+		return count
+	}
+	if !g.Config.Features.Joins || !g.Config.Features.FullJoinEmulation {
+		return count
+	}
+	if count <= 2 || limit < 2 {
+		return count
+	}
+	if util.Chance(g.Rand, prob) {
+		return 2
+	}
+	return count
 }
 
 func (g *Generator) pickTQSJoinCount(limit int) int {

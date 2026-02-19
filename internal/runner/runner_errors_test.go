@@ -34,6 +34,17 @@ func TestClassifyResultErrorUsesMySQLErrorCode(t *testing.T) {
 	}
 }
 
+func TestClassifyResultErrorInfraUnhealthy(t *testing.T) {
+	err := errors.New("Error 9005 (HY000): Region is unavailable")
+	reason, hint := classifyResultError("TLP", err)
+	if reason != "tlp:region_unavailable" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if hint != "tidb:infra_unhealthy" {
+		t.Fatalf("unexpected hint: %s", hint)
+	}
+}
+
 func TestClassifyResultErrorPlanRefMissingUsesCanonicalHint(t *testing.T) {
 	err := errors.New("Cannot find the reference from its child")
 	reason, hint := classifyResultError("EET", err)
@@ -42,6 +53,139 @@ func TestClassifyResultErrorPlanRefMissingUsesCanonicalHint(t *testing.T) {
 	}
 	if hint != "tidb:plan_reference_missing" {
 		t.Fatalf("unexpected hint: %s", hint)
+	}
+}
+
+func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
+	}
+	changed := downgradeMissingColumnFalsePositive(&result)
+	if !changed {
+		t.Fatalf("expected missing-column downgrade to apply")
+	}
+	if !result.OK {
+		t.Fatalf("expected downgraded result to be OK")
+	}
+	if result.Err != nil {
+		t.Fatalf("expected downgraded result err to be cleared")
+	}
+	skip, _ := result.Details["skip_reason"].(string)
+	if skip != "eet:missing_column" {
+		t.Fatalf("unexpected skip_reason: %s", skip)
+	}
+	skipErr, _ := result.Details["skip_error_reason"].(string)
+	if skipErr != "eet:missing_column" {
+		t.Fatalf("unexpected skip_error_reason: %s", skipErr)
+	}
+}
+
+func TestDowngradeMissingColumnFalsePositiveSkipsPlanCache(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PlanCache",
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
+	}
+	changed := downgradeMissingColumnFalsePositive(&result)
+	if changed {
+		t.Fatalf("expected plan cache missing-column to stay reportable")
+	}
+	if result.Err == nil {
+		t.Fatalf("expected original error to be preserved")
+	}
+}
+
+func TestDowngradeGroundTruthLowConfidenceFalsePositive(t *testing.T) {
+	result := oracle.Result{
+		Oracle:   "GroundTruth",
+		OK:       false,
+		Expected: "truth count=5000",
+		Actual:   "db count=50",
+		Truth: &oracle.GroundTruthMetrics{
+			Enabled:  true,
+			Mismatch: true,
+		},
+		Details: map[string]any{
+			"groundtruth_confidence": "fallback_dsg",
+		},
+	}
+	changed := downgradeGroundTruthLowConfidenceFalsePositive(&result)
+	if !changed {
+		t.Fatalf("expected low-confidence GroundTruth mismatch to downgrade")
+	}
+	if !result.OK {
+		t.Fatalf("expected downgraded result to be OK")
+	}
+	skip, _ := result.Details["skip_reason"].(string)
+	if skip != "groundtruth:low_confidence_fallback" {
+		t.Fatalf("unexpected skip_reason: %s", skip)
+	}
+	skipErr, _ := result.Details["skip_error_reason"].(string)
+	if skipErr != "groundtruth:count_mismatch" {
+		t.Fatalf("unexpected skip_error_reason: %s", skipErr)
+	}
+}
+
+func TestDowngradeGroundTruthLowConfidenceFalsePositiveKeepsStrict(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "GroundTruth",
+		Truth: &oracle.GroundTruthMetrics{
+			Enabled:  true,
+			Mismatch: true,
+		},
+		Details: map[string]any{
+			"groundtruth_confidence": "strict_dsg",
+		},
+	}
+	changed := downgradeGroundTruthLowConfidenceFalsePositive(&result)
+	if changed {
+		t.Fatalf("expected strict DSG mismatch to remain reportable")
+	}
+}
+
+func TestDowngradeDQPTimeoutFalsePositive(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "DQP",
+		Err:    errors.New("context deadline exceeded"),
+	}
+	changed := downgradeDQPTimeoutFalsePositive(&result)
+	if !changed {
+		t.Fatalf("expected DQP timeout downgrade to apply")
+	}
+	if !result.OK {
+		t.Fatalf("expected downgraded DQP timeout to be OK")
+	}
+	if result.Err != nil {
+		t.Fatalf("expected downgraded DQP timeout err to be cleared")
+	}
+	skip, _ := result.Details["skip_reason"].(string)
+	if skip != "dqp:timeout" {
+		t.Fatalf("unexpected skip_reason: %s", skip)
+	}
+}
+
+func TestDowngradeDQPTimeoutFalsePositiveByMySQLErrorCode(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "DQP",
+		Err: &mysql.MySQLError{
+			Number:  3024,
+			Message: "Query execution was interrupted, maximum statement execution time exceeded",
+		},
+	}
+	changed := downgradeDQPTimeoutFalsePositive(&result)
+	if !changed {
+		t.Fatalf("expected DQP timeout downgrade to apply for MySQL timeout code")
+	}
+}
+
+func TestDowngradeDQPTimeoutFalsePositiveKeepsOtherOracles(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "NoREC",
+		Err:    errors.New("context deadline exceeded"),
+	}
+	changed := downgradeDQPTimeoutFalsePositive(&result)
+	if changed {
+		t.Fatalf("expected non-DQP timeout to remain reportable")
 	}
 }
 
@@ -61,6 +205,23 @@ func TestAnnotateResultForReportingGroundTruthMismatch(t *testing.T) {
 	hint, _ := result.Details["bug_hint"].(string)
 	if hint != "tidb:result_inconsistency" {
 		t.Fatalf("unexpected mismatch hint: %s", hint)
+	}
+}
+
+func TestAnnotateResultForReportingSkipReasonTakesPrecedence(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "GroundTruth",
+		Truth: &oracle.GroundTruthMetrics{
+			Enabled:  true,
+			Mismatch: true,
+		},
+		Details: map[string]any{
+			"skip_reason": "groundtruth:low_confidence_fallback",
+		},
+	}
+	annotateResultForReporting(&result)
+	if _, ok := result.Details["error_reason"]; ok {
+		t.Fatalf("unexpected error_reason for skipped result")
 	}
 }
 

@@ -779,27 +779,38 @@ func (g *Generator) maybeEmulateFullJoin(query *SelectQuery) {
 	if query == nil || len(query.SetOps) > 0 || len(query.From.Joins) != 1 {
 		return
 	}
+	g.fullJoinEmulationAttempted = true
 	if !util.Chance(g.Rand, FullJoinEmulationProb) {
+		g.fullJoinEmulationReject = "probability_gate"
 		return
 	}
-	g.applyFullJoinEmulation(query)
+	if ok, reason := g.applyFullJoinEmulationWithReason(query); !ok {
+		g.fullJoinEmulationReject = reason
+		return
+	}
+	g.fullJoinEmulationReject = ""
 }
 
 func (g *Generator) applyFullJoinEmulation(query *SelectQuery) bool {
+	ok, _ := g.applyFullJoinEmulationWithReason(query)
+	return ok
+}
+
+func (g *Generator) applyFullJoinEmulationWithReason(query *SelectQuery) (bool, string) {
 	if query == nil || len(query.SetOps) > 0 || len(query.From.Joins) != 1 {
-		return false
+		return false, "invalid_shape"
 	}
 	base := query.From.baseName()
 	if base == "" {
-		return false
+		return false, "base_table_missing"
 	}
 	join := query.From.Joins[0]
 	if join.Type == JoinCross {
-		return false
+		return false, "cross_join"
 	}
 	nullFilter := fullJoinRightAntiFilter(base, join)
 	if nullFilter == nil {
-		return false
+		return false, "anti_filter_missing"
 	}
 	left := query.Clone()
 	right := query.Clone()
@@ -820,7 +831,7 @@ func (g *Generator) applyFullJoinEmulation(query *SelectQuery) bool {
 	}}
 	query.FullJoinEmulation = true
 	clearSetOperationOrderLimit(query)
-	return true
+	return true, ""
 }
 
 func fullJoinRightAntiFilter(baseTable string, join Join) Expr {

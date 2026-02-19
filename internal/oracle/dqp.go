@@ -3,6 +3,7 @@ package oracle
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -23,6 +24,12 @@ type DQP struct {
 func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
+const dqpComplexityJoinCountThreshold = 4
+const dqpComplexitySetOpsThreshold = 2
+const dqpComplexityDerivedThreshold = 3
+const dqpComplexityFalseJoinThreshold = 3
+const dqpBaseHintPickLimitDefault = 3
+const dqpSetVarHintPickMaxDefault = 3
 
 var (
 	replaySetVarNamePattern      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -57,10 +64,14 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			PredicateMode:        generator.PredicateModeSimpleColumns,
 			DisallowLimit:        true,
 			DisallowWindow:       true,
+			DisallowSetOps:       true,
+			MaxJoinCount:         3,
+			MaxJoinCountSet:      true,
 		},
 		SkipReasonOverrides: map[string]string{
 			"constraint:limit":            "dqp:limit",
 			"constraint:window":           "dqp:window",
+			"constraint:set_ops":          "dqp:set_ops",
 			"constraint:nondeterministic": "dqp:nondeterministic",
 			"constraint:predicate_guard":  "dqp:predicate_guard",
 		},
@@ -74,6 +85,9 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}
+	}
+	if details, skip := dqpComplexitySkipDetails(query); skip {
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	hasSubquery := queryHasSubquery(query)
 	hasSemi := queryHasSemiJoinSubquery(query)
@@ -132,6 +146,210 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}}
+}
+
+type dqpComplexityStats struct {
+	joinCount        int
+	setOps           int
+	derivedTables    int
+	alwaysFalseJoins int
+}
+
+func dqpComplexitySkipDetails(query *generator.SelectQuery) (map[string]any, bool) {
+	stats := dqpCollectComplexityStats(query)
+	if stats.setOps >= dqpComplexitySetOpsThreshold && stats.derivedTables >= dqpComplexityDerivedThreshold {
+		return map[string]any{
+			"skip_reason":                 "dqp:complexity_guard",
+			"dqp_complexity_reason":       "set_ops_and_derived_tables",
+			"dqp_complexity_join_count":   stats.joinCount,
+			"dqp_complexity_set_ops":      stats.setOps,
+			"dqp_complexity_derived":      stats.derivedTables,
+			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
+			"dqp_complexity_threshold_id": "dqp_complexity_setops_derived_v1",
+		}, true
+	}
+	if stats.alwaysFalseJoins >= dqpComplexityFalseJoinThreshold {
+		return map[string]any{
+			"skip_reason":                 "dqp:complexity_guard",
+			"dqp_complexity_reason":       "always_false_join_chain",
+			"dqp_complexity_join_count":   stats.joinCount,
+			"dqp_complexity_set_ops":      stats.setOps,
+			"dqp_complexity_derived":      stats.derivedTables,
+			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
+			"dqp_complexity_threshold_id": "dqp_complexity_false_join_v1",
+		}, true
+	}
+	if stats.joinCount >= dqpComplexityJoinCountThreshold && stats.alwaysFalseJoins*2 >= stats.joinCount {
+		return map[string]any{
+			"skip_reason":                 "dqp:complexity_guard",
+			"dqp_complexity_reason":       "false_join_ratio_high",
+			"dqp_complexity_join_count":   stats.joinCount,
+			"dqp_complexity_set_ops":      stats.setOps,
+			"dqp_complexity_derived":      stats.derivedTables,
+			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
+			"dqp_complexity_threshold_id": "dqp_complexity_false_ratio_v1",
+		}, true
+	}
+	return nil, false
+}
+
+func dqpCollectComplexityStats(query *generator.SelectQuery) dqpComplexityStats {
+	var stats dqpComplexityStats
+	var walk func(*generator.SelectQuery)
+	walk = func(q *generator.SelectQuery) {
+		if q == nil {
+			return
+		}
+		stats.joinCount += len(q.From.Joins)
+		stats.setOps += len(q.SetOps)
+		if q.From.BaseQuery != nil {
+			stats.derivedTables++
+			walk(q.From.BaseQuery)
+		}
+		for _, join := range q.From.Joins {
+			if join.TableQuery != nil {
+				stats.derivedTables++
+				walk(join.TableQuery)
+			}
+			if dqpExprAlwaysFalse(join.On) {
+				stats.alwaysFalseJoins++
+			}
+		}
+		for _, cte := range q.With {
+			walk(cte.Query)
+		}
+		for _, op := range q.SetOps {
+			walk(op.Query)
+		}
+	}
+	walk(query)
+	return stats
+}
+
+func dqpExprAlwaysFalse(expr generator.Expr) bool {
+	v, ok := dqpExprConstBool(expr)
+	return ok && !v
+}
+
+func dqpExprConstBool(expr generator.Expr) (value bool, ok bool) {
+	switch e := expr.(type) {
+	case nil:
+		return false, false
+	case generator.LiteralExpr:
+		return dqpLiteralAsBool(e.Value)
+	case *generator.LiteralExpr:
+		if e == nil {
+			return false, false
+		}
+		return dqpLiteralAsBool(e.Value)
+	case generator.UnaryExpr:
+		if strings.EqualFold(strings.TrimSpace(e.Op), "NOT") {
+			if v, ok := dqpExprConstBool(e.Expr); ok {
+				return !v, true
+			}
+		}
+		return false, false
+	case generator.BinaryExpr:
+		op := strings.ToUpper(strings.TrimSpace(e.Op))
+		switch op {
+		case "AND":
+			left, lok := dqpExprConstBool(e.Left)
+			right, rok := dqpExprConstBool(e.Right)
+			if lok && !left {
+				return false, true
+			}
+			if rok && !right {
+				return false, true
+			}
+			if lok && rok {
+				return left && right, true
+			}
+			return false, false
+		case "OR":
+			left, lok := dqpExprConstBool(e.Left)
+			right, rok := dqpExprConstBool(e.Right)
+			if lok && left {
+				return true, true
+			}
+			if rok && right {
+				return true, true
+			}
+			if lok && rok {
+				return left || right, true
+			}
+			return false, false
+		case "=", "<=>", "!=", "<>":
+			left, lok := dqpLiteralValue(e.Left)
+			right, rok := dqpLiteralValue(e.Right)
+			if !lok || !rok {
+				return false, false
+			}
+			eq := reflect.DeepEqual(left, right)
+			if op == "=" || op == "<=>" {
+				return eq, true
+			}
+			return !eq, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
+func dqpLiteralValue(expr generator.Expr) (any, bool) {
+	switch e := expr.(type) {
+	case generator.LiteralExpr:
+		return e.Value, true
+	case *generator.LiteralExpr:
+		if e == nil {
+			return nil, false
+		}
+		return e.Value, true
+	default:
+		return nil, false
+	}
+}
+
+func dqpLiteralAsBool(v any) (value bool, ok bool) {
+	switch x := v.(type) {
+	case nil:
+		return false, true
+	case bool:
+		return x, true
+	case int:
+		return x != 0, true
+	case int8:
+		return x != 0, true
+	case int16:
+		return x != 0, true
+	case int32:
+		return x != 0, true
+	case int64:
+		return x != 0, true
+	case uint:
+		return x != 0, true
+	case uint8:
+		return x != 0, true
+	case uint16:
+		return x != 0, true
+	case uint32:
+		return x != 0, true
+	case uint64:
+		return x != 0, true
+	case string:
+		s := strings.TrimSpace(strings.ToLower(x))
+		switch s {
+		case "0", "false":
+			return false, true
+		case "1", "true":
+			return true, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
 }
 
 type dqpVariant struct {
@@ -233,7 +451,7 @@ func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, h
 		candidates = append(candidates, buildHintSQL(HintNoDecorrelate, tables, noArgHints))
 	}
 	candidates = append(candidates, externalBaseHints...)
-	return pickHintsWithBandit(gen, candidates, 2)
+	return pickHintsWithBandit(gen, candidates, dqpBaseHintPickLimit(gen))
 }
 
 func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
@@ -241,11 +459,31 @@ func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasS
 	if len(candidates) == 0 {
 		return nil
 	}
-	limit := 0
+	limit := dqpSetVarHintPickMax(gen)
+	if limit > len(candidates) {
+		limit = len(candidates)
+	}
+	if limit <= 0 {
+		return nil
+	}
 	if gen != nil {
-		limit = gen.Rand.Intn(3)
+		limit = 1 + gen.Rand.Intn(limit)
 	}
 	return pickHintsWithBandit(gen, candidates, limit)
+}
+
+func dqpBaseHintPickLimit(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPBaseHintPick <= 0 {
+		return dqpBaseHintPickLimitDefault
+	}
+	return gen.Config.Oracles.DQPBaseHintPick
+}
+
+func dqpSetVarHintPickMax(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPSetVarHintPick <= 0 {
+		return dqpSetVarHintPickMaxDefault
+	}
+	return gen.Config.Oracles.DQPSetVarHintPick
 }
 
 func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {

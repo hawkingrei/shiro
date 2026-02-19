@@ -20,12 +20,17 @@ type GroundTruth struct{}
 // Name returns the oracle identifier.
 func (o GroundTruth) Name() string { return "GroundTruth" }
 
-const groundTruthPickRetries = 12
+const groundTruthPickRetries = 16
+const groundTruthDSGFallbackRetries = 12
 const groundTruthDefaultMaxRows = 50
+const groundTruthConfidenceStrictDSG = "strict_dsg"
+const groundTruthConfidenceFallbackDSG = "fallback_dsg"
 
 // Run evaluates join counts using an in-memory join and compares with the DB count.
 func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
-	query, edges, skipReason, keyReason, dsgReason := pickGroundTruthQuery(gen, state)
+	query, edges, skipReason, keyReason, dsgReason, enforceDSG := pickGroundTruthQuery(gen, state)
+	dsgEnabled := gen != nil && gen.Config.Features.DSG
+	confidence := groundTruthConfidence(dsgEnabled, enforceDSG, dsgReason)
 	if skipReason != "" {
 		details := map[string]any{"skip_reason": skipReason}
 		if keyReason != "" {
@@ -34,48 +39,61 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 		if dsgReason != "" {
 			details["groundtruth_dsg_mismatch_reason"] = dsgReason
 		}
+		appendGroundTruthConfidence(details, confidence)
 		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	if keyReason != "" {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+		details := map[string]any{
 			"skip_reason":                    "groundtruth:key_missing",
 			"groundtruth_key_missing_reason": keyReason,
-		}}
+		}
+		appendGroundTruthConfidence(details, confidence)
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	maxRows := groundTruthEffectiveMaxRows(gen)
 	if gen.Truth != nil {
 		if truth, ok := gen.Truth.(*groundtruth.SchemaTruth); ok {
-			return o.runWithTruth(ctx, exec, truth, query, state, gen.Config.Features.DSG, maxRows)
+			return o.runWithTruth(ctx, exec, truth, query, state, dsgEnabled && enforceDSG, maxRows, confidence)
 		}
 	}
 	for _, edge := range edges {
 		if edge.JoinType != groundtruth.JoinInner {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:join_type"}}
+			details := map[string]any{"skip_reason": "groundtruth:join_type"}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			details := map[string]any{
 				"skip_reason":                    "groundtruth:key_missing",
 				"groundtruth_key_missing_reason": firstKeyMissingReason(edges),
-			}}
+			}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
-	if gen != nil && gen.Config.Features.DSG {
+	if dsgEnabled && enforceDSG {
 		if skip, reason := groundTruthDSGSkipReason(query.From.BaseTable, edges); skip != "" {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			details := map[string]any{
 				"skip_reason":                     skip,
 				"groundtruth_dsg_mismatch_reason": reason,
-			}}
+			}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
 	columnsByTable := joinKeyColumns(state, edges, query.From.BaseTable)
 	if len(columnsByTable) == 0 {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:no_columns"}}
+		details := map[string]any{"skip_reason": "groundtruth:no_columns"}
+		appendGroundTruthConfidence(details, confidence)
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	if shouldSkipGroundTruthByRowCount(ctx, exec, query, maxRows) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+		details := map[string]any{
 			"groundtruth_skip": "rowcount_exceeded",
 			"skip_reason":      "groundtruth:rowcount_exceeded",
-		}}
+		}
+		appendGroundTruthConfidence(details, confidence)
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	leftRows, leftSQL, err := fetchRows(ctx, exec, query.From.BaseTable, columnsByTable[query.From.BaseTable], maxRows)
 	if err != nil {
@@ -98,10 +116,12 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 		}
 		rows, ok = joinRows(rows, rightRows, edge.LeftTable, edge.LeftKeyList(), edge.RightTable, edge.RightKeyList(), maxRows)
 		if !ok {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			details := map[string]any{
 				"groundtruth_skip": "join_rows_exceeded",
 				"skip_reason":      "groundtruth:join_rows_exceeded",
-			}}
+			}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
 	truthCount := len(rows)
@@ -128,38 +148,46 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 			Expected: fmt.Sprintf("truth count=%d", truthCount),
 			Actual:   fmt.Sprintf("db count=%d", actual),
 			Truth:    truth,
-			Details: map[string]any{
+			Details: appendGroundTruthConfidence(map[string]any{
 				"replay_kind":         "count",
 				"replay_expected_sql": countSQL,
 				"replay_actual_sql":   countSQL,
-			},
+			}, confidence),
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truth}
 }
 
-func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, dsgEnabled bool, maxRows int) Result {
+func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, dsgEnabled bool, maxRows int, confidence string) Result {
 	if truth == nil {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:truth_missing"}}
+		details := map[string]any{"skip_reason": "groundtruth:truth_missing"}
+		appendGroundTruthConfidence(details, confidence)
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	edges := groundTruthJoinEdges(query, state)
 	if len(edges) != len(query.From.Joins) {
-		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:edge_mismatch"}}
+		details := map[string]any{"skip_reason": "groundtruth:edge_mismatch"}
+		appendGroundTruthConfidence(details, confidence)
+		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	for _, edge := range edges {
 		if len(edge.LeftKeyList()) == 0 || len(edge.RightKeyList()) == 0 {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			details := map[string]any{
 				"skip_reason":                    "groundtruth:key_missing",
 				"groundtruth_key_missing_reason": firstKeyMissingReason(edges),
-			}}
+			}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
 	if dsgEnabled {
 		if skip, reason := groundTruthDSGSkipReason(query.From.BaseTable, edges); skip != "" {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
+			details := map[string]any{
 				"skip_reason":                     skip,
 				"groundtruth_dsg_mismatch_reason": reason,
-			}}
+			}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
 	if dsgEnabled {
@@ -167,95 +195,154 @@ func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groun
 		executor := groundtruth.JoinTruthExecutor{Truth: *truth}
 		truthCount, ok, reason := executor.EvalJoinChainExact(query.From.BaseTable, edges, tableCap, joinCap)
 		if !ok {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": exactSkipReason(reason)}}
+			details := map[string]any{"skip_reason": exactSkipReason(reason)}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
-		return o.compareTruthCount(ctx, exec, query, truthCount)
+		return o.compareTruthCount(ctx, exec, query, truthCount, confidence)
 	}
 	for _, edge := range edges {
 		if edge.JoinType != groundtruth.JoinInner {
-			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:join_type"}}
+			details := map[string]any{"skip_reason": "groundtruth:join_type"}
+			appendGroundTruthConfidence(details, confidence)
+			return Result{OK: true, Oracle: o.Name(), Details: details}
 		}
 	}
 	for _, edge := range edges {
 		if len(edge.LeftKeyList()) > 1 || len(edge.RightKeyList()) > 1 {
 			if !truthHasRowsData(truth, edge.LeftTable) || !truthHasRowsData(truth, edge.RightTable) {
-				return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "groundtruth:composite_key_rows_missing"}}
+				details := map[string]any{"skip_reason": "groundtruth:composite_key_rows_missing"}
+				appendGroundTruthConfidence(details, confidence)
+				return Result{OK: true, Oracle: o.Name(), Details: details}
 			}
 		}
 	}
 	executor := groundtruth.JoinTruthExecutor{Truth: *truth}
 	bitmap := executor.EvalJoinChain(query.From.BaseTable, edges)
 	truthCount := bitmap.Count()
-	return o.compareTruthCount(ctx, exec, query, truthCount)
+	return o.compareTruthCount(ctx, exec, query, truthCount, confidence)
 }
 
-func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query *generator.SelectQuery, edges []groundtruth.JoinEdge, skipReason string, keyReason string, dsgReason string) {
+func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query *generator.SelectQuery, edges []groundtruth.JoinEdge, skipReason string, keyReason string, dsgReason string, enforceDSG bool) {
 	if gen == nil {
-		return nil, nil, "groundtruth:empty_query", "", ""
+		return nil, nil, "groundtruth:empty_query", "", "", true
 	}
 	lastKeyReason := ""
 	lastDSGReason := ""
 	sawEmptyQuery := false
 	sawGuardrail := false
 	sawEdgeMismatch := false
+	sawJoinType := false
 	dsgEnabled := gen.Config.Features.DSG
-	for attempt := 0; attempt < groundTruthPickRetries; attempt++ {
-		query := gen.GenerateSelectQuery()
-		if query == nil {
-			sawEmptyQuery = true
-			continue
-		}
-		// Avoid ambiguous USING resolution on joined left factors by rewriting
-		// USING into explicit ON predicates before guardrails/extraction.
-		rewriteUsingToOn(query, state)
-		if shouldSkipGroundTruth(query) {
-			sawGuardrail = true
-			continue
-		}
-		if dsgEnabled {
-			if _, reason := groundTruthDSGPrecheck(query, state); reason != "" {
-				lastDSGReason = reason
+	tryPick := func(maxTries int, enforceDSG bool) (*generator.SelectQuery, []groundtruth.JoinEdge, bool) {
+		for attempt := 0; attempt < maxTries; attempt++ {
+			query := gen.GenerateSelectQuery()
+			if query == nil {
+				sawEmptyQuery = true
 				continue
 			}
-		}
-		edges := groundTruthJoinEdges(query, state)
-		if len(edges) != len(query.From.Joins) {
-			sawEdgeMismatch = true
-			continue
-		}
-		keyReason := firstKeyMissingReason(edges)
-		if keyReason != "" {
-			lastKeyReason = keyReason
-			continue
-		}
-		if dsgEnabled {
-			if skip, reason := groundTruthDSGSkipReason(query.From.BaseTable, edges); skip != "" {
-				lastDSGReason = reason
+			if !groundTruthHasOnlyInnerJoins(query) {
+				sawJoinType = true
 				continue
 			}
-			if !groundTruthDSGRightKeysAvailable(state, edges) {
-				lastDSGReason = "right_key"
+			// Avoid ambiguous USING resolution on joined left factors by rewriting
+			// USING into explicit ON predicates before guardrails/extraction.
+			rewriteUsingToOn(query, state)
+			if shouldSkipGroundTruth(query) {
+				sawGuardrail = true
 				continue
 			}
+			if dsgEnabled && enforceDSG {
+				if _, reason := groundTruthDSGPrecheck(query, state); reason != "" {
+					lastDSGReason = reason
+					continue
+				}
+			}
+			edges := groundTruthJoinEdges(query, state)
+			if len(edges) != len(query.From.Joins) {
+				sawEdgeMismatch = true
+				continue
+			}
+			if !groundTruthEdgesAllInner(edges) {
+				sawJoinType = true
+				continue
+			}
+			keyReason := firstKeyMissingReason(edges)
+			if keyReason != "" {
+				lastKeyReason = keyReason
+				continue
+			}
+			if dsgEnabled && enforceDSG {
+				if skip, reason := groundTruthDSGSkipReason(query.From.BaseTable, edges); skip != "" {
+					lastDSGReason = reason
+					continue
+				}
+				if !groundTruthDSGRightKeysAvailable(state, edges) {
+					lastDSGReason = "right_key"
+					continue
+				}
+			}
+			return query, edges, true
 		}
-		return query, edges, "", "", ""
+		return nil, nil, false
+	}
+	if query, edges, ok := tryPick(groundTruthPickRetries, true); ok {
+		return query, edges, "", "", "", true
+	}
+	if dsgEnabled && groundTruthShouldFallbackDSG(lastDSGReason) {
+		if query, edges, ok := tryPick(groundTruthDSGFallbackRetries, false); ok {
+			return query, edges, "", "", lastDSGReason, false
+		}
 	}
 	if lastDSGReason != "" {
-		return nil, nil, "groundtruth:dsg_key_mismatch_" + lastDSGReason, "", lastDSGReason
+		return nil, nil, "groundtruth:dsg_key_mismatch_" + lastDSGReason, "", lastDSGReason, true
 	}
 	if lastKeyReason != "" {
-		return nil, nil, "groundtruth:key_missing", lastKeyReason, ""
+		return nil, nil, "groundtruth:key_missing", lastKeyReason, "", true
+	}
+	if sawJoinType {
+		return nil, nil, "groundtruth:join_type", "", "", true
 	}
 	if sawEdgeMismatch {
-		return nil, nil, "groundtruth:edge_mismatch", "", ""
+		return nil, nil, "groundtruth:edge_mismatch", "", "", true
 	}
 	if sawGuardrail {
-		return nil, nil, "groundtruth:guardrail", "", ""
+		return nil, nil, "groundtruth:guardrail", "", "", true
 	}
 	if sawEmptyQuery {
-		return nil, nil, "groundtruth:empty_query", "", ""
+		return nil, nil, "groundtruth:empty_query", "", "", true
 	}
-	return nil, nil, "groundtruth:key_missing", "no_equal_candidates:no_columns", ""
+	return nil, nil, "groundtruth:key_missing", "no_equal_candidates:no_columns", "", true
+}
+
+func groundTruthShouldFallbackDSG(reason string) bool {
+	switch reason {
+	case "right_key", "base_table":
+		return true
+	default:
+		return false
+	}
+}
+
+func groundTruthHasOnlyInnerJoins(query *generator.SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	for _, join := range query.From.Joins {
+		if join.Type != generator.JoinInner {
+			return false
+		}
+	}
+	return true
+}
+
+func groundTruthEdgesAllInner(edges []groundtruth.JoinEdge) bool {
+	for _, edge := range edges {
+		if edge.JoinType != groundtruth.JoinInner {
+			return false
+		}
+	}
+	return true
 }
 
 func groundTruthJoinEdges(query *generator.SelectQuery, state *schema.State) []groundtruth.JoinEdge {
@@ -269,10 +356,32 @@ func groundTruthJoinEdges(query *generator.SelectQuery, state *schema.State) []g
 	}
 	sqlText := query.SQLString()
 	sqlEdges := groundtruth.JoinEdgesFromSQL(sqlText, state)
+	return pickPreferredGroundTruthEdges(query.From.BaseTable, expected, queryEdges, sqlEdges)
+}
+
+func pickPreferredGroundTruthEdges(base string, expected int, queryEdges []groundtruth.JoinEdge, sqlEdges []groundtruth.JoinEdge) []groundtruth.JoinEdge {
 	if len(sqlEdges) != expected {
 		return queryEdges
 	}
-	if groundTruthMissingEdgeKeys(sqlEdges, expected) <= groundTruthMissingEdgeKeys(queryEdges, expected) {
+	queryMissing := groundTruthMissingEdgeKeys(queryEdges, expected)
+	sqlMissing := groundTruthMissingEdgeKeys(sqlEdges, expected)
+	queryAllInner := groundTruthEdgesAllInner(queryEdges)
+	sqlAllInner := groundTruthEdgesAllInner(sqlEdges)
+	if queryAllInner && !sqlAllInner && queryMissing <= sqlMissing {
+		return queryEdges
+	}
+	if sqlAllInner && !queryAllInner && sqlMissing <= queryMissing {
+		return sqlEdges
+	}
+	queryDSGValid := validDSGTruthJoin(base, queryEdges)
+	sqlDSGValid := validDSGTruthJoin(base, sqlEdges)
+	if queryDSGValid && !sqlDSGValid {
+		return queryEdges
+	}
+	if sqlDSGValid && !queryDSGValid {
+		return sqlEdges
+	}
+	if sqlMissing <= queryMissing {
 		return sqlEdges
 	}
 	return queryEdges
@@ -411,7 +520,7 @@ func groundTruthDSGRightKeysAvailable(state *schema.State, edges []groundtruth.J
 	return true
 }
 
-func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *generator.SelectQuery, truthCount int) Result {
+func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *generator.SelectQuery, truthCount int, confidence string) Result {
 	sqlText := query.SQLString()
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", sqlText)
 	actual, err := exec.QueryCount(ctx, countSQL)
@@ -435,14 +544,32 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 			Expected: fmt.Sprintf("truth count=%d", truthCount),
 			Actual:   fmt.Sprintf("db count=%d", actual),
 			Truth:    truthMeta,
-			Details: map[string]any{
+			Details: appendGroundTruthConfidence(map[string]any{
 				"replay_kind":         "count",
 				"replay_expected_sql": countSQL,
 				"replay_actual_sql":   countSQL,
-			},
+			}, confidence),
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truthMeta}
+}
+
+func groundTruthConfidence(dsgEnabled bool, enforceDSG bool, dsgReason string) string {
+	if !dsgEnabled {
+		return ""
+	}
+	if !enforceDSG && dsgReason != "" {
+		return groundTruthConfidenceFallbackDSG
+	}
+	return groundTruthConfidenceStrictDSG
+}
+
+func appendGroundTruthConfidence(details map[string]any, confidence string) map[string]any {
+	if details == nil || strings.TrimSpace(confidence) == "" {
+		return details
+	}
+	details["groundtruth_confidence"] = confidence
+	return details
 }
 
 func groundTruthCaps(maxRows int) (tableCap int, joinCap int) {
