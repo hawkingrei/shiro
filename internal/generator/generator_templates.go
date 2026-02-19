@@ -247,14 +247,15 @@ func (g *Generator) applyTemplateJoinPredicate(query *SelectQuery, tables []sche
 
 func (g *Generator) applyTemplateGroupBy(query *SelectQuery, tables []schema.Table) bool {
 	query.GroupBy = g.GenerateGroupBy(tables)
-	if g.Config.Features.GroupByRollup && len(query.GroupBy) > 0 && util.Chance(g.Rand, GroupByRollupProb) {
-		query.GroupByWithRollup = true
-	}
+	g.applyGroupByExtension(query)
 	return len(query.GroupBy) > 0
 }
 
 func (g *Generator) applyTemplateAggSelect(query *SelectQuery, tables []schema.Table) {
 	query.Items = g.GenerateAggregateSelectList(tables, query.GroupBy)
+	if query.GroupByWithRollup || query.GroupByWithCube || len(query.GroupByGroupingSets) > 0 {
+		g.maybeAppendGroupingSelectItem(query)
+	}
 }
 
 func (g *Generator) applyTemplateHaving(query *SelectQuery, tables []schema.Table) {

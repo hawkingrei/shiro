@@ -65,6 +65,8 @@ type Features struct {
 	Aggregates           bool `yaml:"aggregates"`
 	GroupBy              bool `yaml:"group_by"`
 	GroupByRollup        bool `yaml:"group_by_rollup"`
+	GroupByCube          bool `yaml:"group_by_cube"`
+	GroupByGroupingSets  bool `yaml:"group_by_grouping_sets"`
 	Having               bool `yaml:"having"`
 	OrderBy              bool `yaml:"order_by"`
 	Limit                bool `yaml:"limit"`
@@ -178,6 +180,8 @@ type OracleConfig struct {
 	JoinOnPolicy       string            `yaml:"join_on_policy"`
 	JoinUsingProb      int               `yaml:"join_using_prob"`
 	DQPExternalHints   []string          `yaml:"dqp_external_hints"`
+	DQPBaseHintPick    int               `yaml:"dqp_base_hint_pick_limit"`
+	DQPSetVarHintPick  int               `yaml:"dqp_set_var_hint_pick_max"`
 	CertMinBaseRows    float64           `yaml:"cert_min_base_rows"`
 	GroundTruthMaxRows int               `yaml:"groundtruth_max_rows"`
 	ImpoMaxRows        int               `yaml:"impo_max_rows"`
@@ -308,6 +312,9 @@ func Load(path string) (Config, error) {
 }
 
 const (
+	dqpBaseHintPickLimitDefault = 3
+	dqpSetVarHintPickMaxDefault = 3
+
 	qpgNoJoinThresholdDefault         = 3
 	qpgNoAggThresholdDefault          = 3
 	qpgNoNewPlanThresholdDefault      = 5
@@ -361,6 +368,12 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Weights.Features.TemplateJoinOnlyWeight == 0 && cfg.Weights.Features.TemplateJoinFilterWeight == 0 {
 		cfg.Weights.Features.TemplateJoinOnlyWeight = 4
 		cfg.Weights.Features.TemplateJoinFilterWeight = 6
+	}
+	if cfg.Oracles.DQPBaseHintPick <= 0 {
+		cfg.Oracles.DQPBaseHintPick = dqpBaseHintPickLimitDefault
+	}
+	if cfg.Oracles.DQPSetVarHintPick <= 0 {
+		cfg.Oracles.DQPSetVarHintPick = dqpSetVarHintPickMaxDefault
 	}
 	if cfg.QPG.NoJoinThreshold <= 0 {
 		cfg.QPG.NoJoinThreshold = qpgNoJoinThresholdDefault
@@ -540,6 +553,8 @@ func defaultConfig() Config {
 			PredicateLevel:     "strict",
 			JoinOnPolicy:       "simple",
 			JoinUsingProb:      -1,
+			DQPBaseHintPick:    dqpBaseHintPickLimitDefault,
+			DQPSetVarHintPick:  dqpSetVarHintPickMaxDefault,
 			CertMinBaseRows:    20,
 			GroundTruthMaxRows: 50,
 			ImpoMaxRows:        50,

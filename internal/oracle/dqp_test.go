@@ -69,8 +69,11 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 	gen := generator.New(cfg, &state, 2)
 	for i := 0; i < 20; i++ {
 		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
-		if len(hints) > 2 {
-			t.Fatalf("expected <=2 set_var hints, got %d", len(hints))
+		if len(hints) > 3 {
+			t.Fatalf("expected <=3 set_var hints, got %d", len(hints))
+		}
+		if len(hints) == 0 {
+			t.Fatalf("expected at least one set_var hint")
 		}
 	}
 }
@@ -91,13 +94,45 @@ func TestDQPHintsForQueryCount(t *testing.T) {
 		HintAggToCop:        {},
 	}
 	hints := dqpHintsForQuery(gen, []string{"t1", "t2"}, true, true, true, true, noArgHints, nil)
-	if len(hints) > 2 {
-		t.Fatalf("expected <=2 hints, got %d", len(hints))
+	if len(hints) > 3 {
+		t.Fatalf("expected <=3 hints, got %d", len(hints))
 	}
 	for _, hint := range hints {
 		if strings.TrimSpace(hint) == "" {
 			t.Fatalf("unexpected empty hint")
 		}
+	}
+}
+
+func TestDQPHintPickLimitsFromConfig(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPBaseHintPick = 6
+	cfg.Oracles.DQPSetVarHintPick = 7
+
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 13)
+
+	noArgHints := map[string]struct{}{
+		HintStraightJoin:    {},
+		HintSemiJoinRewrite: {},
+		HintNoDecorrelate:   {},
+		HintHashAgg:         {},
+		HintStreamAgg:       {},
+		HintAggToCop:        {},
+	}
+	baseHints := dqpHintsForQuery(gen, []string{"t1", "t2", "t3"}, true, true, true, true, noArgHints, nil)
+	if len(baseHints) > 6 {
+		t.Fatalf("expected <=6 base hints, got %d", len(baseHints))
+	}
+	setVarHints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
+	if len(setVarHints) > 7 {
+		t.Fatalf("expected <=7 set_var hints, got %d", len(setVarHints))
+	}
+	if len(setVarHints) == 0 {
+		t.Fatalf("expected set_var hints when candidates exist")
 	}
 }
 
@@ -326,6 +361,74 @@ func TestDQPReplaySetVarAssignment(t *testing.T) {
 		if got != tc.want || ok != tc.ok {
 			t.Fatalf("%s: dqpReplaySetVarAssignment(%q)=(%q,%v), want (%q,%v)", tc.name, tc.hint, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+func TestDQPComplexitySkipDetailsSetOpsAndDerived(t *testing.T) {
+	simpleDerived := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From:  generator.FromClause{BaseTable: "t0"},
+	}
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseQuery: simpleDerived,
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", TableQuery: simpleDerived},
+				{Type: generator.JoinInner, Table: "t2", TableQuery: simpleDerived},
+			},
+		},
+		SetOps: []generator.SetOperation{
+			{Type: generator.SetOperationIntersect, Query: simpleDerived},
+			{Type: generator.SetOperationIntersect, Query: simpleDerived},
+		},
+	}
+	details, skip := dqpComplexitySkipDetails(query)
+	if !skip {
+		t.Fatalf("expected complexity guard skip")
+	}
+	reason, _ := details["dqp_complexity_reason"].(string)
+	if reason != "set_ops_and_derived_tables" {
+		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+}
+
+func TestDQPComplexitySkipDetailsAlwaysFalseJoinChain(t *testing.T) {
+	falseJoin := generator.BinaryExpr{
+		Left:  generator.LiteralExpr{Value: 1},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: 0},
+	}
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", On: falseJoin},
+				{Type: generator.JoinInner, Table: "t2", On: falseJoin},
+				{Type: generator.JoinInner, Table: "t3", On: falseJoin},
+			},
+		},
+	}
+	details, skip := dqpComplexitySkipDetails(query)
+	if !skip {
+		t.Fatalf("expected complexity guard skip")
+	}
+	reason, _ := details["dqp_complexity_reason"].(string)
+	if reason != "always_false_join_chain" {
+		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+}
+
+func TestDQPExprConstBoolLiteralComparison(t *testing.T) {
+	expr := generator.BinaryExpr{
+		Left:  generator.LiteralExpr{Value: 1},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: 0},
+	}
+	if !dqpExprAlwaysFalse(expr) {
+		t.Fatalf("expected literal equality to be recognized as always false")
 	}
 }
 

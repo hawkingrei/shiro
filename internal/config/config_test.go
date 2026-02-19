@@ -40,6 +40,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Logging.LogFile != "logs/shiro.log" {
 		t.Fatalf("unexpected log file: %s", cfg.Logging.LogFile)
 	}
+	if cfg.Oracles.DQPBaseHintPick != dqpBaseHintPickLimitDefault {
+		t.Fatalf("unexpected dqp base hint pick limit: %d", cfg.Oracles.DQPBaseHintPick)
+	}
+	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
+		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -212,6 +218,8 @@ func TestLoadDQPExternalHints(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	content := `oracles:
+  dqp_base_hint_pick_limit: 6
+  dqp_set_var_hint_pick_max: 7
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "HASH_JOIN"
@@ -235,5 +243,47 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.DQPExternalHints[1] != "HASH_JOIN" {
 		t.Fatalf("unexpected second dqp external hint: %s", cfg.Oracles.DQPExternalHints[1])
+	}
+	if cfg.Oracles.DQPBaseHintPick != 6 {
+		t.Fatalf("unexpected dqp base hint pick limit: %d", cfg.Oracles.DQPBaseHintPick)
+	}
+	if cfg.Oracles.DQPSetVarHintPick != 7 {
+		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
+}
+
+func TestLoadGroupByExtensionFlags(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `features:
+  group_by: true
+  group_by_rollup: true
+  group_by_cube: true
+  group_by_grouping_sets: true
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Features.GroupBy {
+		t.Fatalf("expected group_by enabled")
+	}
+	if !cfg.Features.GroupByRollup {
+		t.Fatalf("expected group_by_rollup enabled")
+	}
+	if !cfg.Features.GroupByCube {
+		t.Fatalf("expected group_by_cube enabled")
+	}
+	if !cfg.Features.GroupByGroupingSets {
+		t.Fatalf("expected group_by_grouping_sets enabled")
 	}
 }

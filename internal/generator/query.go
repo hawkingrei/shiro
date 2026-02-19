@@ -70,6 +70,9 @@ type SelectItem struct {
 	Alias string
 }
 
+// GroupingSet models one item in GROUPING SETS.
+type GroupingSet []Expr
+
 // SelectQuery models a SELECT statement.
 type SelectQuery struct {
 	With              []CTE
@@ -84,6 +87,8 @@ type SelectQuery struct {
 	Where                         Expr
 	GroupBy                       []Expr
 	GroupByWithRollup             bool
+	GroupByWithCube               bool
+	GroupByGroupingSets           []GroupingSet
 	Having                        Expr
 	WindowDefs                    []WindowDef
 	OrderBy                       []OrderBy
@@ -181,7 +186,32 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 		b.Write(" WHERE ")
 		q.Where.Build(b)
 	}
-	if len(q.GroupBy) > 0 {
+	if len(q.GroupByGroupingSets) > 0 {
+		b.Write(" GROUP BY GROUPING SETS (")
+		for i, set := range q.GroupByGroupingSets {
+			if i > 0 {
+				b.Write(", ")
+			}
+			b.Write("(")
+			for j, expr := range set {
+				if j > 0 {
+					b.Write(", ")
+				}
+				expr.Build(b)
+			}
+			b.Write(")")
+		}
+		b.Write(")")
+	} else if q.GroupByWithCube && len(q.GroupBy) > 0 {
+		b.Write(" GROUP BY CUBE (")
+		for i, expr := range q.GroupBy {
+			if i > 0 {
+				b.Write(", ")
+			}
+			expr.Build(b)
+		}
+		b.Write(")")
+	} else if len(q.GroupBy) > 0 {
 		b.Write(" GROUP BY ")
 		for i, expr := range q.GroupBy {
 			if i > 0 {

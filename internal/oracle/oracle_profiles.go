@@ -15,6 +15,9 @@ type FeatureOverrides struct {
 	FullJoinEmulation    *bool
 	Aggregates           *bool
 	GroupBy              *bool
+	GroupByRollup        *bool
+	GroupByCube          *bool
+	GroupByGroupingSets  *bool
 	Having               *bool
 	Distinct             *bool
 	OrderBy              *bool
@@ -55,6 +58,15 @@ func (o FeatureOverrides) Apply(dst *config.Features) {
 	if o.GroupBy != nil {
 		dst.GroupBy = *o.GroupBy
 	}
+	if o.GroupByRollup != nil {
+		dst.GroupByRollup = *o.GroupByRollup
+	}
+	if o.GroupByCube != nil {
+		dst.GroupByCube = *o.GroupByCube
+	}
+	if o.GroupByGroupingSets != nil {
+		dst.GroupByGroupingSets = *o.GroupByGroupingSets
+	}
 	if o.Having != nil {
 		dst.Having = *o.Having
 	}
@@ -91,6 +103,7 @@ type Profile struct {
 	PredicateMode          *generator.PredicateMode
 	JoinTypeOverride       *generator.JoinType
 	MinJoinTables          *int
+	MaxJoinTables          *int
 	DisallowScalarSubquery *bool
 	JoinOnPolicy           *string
 	JoinUsingProbMin       *int
@@ -146,6 +159,7 @@ var Profiles = map[string]Profile{
 		PredicateMode:          PredicateModePtr(generator.PredicateModeNone),
 		JoinTypeOverride:       JoinTypePtr(generator.JoinInner),
 		MinJoinTables:          IntPtr(2),
+		MaxJoinTables:          IntPtr(4),
 		DisallowScalarSubquery: BoolPtr(true),
 		JoinOnPolicy:           StringPtr("simple"),
 		JoinUsingProbMin:       IntPtr(100),
@@ -192,20 +206,22 @@ var Profiles = map[string]Profile{
 			Limit:         BoolPtr(false),
 			SetOperations: BoolPtr(false),
 			WindowFuncs:   BoolPtr(false),
+			NaturalJoins:  BoolPtr(false),
 		},
 		AllowSubquery: BoolPtr(true),
 		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
 	},
 	"TLP": {
 		Features: FeatureOverrides{
-			CTE:         BoolPtr(false),
-			Aggregates:  BoolPtr(false),
-			GroupBy:     BoolPtr(false),
-			Having:      BoolPtr(false),
-			Distinct:    BoolPtr(false),
-			OrderBy:     BoolPtr(false),
-			Limit:       BoolPtr(false),
-			WindowFuncs: BoolPtr(false),
+			CTE:          BoolPtr(false),
+			Aggregates:   BoolPtr(false),
+			GroupBy:      BoolPtr(false),
+			Having:       BoolPtr(false),
+			Distinct:     BoolPtr(false),
+			OrderBy:      BoolPtr(false),
+			Limit:        BoolPtr(false),
+			WindowFuncs:  BoolPtr(false),
+			NaturalJoins: BoolPtr(false),
 		},
 		AllowSubquery: BoolPtr(true),
 		PredicateMode: PredicateModePtr(generator.PredicateModeSimpleColumns),
@@ -213,17 +229,21 @@ var Profiles = map[string]Profile{
 	},
 	"DQP": {
 		Features: FeatureOverrides{
-			CTE:         BoolPtr(false),
-			Aggregates:  BoolPtr(false),
-			GroupBy:     BoolPtr(false),
-			Having:      BoolPtr(false),
-			Distinct:    BoolPtr(false),
-			Limit:       BoolPtr(false),
-			WindowFuncs: BoolPtr(false),
+			CTE:           BoolPtr(false),
+			DerivedTables: BoolPtr(false),
+			SetOperations: BoolPtr(false),
+			NaturalJoins:  BoolPtr(false),
+			Aggregates:    BoolPtr(false),
+			GroupBy:       BoolPtr(false),
+			Having:        BoolPtr(false),
+			Distinct:      BoolPtr(false),
+			Limit:         BoolPtr(false),
+			WindowFuncs:   BoolPtr(false),
 		},
 		AllowSubquery: BoolPtr(true),
 		PredicateMode: PredicateModePtr(generator.PredicateModeSimpleColumns),
 		MinJoinTables: IntPtr(2),
+		JoinOnPolicy:  StringPtr("simple"),
 	},
 	"PQS": {
 		Features: FeatureOverrides{
@@ -249,9 +269,18 @@ var Profiles = map[string]Profile{
 		PredicateMode: PredicateModePtr(generator.PredicateModeNone),
 	},
 	"CERT": {
+		Features: FeatureOverrides{
+			GroupByCube:         BoolPtr(false),
+			GroupByGroupingSets: BoolPtr(false),
+		},
 		PredicateMode: PredicateModePtr(generator.PredicateModeSimple),
 	},
 	"EET": {
+		Features: FeatureOverrides{
+			SetOperations:       BoolPtr(false),
+			GroupByCube:         BoolPtr(false),
+			GroupByGroupingSets: BoolPtr(false),
+		},
 		AllowSubquery: BoolPtr(true),
 	},
 }

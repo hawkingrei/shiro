@@ -36,6 +36,8 @@ type Generator struct {
 	subqueryAttempts           int64
 	subqueryBuilt              int64
 	subqueryFailed             int64
+	fullJoinEmulationAttempted bool
+	fullJoinEmulationReject    string
 	joinTypeOverride           *JoinType
 	minJoinTables              int
 	predicateMode              PredicateMode
@@ -211,6 +213,8 @@ func (g *Generator) resetPredicateStats() {
 	g.subqueryAttempts = 0
 	g.subqueryBuilt = 0
 	g.subqueryFailed = 0
+	g.fullJoinEmulationAttempted = false
+	g.fullJoinEmulationReject = ""
 }
 
 // ResetBuilderStats clears the per-run builder metrics.

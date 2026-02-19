@@ -40,6 +40,9 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 	if profile.JoinUsingProbMin != nil && cfg.Oracles.JoinUsingProb < *profile.JoinUsingProbMin {
 		cfg.Oracles.JoinUsingProb = *profile.JoinUsingProbMin
 	}
+	if profile.MaxJoinTables != nil && *profile.MaxJoinTables > 0 {
+		cfg.MaxJoinTables = *profile.MaxJoinTables
+	}
 	if profile.AllowSubquery != nil {
 		if *profile.AllowSubquery {
 			cfg.Features.Subqueries = true
@@ -56,6 +59,16 @@ func (r *Runner) applyOracleOverrides(name string) func() {
 	}
 	if explicitNotIn != nil {
 		cfg.Features.NotIn = *explicitNotIn
+	}
+	if r.isThroughputGuardActive() {
+		cfg.Features.SetOperations = false
+		cfg.Features.DerivedTables = false
+		cfg.Features.QuantifiedSubqueries = false
+		cfg.Features.WindowFuncs = false
+		cfg.Features.WindowFrames = false
+		if cfg.MaxJoinTables > 4 {
+			cfg.MaxJoinTables = 4
+		}
 	}
 	r.gen.Config = cfg
 

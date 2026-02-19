@@ -91,6 +91,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		var planErr error
 		planPath, planErr = r.replayer.DumpAndDownload(ctx, r.exec, replaySQL, caseData.Dir, r.cfg.Database)
 		if planErr != nil {
+			r.observeInfraErrorControl(planErr)
 			util.Warnf("plan replayer dump failed dir=%s err=%v", caseData.Dir, planErr)
 		}
 		if r.cfg.QPG.Enabled && r.qpgState != nil {
@@ -225,6 +226,16 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
 	if r.cfg.Minimize.Enabled && spec.kind != "" {
+		r.statsMu.Lock()
+		r.minimizeInFlight++
+		r.statsMu.Unlock()
+		defer func() {
+			r.statsMu.Lock()
+			if r.minimizeInFlight > 0 {
+				r.minimizeInFlight--
+			}
+			r.statsMu.Unlock()
+		}()
 		minimized := r.minimizeCase(ctx, result, spec)
 		applyMinimizeOutcome(&summary, details, minimized, result.Err)
 		if minimized.minimized {
@@ -320,6 +331,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		)
 	}
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
+		r.observeInfraErrorControl(err)
 		util.Errorf("rotate database after bug failed: %v", err)
 	}
 }

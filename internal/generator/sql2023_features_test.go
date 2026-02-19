@@ -125,6 +125,42 @@ func TestBuildGroupByWithRollup(t *testing.T) {
 	}
 }
 
+func TestBuildGroupByCube(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, Alias: "c0"},
+			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
+		},
+		From:            FromClause{BaseTable: "t0"},
+		GroupBy:         []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1"}}},
+		GroupByWithCube: true,
+	}
+	sql := query.SQLString()
+	if !strings.Contains(sql, "GROUP BY CUBE (t0.c0, t0.c1)") {
+		t.Fatalf("expected GROUP BY CUBE, got %s", sql)
+	}
+}
+
+func TestBuildGroupByGroupingSets(t *testing.T) {
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, Alias: "c0"},
+			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
+		},
+		From:    FromClause{BaseTable: "t0"},
+		GroupBy: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1"}}},
+		GroupByGroupingSets: []GroupingSet{
+			{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}, ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1"}}},
+			{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0"}}},
+			{},
+		},
+	}
+	sql := query.SQLString()
+	if !strings.Contains(sql, "GROUP BY GROUPING SETS ((t0.c0, t0.c1), (t0.c0), ())") {
+		t.Fatalf("expected GROUPING SETS clause, got %s", sql)
+	}
+}
+
 func TestIntervalExprBuild(t *testing.T) {
 	expr := BinaryExpr{
 		Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "d0"}},
@@ -233,6 +269,28 @@ func TestApplyFullJoinEmulationRequiresBaseJoinKey(t *testing.T) {
 	}
 	if len(query.SetOps) != 0 {
 		t.Fatalf("expected query to remain unchanged on failed emulation")
+	}
+}
+
+func TestApplyFullJoinEmulationWithReason(t *testing.T) {
+	gen := &Generator{Rand: rand.New(rand.NewSource(3))}
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id"}}, Alias: "id"}},
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{{
+				Type:  JoinInner,
+				Table: "t1",
+				On:    BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+			}},
+		},
+	}
+	ok, reason := gen.applyFullJoinEmulationWithReason(query)
+	if ok {
+		t.Fatalf("expected emulation to fail when anti-filter key is unavailable")
+	}
+	if reason != "anti_filter_missing" {
+		t.Fatalf("unexpected failure reason: %s", reason)
 	}
 }
 

@@ -138,5 +138,27 @@ func TestPickUsingColumnsRejectsAmbiguousLeft(t *testing.T) {
 	}
 }
 
+func TestMaybePreferFullJoinCandidateWithProb(t *testing.T) {
+	gen := &Generator{
+		Rand: rand.New(rand.NewSource(1)),
+		Config: config.Config{
+			Features: config.Features{
+				Joins:             true,
+				FullJoinEmulation: true,
+			},
+		},
+	}
+	if got := gen.maybePreferFullJoinCandidateWithProb(4, 5, 100); got != 2 {
+		t.Fatalf("expected full-join candidate to shrink join count to 2, got %d", got)
+	}
+	if got := gen.maybePreferFullJoinCandidateWithProb(4, 5, 0); got != 4 {
+		t.Fatalf("expected disabled probability to keep join count, got %d", got)
+	}
+	gen.Config.Features.DSG = true
+	if got := gen.maybePreferFullJoinCandidateWithProb(4, 5, 100); got != 2 {
+		t.Fatalf("expected DSG mode to still allow full-join candidate path, got %d", got)
+	}
+}
+
 // GroundTruth retries queries when no join columns are present, so we do not
 // relax join column pairing here.
