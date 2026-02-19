@@ -56,6 +56,34 @@ func TestClassifyResultErrorPlanRefMissingUsesCanonicalHint(t *testing.T) {
 	}
 }
 
+func TestClassifyResultErrorPQSRuntime1105(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  mysqlErrCodeRuntimeGeneric,
+		Message: "index out of range [0] with length 0",
+	}
+	reason, hint := classifyResultError("PQS", err)
+	if reason != "pqs:runtime_1105" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if hint != "tidb:runtime_error" {
+		t.Fatalf("unexpected hint: %s", hint)
+	}
+}
+
+func TestClassifyResultErrorPQSRuntime1105KeepsGenericForOtherOracles(t *testing.T) {
+	err := &mysql.MySQLError{
+		Number:  mysqlErrCodeRuntimeGeneric,
+		Message: "index out of range [0] with length 0",
+	}
+	reason, hint := classifyResultError("DQP", err)
+	if reason != "dqp:sql_error_1105" {
+		t.Fatalf("unexpected reason: %s", reason)
+	}
+	if hint != "" {
+		t.Fatalf("unexpected hint: %s", hint)
+	}
+}
+
 func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	result := oracle.Result{
 		Oracle: "EET",
