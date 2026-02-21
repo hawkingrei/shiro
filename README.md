@@ -138,7 +138,11 @@ Tune `minimize.max_rounds` to cap delta-debugging passes and `minimize.timeout_s
 Set `minimize.merge_inserts` to re-merge single-row inserts into multi-row batches after reduction for smaller output files.
 Minimized outputs are saved as `case_min.sql`, `inserts_min.sql`, and `repro_min.sql` alongside the original files.
 
-For `error_reason=pqs:runtime_1105`, report classification is reproducibility-gated: `bug_hint=tidb:runtime_error` is kept only when `minimize_status=success`. Non-success statuses (for example `skipped`, `disabled`, `not_applicable`) clear the runtime bug hint and annotate details with `runtime_bug_hint_gated=true` and `runtime_bug_hint_gate_reason=requires_repro` (unless a custom gate reason is already present).
+For `error_reason=pqs:runtime_1105`, report classification keeps the runtime bug signal (`bug_hint=tidb:runtime_error`) regardless of minimize result, and adds reproducibility metadata for triage:
+
+- `runtime_bug_reproducible=true|false` (`true` only when `minimize_status=success`)
+- `runtime_bug_hint_gated=true` for non-success statuses (`skipped`, `disabled`, `not_applicable`, etc.)
+- `runtime_bug_hint_gate_reason=requires_repro` by default for non-success statuses (preserved if already pre-filled by upstream logic)
 
 ## Static report viewer
 Generate a JSON report that a static frontend can consume:

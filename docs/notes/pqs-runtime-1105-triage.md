@@ -51,5 +51,7 @@ Keep this signature monitored in report aggregation:
 
 - `error_reason == "pqs:runtime_1105"`
 - `bug_hint == "tidb:runtime_error"`
+- `runtime_bug_reproducible == true` for repro-backed samples
+- `runtime_bug_reproducible == false` for non-repro samples that still retain runtime bug signal
 
 If new hits appear, prioritize minimize/replay stability before opening an upstream issue.
