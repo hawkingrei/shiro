@@ -132,3 +132,115 @@ func TestApplyMinimizeOutcomeFlakyErrno(t *testing.T) {
 		t.Errorf("unexpected flaky_reason detail")
 	}
 }
+
+func TestApplyRuntime1105ReproGateSkipsUnreproducible(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "skipped",
+		BugHint:        "tidb:runtime_error",
+	}
+	details := map[string]any{
+		"error_reason":    "pqs:runtime_1105",
+		"bug_hint":        "tidb:runtime_error",
+		"minimize_reason": minimizeReasonBaseReplayNotReproducible,
+	}
+	applyRuntime1105ReproGate(&summary, details)
+	if summary.BugHint != "" {
+		t.Fatalf("BugHint=%q want empty", summary.BugHint)
+	}
+	if _, ok := details["bug_hint"]; ok {
+		t.Fatalf("bug_hint should be removed for unreproducible runtime_1105")
+	}
+	gated, _ := details["runtime_bug_hint_gated"].(bool)
+	if !gated {
+		t.Fatalf("runtime_bug_hint_gated=false want=true")
+	}
+}
+
+func TestApplyRuntime1105ReproGateKeepsSuccessful(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "success",
+		BugHint:        "tidb:runtime_error",
+	}
+	details := map[string]any{
+		"error_reason": "pqs:runtime_1105",
+		"bug_hint":     "tidb:runtime_error",
+	}
+	applyRuntime1105ReproGate(&summary, details)
+	if summary.BugHint != "tidb:runtime_error" {
+		t.Fatalf("BugHint=%q want tidb:runtime_error", summary.BugHint)
+	}
+	if _, ok := details["runtime_bug_hint_gated"]; ok {
+		t.Fatalf("unexpected runtime_bug_hint_gated marker for successful repro")
+	}
+}
+
+func TestApplyRuntime1105ReproGateSkipsNonRuntime1105(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "skipped",
+		BugHint:        "tidb:schema_column_missing",
+	}
+	details := map[string]any{
+		"error_reason": "plancache:missing_column",
+		"bug_hint":     "tidb:schema_column_missing",
+	}
+	applyRuntime1105ReproGate(&summary, details)
+	if summary.BugHint != "tidb:schema_column_missing" {
+		t.Fatalf("BugHint=%q want unchanged", summary.BugHint)
+	}
+	if _, ok := details["runtime_bug_hint_gated"]; ok {
+		t.Fatalf("unexpected runtime_bug_hint_gated marker")
+	}
+}
+
+func TestApplyRuntime1105ReproGateSkipsDisabled(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "disabled",
+		BugHint:        "tidb:runtime_error",
+	}
+	details := map[string]any{
+		"error_reason": "pqs:runtime_1105",
+		"bug_hint":     "tidb:runtime_error",
+	}
+	applyRuntime1105ReproGate(&summary, details)
+	if summary.BugHint != "" {
+		t.Fatalf("BugHint=%q want empty", summary.BugHint)
+	}
+	if _, ok := details["bug_hint"]; ok {
+		t.Fatalf("bug_hint should be removed for disabled runtime_1105")
+	}
+	gated, _ := details["runtime_bug_hint_gated"].(bool)
+	if !gated {
+		t.Fatalf("runtime_bug_hint_gated=false want=true")
+	}
+	reason, _ := details["runtime_bug_hint_gate_reason"].(string)
+	if reason != "requires_repro" {
+		t.Fatalf("runtime_bug_hint_gate_reason=%q want=requires_repro", reason)
+	}
+}
+
+func TestApplyRuntime1105ReproGateSkipsNotApplicableKeepsGateReason(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "not_applicable",
+		BugHint:        "tidb:runtime_error",
+	}
+	details := map[string]any{
+		"error_reason":                  "pqs:runtime_1105",
+		"bug_hint":                      "tidb:runtime_error",
+		"runtime_bug_hint_gate_reason": "manual_triage",
+	}
+	applyRuntime1105ReproGate(&summary, details)
+	if summary.BugHint != "" {
+		t.Fatalf("BugHint=%q want empty", summary.BugHint)
+	}
+	if _, ok := details["bug_hint"]; ok {
+		t.Fatalf("bug_hint should be removed for not_applicable runtime_1105")
+	}
+	gated, _ := details["runtime_bug_hint_gated"].(bool)
+	if !gated {
+		t.Fatalf("runtime_bug_hint_gated=false want=true")
+	}
+	reason, _ := details["runtime_bug_hint_gate_reason"].(string)
+	if reason != "manual_triage" {
+		t.Fatalf("runtime_bug_hint_gate_reason=%q want=manual_triage", reason)
+	}
+}
