@@ -1,7 +1,7 @@
 # Follow-ups
 
 This list mirrors `docs/todo.md` and is kept in sync to avoid stale plans.
-Last sync: 2026-02-13.
+Last sync: 2026-02-19.
 
 ## Generator / Oracles
 
@@ -16,10 +16,6 @@ Last sync: 2026-02-13.
 9. Roll out `set_operations` / `derived_tables` / `quantified_subqueries` with profile-based oracle gating and observability before default enablement.
 10. Extend grouping support from `WITH ROLLUP` to `GROUPING SETS` / `CUBE` with profile-based fallback for unsupported dialects.
 11. Add per-feature observability counters for `natural_join`, `full_join_emulation`, `recursive_cte`, `window_frame`, and `interval_arith`.
-
-## PQS (Rigger OSDI20)
-
-1. Triage PQS join runtime error 1105 (`index out of range`) from the 2026-02-09 run and decide whether to file an upstream TiDB issue.
 
 ## Reporting / Aggregation
 

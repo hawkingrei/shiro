@@ -26,6 +26,13 @@ func isRuntimeError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "runtime error")
 }
 
+const (
+	mysqlErrCodeRuntimeGeneric   = 1105
+	mysqlErrCodeQueryInterrupted = 1317
+	mysqlErrCodeQueryTimeout     = 3024
+	pqsRuntime1105Marker         = "index out of range"
+)
+
 // sqlErrorWhitelist lists MySQL error codes considered fuzz-tool faults.
 // 1064 is the generic SQL syntax error, common for malformed generated SQL.
 // 1292 is a type truncation error triggered by type-mismatched predicates.
@@ -136,6 +143,9 @@ func classifyResultError(oracleName string, err error) (reason string, bugHint s
 	if infraReason, ok := classifyInfraIssue(err); ok {
 		return prefix + ":" + infraReason, "tidb:infra_unhealthy"
 	}
+	if isPQSRuntime1105(oracleName, err) {
+		return prefix + ":runtime_1105", "tidb:runtime_error"
+	}
 	if isUnknownColumnWhereErr(err) {
 		return prefix + ":unknown_column_where", ""
 	}
@@ -150,6 +160,20 @@ func classifyResultError(oracleName string, err error) (reason string, bugHint s
 		return prefix + ":timeout", ""
 	}
 	return prefix + ":sql_error", ""
+}
+
+func isPQSRuntime1105(oracleName string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(oracleName), "pqs") {
+		return false
+	}
+	code, ok := mysqlErrCode(err)
+	if !ok || code != mysqlErrCodeRuntimeGeneric {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), pqsRuntime1105Marker)
 }
 
 func shouldDowngradeMissingColumn(oracleName string) bool {
@@ -232,7 +256,7 @@ func isTimeoutError(err error) bool {
 	}
 	if code, ok := mysqlErrCode(err); ok {
 		switch code {
-		case 1317, 3024:
+		case mysqlErrCodeQueryInterrupted, mysqlErrCodeQueryTimeout:
 			return true
 		}
 	}

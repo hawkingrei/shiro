@@ -219,13 +219,17 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			minimizeStatus = "in_progress"
 		}
 	}
+	minimizeEnabled := r.cfg.Minimize.Enabled && spec.kind != ""
 	summary.MinimizeStatus = minimizeStatus
+	if !minimizeEnabled {
+		applyRuntime1105ReproMeta(&summary, details)
+	}
 	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
 	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
-	if r.cfg.Minimize.Enabled && spec.kind != "" {
+	if minimizeEnabled {
 		r.statsMu.Lock()
 		r.minimizeInFlight++
 		r.statsMu.Unlock()
@@ -238,6 +242,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		}()
 		minimized := r.minimizeCase(ctx, result, spec)
 		applyMinimizeOutcome(&summary, details, minimized, result.Err)
+		applyRuntime1105ReproMeta(&summary, details)
 		if minimized.minimized {
 			if len(minimized.caseSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
@@ -491,6 +496,30 @@ func applyMinimizeOutcome(summary *report.Summary, details map[string]any, outpu
 		if details != nil && reason != "" {
 			details["flaky_reason"] = reason
 		}
+	}
+}
+
+func applyRuntime1105ReproMeta(summary *report.Summary, details map[string]any) {
+	if summary == nil || details == nil {
+		return
+	}
+	reason, _ := details["error_reason"].(string)
+	if reason != "pqs:runtime_1105" {
+		return
+	}
+	if hint, ok := details["bug_hint"].(string); ok && summary.BugHint == "" {
+		summary.BugHint = hint
+	}
+	if summary.MinimizeStatus == "success" {
+		details["runtime_bug_reproducible"] = true
+		delete(details, "runtime_bug_hint_gated")
+		delete(details, "runtime_bug_hint_gate_reason")
+		return
+	}
+	details["runtime_bug_reproducible"] = false
+	details["runtime_bug_hint_gated"] = true
+	if _, ok := details["runtime_bug_hint_gate_reason"]; !ok {
+		details["runtime_bug_hint_gate_reason"] = "requires_repro"
 	}
 }
 
