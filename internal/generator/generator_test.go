@@ -386,6 +386,15 @@ func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
 				},
 				Partitioned: false,
 			},
+			{
+				Name: "v0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeDecimal},
+				},
+				IsView:      true,
+				Partitioned: false,
+			},
 		},
 	}
 	gen := New(cfg, &state, 2)
@@ -396,6 +405,9 @@ func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
 	if strings.Contains(pq.SQL, "t0") {
 		t.Fatalf("expected non-partitioned table only, got: %s", pq.SQL)
 	}
+	if strings.Contains(pq.SQL, "v0") {
+		t.Fatalf("expected base table only, got: %s", pq.SQL)
+	}
 	if len(pq.Args) == 0 || len(pq.Args) != len(pq.ArgTypes) {
 		t.Fatalf("args/types mismatch: args=%d types=%d", len(pq.Args), len(pq.ArgTypes))
 	}
@@ -405,6 +417,85 @@ func TestGenerateNonPreparedPlanCacheQuery(t *testing.T) {
 	}
 	if strings.Count(pq.SQL, "?") != len(pq.Args) {
 		t.Fatalf("placeholder count mismatch: sql=%s args=%d", pq.SQL, len(pq.Args))
+	}
+}
+
+func TestPreparedCandidateTablesPlanCacheOnlySkipsViews(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.PlanCacheOnly = true
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "v0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+				IsView: true,
+			},
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeVarchar},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 3)
+	candidates := gen.preparedCandidateTables()
+	if len(candidates) != 2 {
+		t.Fatalf("candidates=%d want=2", len(candidates))
+	}
+	for _, tbl := range candidates {
+		if tbl.IsView {
+			t.Fatalf("unexpected view candidate: %s", tbl.Name)
+		}
+	}
+}
+
+func TestNonPreparedCandidateTablesSkipViewsWithoutPlanCacheOnly(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.PlanCacheOnly = false
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "v0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+				IsView: true,
+			},
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 3)
+	candidates := gen.nonPreparedCandidateTables()
+	if len(candidates) != 1 {
+		t.Fatalf("candidates=%d want=1", len(candidates))
+	}
+	if candidates[0].Name != "t0" || candidates[0].IsView {
+		t.Fatalf("unexpected candidate: %+v", candidates[0])
 	}
 }
 
