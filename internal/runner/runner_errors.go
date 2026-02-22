@@ -357,22 +357,21 @@ func annotateResultForReporting(result *oracle.Result) {
 	if result.Err != nil {
 		reason, hint := classifyResultError(result.Oracle, result.Err)
 		existingReason, hasExistingReason := result.Details["error_reason"].(string)
-		overwroteReason := false
+		forceCanonicalReason := shouldForceCanonicalReason(reason)
+		preferCanonicalReason := hasExistingReason && shouldPreferCanonicalReason(existingReason, reason)
 		if reason != "" {
 			switch {
-			case shouldForceCanonicalReason(reason):
+			case forceCanonicalReason:
 				result.Details["error_reason"] = reason
-				overwroteReason = normalizeErrorReason(existingReason) != normalizeErrorReason(reason)
 			case !hasExistingReason:
 				result.Details["error_reason"] = reason
-			case shouldPreferCanonicalReason(existingReason, reason):
+			case preferCanonicalReason:
 				result.Details["error_reason"] = reason
-				overwroteReason = true
 			}
 			result.OK = false
 		}
 		if hint != "" {
-			if shouldForceCanonicalReason(reason) || overwroteReason {
+			if forceCanonicalReason || preferCanonicalReason {
 				result.Details["bug_hint"] = hint
 			} else if _, ok := result.Details["bug_hint"]; !ok {
 				result.Details["bug_hint"] = hint
