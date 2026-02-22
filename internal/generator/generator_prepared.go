@@ -312,14 +312,7 @@ func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
 }
 
 func (g *Generator) nonPreparedCandidateTables() []schema.Table {
-	candidates := make([]schema.Table, 0, len(g.State.Tables))
-	for _, tbl := range g.preparedCandidateTables() {
-		if tbl.IsView {
-			continue
-		}
-		candidates = append(candidates, tbl)
-	}
-	return candidates
+	return g.State.BaseTables()
 }
 
 func (g *Generator) preparedCTEQuery() PreparedQuery {
@@ -374,14 +367,7 @@ func (g *Generator) preparedCandidateTables() []schema.Table {
 	if !g.Config.PlanCacheOnly {
 		return g.State.Tables
 	}
-	candidates := make([]schema.Table, 0, len(g.State.Tables))
-	for _, tbl := range g.State.Tables {
-		if tbl.IsView {
-			continue
-		}
-		candidates = append(candidates, tbl)
-	}
-	return candidates
+	return g.State.BaseTables()
 }
 
 func (g *Generator) pickAnyColumn(tbl schema.Table) (schema.Column, bool) {
