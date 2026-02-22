@@ -36,7 +36,6 @@ Last sync: 2026-02-22.
 3. Add KQE-lite join-graph coverage guidance to bias join generation toward under-covered structures.
 4. Unify expression rewrite/mutation registries for EET/CODDTest/Impo with shared type inference and NULL-safety policies.
 5. Refine type compatibility and implicit cast rules using SQL standard guidance to reduce benign type errors.
-6. Normalize report taxonomy ownership so runner-level canonical classification (for example `pqs:runtime_1105`) is not bypassed by oracle-pre-filled generic `error_reason` values.
 
 ## Fuzz Efficiency Refactor Plan
 

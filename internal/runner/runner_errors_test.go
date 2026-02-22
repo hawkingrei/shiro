@@ -315,3 +315,61 @@ func TestAnnotateResultForReportingPQSRuntime1105OverridesHint(t *testing.T) {
 		t.Fatalf("expected runtime bug_hint override, got %s", hint)
 	}
 }
+
+func TestAnnotateResultForReportingCanonicalReasonOverridesGenericReason(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PlanCache",
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#123 in schema"),
+		Details: map[string]any{
+			"error_reason": "plancache:sql_error_1105",
+			"bug_hint":     "custom_hint",
+		},
+	}
+	annotateResultForReporting(&result)
+	reason, _ := result.Details["error_reason"].(string)
+	if reason != "plancache:missing_column" {
+		t.Fatalf("expected canonical reason override, got %s", reason)
+	}
+	hint, _ := result.Details["bug_hint"].(string)
+	if hint != "tidb:schema_column_missing" {
+		t.Fatalf("expected canonical bug_hint override, got %s", hint)
+	}
+}
+
+func TestAnnotateResultForReportingKeepsNonGenericReasonWhenCanonicalIsSpecific(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PlanCache",
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#456 in schema"),
+		Details: map[string]any{
+			"error_reason": "plancache:base_signature_error",
+			"bug_hint":     "custom_hint",
+		},
+	}
+	annotateResultForReporting(&result)
+	reason, _ := result.Details["error_reason"].(string)
+	if reason != "plancache:base_signature_error" {
+		t.Fatalf("non-generic reason should be preserved, got %s", reason)
+	}
+	hint, _ := result.Details["bug_hint"].(string)
+	if hint != "custom_hint" {
+		t.Fatalf("non-generic bug_hint should be preserved, got %s", hint)
+	}
+}
+
+func TestAnnotateResultForReportingKeepsGenericReasonWhenCanonicalIsGeneric(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PlanCache",
+		Err: &mysql.MySQLError{
+			Number:  1054,
+			Message: "Unknown column 't.k' in 'field list'",
+		},
+		Details: map[string]any{
+			"error_reason": "plancache:sql_error_1105",
+		},
+	}
+	annotateResultForReporting(&result)
+	reason, _ := result.Details["error_reason"].(string)
+	if reason != "plancache:sql_error_1105" {
+		t.Fatalf("generic reason should be preserved when canonical is generic, got %s", reason)
+	}
+}
