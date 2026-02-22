@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"shiro/internal/db"
@@ -12,7 +13,12 @@ import (
 	"shiro/internal/util"
 )
 
-const maxFirstExecuteRetries = 1
+const (
+	maxFirstExecuteRetries = 1
+	planCacheOnlyStatsFmt  = "plan_cache_only stats total=%d invalid=%d exec_errors=%d " +
+		"hit_first_unexpected=%d hit_second=%d miss_second=%d " +
+		"miss_second_with_warnings=%d first_skip_with_warnings=%d warning_reasons=%s"
+)
 
 func closePlanCacheConn(conn *sql.Conn) {
 	util.CloseWithErr(conn, "plan cache conn")
@@ -378,7 +384,10 @@ func (r *Runner) runPlanCacheOnly(ctx context.Context) error {
 	var execErrors int
 	var hitSecond int
 	var missSecond int
+	var missSecondWithWarnings int
+	var firstSkipWithWarnings int
 	var hitFirstUnexpected int
+	warningReasonCounts := make(map[string]int)
 nextIteration:
 	for i := 0; i < r.cfg.Iterations; i++ {
 		total++
@@ -511,6 +520,8 @@ nextIteration:
 				acceptedFirst = true
 				break
 			}
+			firstSkipWithWarnings++
+			observePlanCacheWarnings(warningReasonCounts, warnings)
 		}
 		if !acceptedFirst {
 			closePlanCacheStmt(stmt)
@@ -678,6 +689,10 @@ nextIteration:
 			if hasWarnings && r.cfg.Logging.Verbose {
 				util.Infof("plan_cache_only miss with warnings: %s", strings.Join(warnings, " | "))
 			}
+			if hasWarnings {
+				missSecondWithWarnings++
+				observePlanCacheWarnings(warningReasonCounts, warnings)
+			}
 			if !hasWarnings {
 				plan, _ := r.explainForConnection(ctx, connID)
 				result := oracle.Result{
@@ -706,7 +721,18 @@ nextIteration:
 		}
 		closePlanCacheConn(conn)
 	}
-	util.Infof("plan_cache_only stats total=%d invalid=%d exec_errors=%d hit_first_unexpected=%d hit_second=%d miss_second=%d", total, invalid, execErrors, hitFirstUnexpected, hitSecond, missSecond)
+	util.Infof(
+		planCacheOnlyStatsFmt,
+		total,
+		invalid,
+		execErrors,
+		hitFirstUnexpected,
+		hitSecond,
+		missSecond,
+		missSecondWithWarnings,
+		firstSkipWithWarnings,
+		formatPlanCacheWarningReasons(warningReasonCounts),
+	)
 	return nil
 }
 
@@ -782,6 +808,52 @@ func (r *Runner) warningsOnConn(ctx context.Context, conn *sql.Conn) ([]string, 
 		warnings = append(warnings, fmt.Sprintf("%s:%d:%s", level, code, msg))
 	}
 	return warnings, rows.Err()
+}
+
+func planCacheWarningReason(warning string) string {
+	parts := strings.SplitN(warning, ":", 3)
+	msg := warning
+	if len(parts) == 3 {
+		msg = parts[2]
+	}
+	msg = strings.ToLower(strings.TrimSpace(msg))
+	msg = strings.TrimSpace(strings.TrimPrefix(msg, "skip plan-cache:"))
+	msg = strings.TrimSpace(strings.TrimPrefix(msg, "skip non-prepared plan-cache:"))
+	if msg == "" {
+		return "unknown"
+	}
+	return msg
+}
+
+func observePlanCacheWarnings(reasonCounts map[string]int, warnings []string) {
+	if reasonCounts == nil || len(warnings) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(warnings))
+	for _, warning := range warnings {
+		reason := planCacheWarningReason(warning)
+		if _, ok := seen[reason]; ok {
+			continue
+		}
+		seen[reason] = struct{}{}
+		reasonCounts[reason]++
+	}
+}
+
+func formatPlanCacheWarningReasons(reasonCounts map[string]int) string {
+	if len(reasonCounts) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(reasonCounts))
+	for reason := range reasonCounts {
+		keys = append(keys, reason)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, reason := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", reason, reasonCounts[reason]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func planCacheSQLSequence(concreteSQL, preparedSQL string, firstArgs []any, baseArgs []any, connID int64) []string {
