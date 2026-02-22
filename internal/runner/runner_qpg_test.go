@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"testing"
 
 	"shiro/internal/config"
@@ -92,5 +93,54 @@ func TestTickQPGClearsExpiredOverrides(t *testing.T) {
 	}
 	if r.qpgState.templateTTL != 0 {
 		t.Fatalf("expected qpg template ttl to reach zero, got %d", r.qpgState.templateTTL)
+	}
+}
+
+func TestQPGAnalyzeCandidatesPreferBaseTables(t *testing.T) {
+	cfg := config.Config{
+		QPG: config.QPGConfig{
+			Enabled: true,
+		},
+	}
+	r := newTestRunnerForQPG(cfg)
+	r.state.Tables = []schema.Table{
+		{Name: "t0"},
+		{Name: "v0", IsView: true},
+	}
+	called := false
+	candidates := r.qpgAnalyzeCandidates(context.Background(), r.baseTables(), func(context.Context, string) []string {
+		called = true
+		return []string{"t_from_view"}
+	})
+	if called {
+		t.Fatalf("view dependency resolver should not run when base tables exist")
+	}
+	if len(candidates) != 1 || candidates[0] != "t0" {
+		t.Fatalf("unexpected analyze candidates: %#v", candidates)
+	}
+}
+
+func TestQPGAnalyzeCandidatesFallbackToViewDependencies(t *testing.T) {
+	cfg := config.Config{
+		QPG: config.QPGConfig{
+			Enabled: true,
+		},
+	}
+	r := newTestRunnerForQPG(cfg)
+	r.state.Tables = []schema.Table{
+		{Name: "v0", IsView: true},
+		{Name: "v1", IsView: true},
+	}
+	candidates := r.qpgAnalyzeCandidates(context.Background(), r.baseTables(), func(_ context.Context, viewName string) []string {
+		if viewName == "v0" {
+			return []string{"t_dep0", "t_dep1"}
+		}
+		return nil
+	})
+	if len(candidates) != 2 {
+		t.Fatalf("expected two fallback analyze candidates, got %#v", candidates)
+	}
+	if candidates[0] != "t_dep0" || candidates[1] != "t_dep1" {
+		t.Fatalf("unexpected fallback analyze candidates: %#v", candidates)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"shiro/internal/config"
 	"shiro/internal/generator"
+	"shiro/internal/schema"
 	"shiro/internal/util"
 )
 
@@ -571,9 +572,9 @@ func (r *Runner) qpgMutate(ctx context.Context) {
 	if len(r.state.Tables) == 0 {
 		return
 	}
-	if r.cfg.Features.Indexes && util.Chance(r.gen.Rand, 50) {
-		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
-		tablePtr := &r.state.Tables[tableIdx]
+	baseTables := r.baseTables()
+	if r.cfg.Features.Indexes && len(baseTables) > 0 && util.Chance(r.gen.Rand, 50) {
+		tablePtr := baseTables[r.gen.Rand.Intn(len(baseTables))]
 		tableCopy := *tablePtr
 		sql, ok := r.gen.CreateIndexSQL(&tableCopy)
 		if ok {
@@ -583,8 +584,94 @@ func (r *Runner) qpgMutate(ctx context.Context) {
 		}
 		return
 	}
-	tbl := r.state.Tables[r.gen.Rand.Intn(len(r.state.Tables))]
-	_ = r.execSQL(ctx, fmt.Sprintf("ANALYZE TABLE %s", tbl.Name))
+	candidates := r.qpgAnalyzeCandidates(ctx, baseTables, nil)
+	if len(candidates) == 0 {
+		return
+	}
+	_ = r.execSQL(ctx, fmt.Sprintf("ANALYZE TABLE %s", candidates[r.gen.Rand.Intn(len(candidates))]))
+}
+
+const qpgViewAnalyzeLookupLimit = 2
+
+const qpgViewBaseTablesSQL = `SELECT DISTINCT vtu.TABLE_NAME
+FROM information_schema.VIEW_TABLE_USAGE vtu
+JOIN information_schema.TABLES t
+	ON t.TABLE_SCHEMA = vtu.TABLE_SCHEMA
+	AND t.TABLE_NAME = vtu.TABLE_NAME
+WHERE vtu.VIEW_SCHEMA = ?
+	AND vtu.VIEW_NAME = ?
+	AND vtu.TABLE_SCHEMA = ?
+	AND t.TABLE_TYPE = 'BASE TABLE'`
+
+func (r *Runner) qpgAnalyzeCandidates(ctx context.Context, baseTables []*schema.Table, resolveViewDeps func(context.Context, string) []string) []string {
+	if len(baseTables) > 0 {
+		candidates := make([]string, 0, len(baseTables))
+		for _, tbl := range baseTables {
+			candidates = append(candidates, tbl.Name)
+		}
+		return candidates
+	}
+	if r == nil || r.state == nil || len(r.state.Tables) == 0 {
+		return nil
+	}
+	if resolveViewDeps == nil {
+		resolveViewDeps = r.qpgViewBaseTables
+	}
+	viewNames := make([]string, 0, len(r.state.Tables))
+	for _, tbl := range r.state.Tables {
+		if tbl.IsView {
+			viewNames = append(viewNames, tbl.Name)
+		}
+	}
+	if len(viewNames) == 0 || resolveViewDeps == nil {
+		return nil
+	}
+	order := r.gen.Rand.Perm(len(viewNames))
+	lookupLimit := min(qpgViewAnalyzeLookupLimit, len(order))
+	for i := range lookupLimit {
+		candidates := resolveViewDeps(ctx, viewNames[order[i]])
+		if len(candidates) > 0 {
+			return candidates
+		}
+	}
+	return nil
+}
+
+func (r *Runner) qpgViewBaseTables(ctx context.Context, viewName string) []string {
+	if r == nil || r.exec == nil || strings.TrimSpace(viewName) == "" || strings.TrimSpace(r.cfg.Database) == "" {
+		return nil
+	}
+	qctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	rows, err := r.exec.QueryContext(qctx, qpgViewBaseTablesSQL, r.cfg.Database, viewName, r.cfg.Database)
+	if err != nil {
+		util.Warnf("qpg view-base lookup query failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
+		return nil
+	}
+	defer util.CloseWithErr(rows, "qpg view table usage rows")
+	candidates := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			util.Warnf("qpg view-base lookup scan failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
+			return nil
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		candidates = append(candidates, name)
+	}
+	if err := rows.Err(); err != nil {
+		util.Warnf("qpg view-base lookup row iteration failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
+		return nil
+	}
+	return candidates
 }
 
 func (s *qpgState) shouldSkipExplain(sqlText string) bool {
