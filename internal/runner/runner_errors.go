@@ -303,13 +303,20 @@ func annotateResultForReporting(result *oracle.Result) {
 	if result.Err != nil {
 		reason, hint := classifyResultError(result.Oracle, result.Err)
 		if reason != "" {
-			if _, ok := result.Details["error_reason"]; !ok {
+			// Keep existing oracle-provided reasons by default, but force the
+			// runtime-1105 canonical label for PQS so report triage does not
+			// regress to generic sql_error_1105 classification.
+			if reason == "pqs:runtime_1105" {
+				result.Details["error_reason"] = reason
+			} else if _, ok := result.Details["error_reason"]; !ok {
 				result.Details["error_reason"] = reason
 			}
 			result.OK = false
 		}
 		if hint != "" {
-			if _, ok := result.Details["bug_hint"]; !ok {
+			if reason == "pqs:runtime_1105" {
+				result.Details["bug_hint"] = hint
+			} else if _, ok := result.Details["bug_hint"]; !ok {
 				result.Details["bug_hint"] = hint
 			}
 		}

@@ -267,3 +267,51 @@ func TestAnnotateResultForReportingKeepsExistingReason(t *testing.T) {
 		t.Fatalf("existing reason should be preserved, got %s", reason)
 	}
 }
+
+func TestAnnotateResultForReportingPQSRuntime1105OverridesGenericReason(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PQS",
+		Err: &mysql.MySQLError{
+			Number:  mysqlErrCodeRuntimeGeneric,
+			Message: "runtime error: index out of range [2] with length 2",
+		},
+		Details: map[string]any{
+			"error_reason": "pqs:sql_error_1105",
+		},
+	}
+	annotateResultForReporting(&result)
+	reason, _ := result.Details["error_reason"].(string)
+	if reason != "pqs:runtime_1105" {
+		t.Fatalf("expected pqs runtime reason override, got %s", reason)
+	}
+	hint, _ := result.Details["bug_hint"].(string)
+	if hint != "tidb:runtime_error" {
+		t.Fatalf("expected runtime bug_hint, got %s", hint)
+	}
+	if result.OK {
+		t.Fatalf("expected error result to remain non-OK")
+	}
+}
+
+func TestAnnotateResultForReportingPQSRuntime1105OverridesHint(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "PQS",
+		Err: &mysql.MySQLError{
+			Number:  mysqlErrCodeRuntimeGeneric,
+			Message: "runtime error: index out of range [0] with length 0",
+		},
+		Details: map[string]any{
+			"error_reason": "pqs:sql_error_1105",
+			"bug_hint":     "custom_hint",
+		},
+	}
+	annotateResultForReporting(&result)
+	reason, _ := result.Details["error_reason"].(string)
+	if reason != "pqs:runtime_1105" {
+		t.Fatalf("expected pqs runtime reason override, got %s", reason)
+	}
+	hint, _ := result.Details["bug_hint"].(string)
+	if hint != "tidb:runtime_error" {
+		t.Fatalf("expected runtime bug_hint override, got %s", hint)
+	}
+}
