@@ -645,6 +645,7 @@ func (r *Runner) qpgViewBaseTables(ctx context.Context, viewName string) []strin
 	defer cancel()
 	rows, err := r.exec.QueryContext(qctx, qpgViewBaseTablesSQL, r.cfg.Database, viewName, r.cfg.Database)
 	if err != nil {
+		util.Warnf("qpg view-base lookup query failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
 		return nil
 	}
 	defer util.CloseWithErr(rows, "qpg view table usage rows")
@@ -653,6 +654,7 @@ func (r *Runner) qpgViewBaseTables(ctx context.Context, viewName string) []strin
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
+			util.Warnf("qpg view-base lookup scan failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
 			return nil
 		}
 		name = strings.TrimSpace(name)
@@ -666,6 +668,7 @@ func (r *Runner) qpgViewBaseTables(ctx context.Context, viewName string) []strin
 		candidates = append(candidates, name)
 	}
 	if err := rows.Err(); err != nil {
+		util.Warnf("qpg view-base lookup row iteration failed db=%s view=%s err=%v", r.cfg.Database, viewName, err)
 		return nil
 	}
 	return candidates
