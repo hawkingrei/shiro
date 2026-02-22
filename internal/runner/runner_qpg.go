@@ -568,12 +568,13 @@ func (r *Runner) tickQPG() {
 }
 
 func (r *Runner) qpgMutate(ctx context.Context) {
-	if len(r.state.Tables) == 0 {
+	baseTables := r.baseTables()
+	if len(baseTables) == 0 {
 		return
 	}
 	if r.cfg.Features.Indexes && util.Chance(r.gen.Rand, 50) {
-		tableIdx := r.gen.Rand.Intn(len(r.state.Tables))
-		tablePtr := &r.state.Tables[tableIdx]
+		tableIdx := r.gen.Rand.Intn(len(baseTables))
+		tablePtr := baseTables[tableIdx]
 		tableCopy := *tablePtr
 		sql, ok := r.gen.CreateIndexSQL(&tableCopy)
 		if ok {
@@ -583,7 +584,7 @@ func (r *Runner) qpgMutate(ctx context.Context) {
 		}
 		return
 	}
-	tbl := r.state.Tables[r.gen.Rand.Intn(len(r.state.Tables))]
+	tbl := *baseTables[r.gen.Rand.Intn(len(baseTables))]
 	_ = r.execSQL(ctx, fmt.Sprintf("ANALYZE TABLE %s", tbl.Name))
 }
 

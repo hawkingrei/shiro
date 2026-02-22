@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"testing"
 
 	"shiro/internal/config"
@@ -93,4 +94,25 @@ func TestTickQPGClearsExpiredOverrides(t *testing.T) {
 	if r.qpgState.templateTTL != 0 {
 		t.Fatalf("expected qpg template ttl to reach zero, got %d", r.qpgState.templateTTL)
 	}
+}
+
+func TestQPGMutateSkipsWhenOnlyViews(t *testing.T) {
+	cfg := config.Config{
+		QPG: config.QPGConfig{
+			Enabled: true,
+		},
+	}
+	r := newTestRunnerForQPG(cfg)
+	r.state.Tables = []schema.Table{
+		{Name: "v0", IsView: true},
+		{Name: "v1", IsView: true},
+	}
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("qpgMutate should skip view-only state, panic=%v", recovered)
+		}
+	}()
+
+	r.qpgMutate(context.Background())
 }
