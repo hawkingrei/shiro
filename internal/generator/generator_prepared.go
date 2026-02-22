@@ -214,11 +214,12 @@ func (g *Generator) nonPreparedSingleTable() PreparedQuery {
 }
 
 func (g *Generator) pickPreparedTable() schema.Table {
-	if len(g.State.Tables) == 0 {
+	candidates := g.preparedCandidateTables()
+	if len(candidates) == 0 {
 		return schema.Table{}
 	}
-	partitioned := make([]schema.Table, 0, len(g.State.Tables))
-	for _, tbl := range g.State.Tables {
+	partitioned := make([]schema.Table, 0, len(candidates))
+	for _, tbl := range candidates {
 		if tbl.Partitioned {
 			partitioned = append(partitioned, tbl)
 		}
@@ -226,7 +227,7 @@ func (g *Generator) pickPreparedTable() schema.Table {
 	if len(partitioned) > 0 && util.Chance(g.Rand, PartitionedTablePickProb) {
 		return partitioned[g.Rand.Intn(len(partitioned))]
 	}
-	return g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+	return candidates[g.Rand.Intn(len(candidates))]
 }
 
 func (g *Generator) collectNonIDColumns(tbl schema.Table) []schema.Column {
@@ -299,7 +300,7 @@ func (g *Generator) pickNumericColumnPreferDecimalForTable(tbl schema.Table) (sc
 
 func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
 	candidates := make([]schema.Table, 0, len(g.State.Tables))
-	for _, tbl := range g.State.Tables {
+	for _, tbl := range g.nonPreparedCandidateTables() {
 		if !tbl.Partitioned {
 			candidates = append(candidates, tbl)
 		}
@@ -308,6 +309,17 @@ func (g *Generator) pickNonPartitionedTable() (schema.Table, bool) {
 		return schema.Table{}, false
 	}
 	return candidates[g.Rand.Intn(len(candidates))], true
+}
+
+func (g *Generator) nonPreparedCandidateTables() []schema.Table {
+	candidates := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.preparedCandidateTables() {
+		if tbl.IsView {
+			continue
+		}
+		candidates = append(candidates, tbl)
+	}
+	return candidates
 }
 
 func (g *Generator) preparedCTEQuery() PreparedQuery {
@@ -334,12 +346,13 @@ func (g *Generator) preparedCTEQuery() PreparedQuery {
 }
 
 func (g *Generator) pickJoinColumns() (left schema.Table, right schema.Table, leftCol schema.Column, rightCol schema.Column) {
-	if len(g.State.Tables) < 2 {
+	candidates := g.preparedCandidateTables()
+	if len(candidates) < 2 {
 		return schema.Table{}, schema.Table{}, schema.Column{}, schema.Column{}
 	}
 	for i := 0; i < 6; i++ {
-		left := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
-		right := g.State.Tables[g.Rand.Intn(len(g.State.Tables))]
+		left := candidates[g.Rand.Intn(len(candidates))]
+		right := candidates[g.Rand.Intn(len(candidates))]
 		if left.Name == right.Name {
 			continue
 		}
@@ -352,6 +365,23 @@ func (g *Generator) pickJoinColumns() (left schema.Table, right schema.Table, le
 		}
 	}
 	return schema.Table{}, schema.Table{}, schema.Column{}, schema.Column{}
+}
+
+func (g *Generator) preparedCandidateTables() []schema.Table {
+	if len(g.State.Tables) == 0 {
+		return nil
+	}
+	if !g.Config.PlanCacheOnly {
+		return g.State.Tables
+	}
+	candidates := make([]schema.Table, 0, len(g.State.Tables))
+	for _, tbl := range g.State.Tables {
+		if tbl.IsView {
+			continue
+		}
+		candidates = append(candidates, tbl)
+	}
+	return candidates
 }
 
 func (g *Generator) pickAnyColumn(tbl schema.Table) (schema.Column, bool) {
