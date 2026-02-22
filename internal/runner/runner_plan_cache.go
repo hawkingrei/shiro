@@ -13,7 +13,12 @@ import (
 	"shiro/internal/util"
 )
 
-const maxFirstExecuteRetries = 1
+const (
+	maxFirstExecuteRetries = 1
+	planCacheOnlyStatsFmt  = "plan_cache_only stats total=%d invalid=%d exec_errors=%d " +
+		"hit_first_unexpected=%d hit_second=%d miss_second=%d " +
+		"miss_second_with_warnings=%d first_skip_with_warnings=%d warning_reasons=%s"
+)
 
 func closePlanCacheConn(conn *sql.Conn) {
 	util.CloseWithErr(conn, "plan cache conn")
@@ -717,7 +722,7 @@ nextIteration:
 		closePlanCacheConn(conn)
 	}
 	util.Infof(
-		"plan_cache_only stats total=%d invalid=%d exec_errors=%d hit_first_unexpected=%d hit_second=%d miss_second=%d miss_second_with_warnings=%d first_skip_with_warnings=%d warning_reasons=%s",
+		planCacheOnlyStatsFmt,
 		total,
 		invalid,
 		execErrors,
@@ -809,7 +814,7 @@ func planCacheWarningReason(warning string) string {
 	parts := strings.SplitN(warning, ":", 3)
 	msg := warning
 	if len(parts) == 3 {
-		msg = strings.TrimSpace(parts[2])
+		msg = parts[2]
 	}
 	msg = strings.ToLower(strings.TrimSpace(msg))
 	msg = strings.TrimSpace(strings.TrimPrefix(msg, "skip plan-cache:"))
