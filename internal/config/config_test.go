@@ -49,7 +49,7 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.QPG.Enabled {
 		t.Fatalf("expected qpg enabled by default")
 	}
-	if cfg.Features.ViewMax != 3 {
+	if cfg.Features.ViewMax != ViewMaxDefault {
 		t.Fatalf("unexpected default view_max: %d", cfg.Features.ViewMax)
 	}
 }

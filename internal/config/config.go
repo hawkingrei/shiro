@@ -312,6 +312,9 @@ func Load(path string) (Config, error) {
 }
 
 const (
+	// ViewMaxDefault is the default upper bound of generated views.
+	ViewMaxDefault = 3
+
 	dqpBaseHintPickLimitDefault = 3
 	dqpSetVarHintPickMaxDefault = 3
 
@@ -352,7 +355,7 @@ func normalizeConfig(cfg *Config) {
 		cfg.DSN = ensureDatabaseInDSN(cfg.DSN, cfg.Database)
 	}
 	if cfg.Features.ViewMax <= 0 {
-		cfg.Features.ViewMax = 3
+		cfg.Features.ViewMax = ViewMaxDefault
 	}
 	if cfg.TQS.Enabled {
 		if cfg.Weights.Actions.Query <= 0 {
@@ -509,7 +512,7 @@ func defaultConfig() Config {
 		StatementTimeoutMs:  15000,
 		Features: Features{
 			Views:                true,
-			ViewMax:              3,
+			ViewMax:              ViewMaxDefault,
 			PartitionTables:      true,
 			NonPreparedPlanCache: true,
 			NotExists:            true,
