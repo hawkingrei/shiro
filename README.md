@@ -59,7 +59,7 @@ Set `logging.log_file` to write detailed logs to a file (default `logs/shiro.log
 `oracles.strict_predicates: true` (default) limits TLP/CODDTest to simple deterministic predicates to reduce false positives.
 Set it to `false` if you want broader coverage at the cost of more noisy cases.
 
-`oracles.coddtest_case_when_max` (default 20) caps dependent CODDTest `CASE WHEN` branches so rewritten predicates do not become excessively large.
+`oracles.coddtest_case_when_max` (default 2) caps dependent CODDTest `CASE WHEN` branches so rewritten predicates do not become excessively large.
 
 ## DQP external hint injection
 DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` in its built-in SET_VAR candidates.

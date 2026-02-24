@@ -344,7 +344,7 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 
 func coddtestCaseWhenMax(gen *generator.Generator) int {
 	if gen == nil || gen.Config.Oracles.CODDCaseWhenMax <= 0 {
-		return 20
+		return 2
 	}
 	return gen.Config.Oracles.CODDCaseWhenMax
 }

@@ -315,7 +315,7 @@ func Load(path string) (Config, error) {
 const (
 	dqpBaseHintPickLimitDefault = 3
 	dqpSetVarHintPickMaxDefault = 3
-	coddtestCaseWhenMaxDefault  = 20
+	coddtestCaseWhenMaxDefault  = 2
 
 	qpgNoJoinThresholdDefault         = 3
 	qpgNoAggThresholdDefault          = 3
