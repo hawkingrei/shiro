@@ -544,7 +544,7 @@ func (r *Runner) viewMax() int {
 	if r.cfg.Features.ViewMax > 0 {
 		return r.cfg.Features.ViewMax
 	}
-	return 5
+	return 3
 }
 
 func (r *Runner) oracleModeLabel() string {

@@ -352,7 +352,7 @@ func normalizeConfig(cfg *Config) {
 		cfg.DSN = ensureDatabaseInDSN(cfg.DSN, cfg.Database)
 	}
 	if cfg.Features.ViewMax <= 0 {
-		cfg.Features.ViewMax = 5
+		cfg.Features.ViewMax = 3
 	}
 	if cfg.TQS.Enabled {
 		if cfg.Weights.Actions.Query <= 0 {
@@ -509,7 +509,7 @@ func defaultConfig() Config {
 		StatementTimeoutMs:  15000,
 		Features: Features{
 			Views:                true,
-			ViewMax:              5,
+			ViewMax:              3,
 			PartitionTables:      true,
 			NonPreparedPlanCache: true,
 			NotExists:            true,
@@ -564,7 +564,7 @@ func defaultConfig() Config {
 		},
 		Adaptive: Adaptive{Enabled: true, UCBExploration: 1.5, WindowSize: 50000},
 		QPG: QPGConfig{
-			Enabled:                 false,
+			Enabled:                 true,
 			ExplainFormat:           "brief",
 			MutationProb:            30,
 			SeenSQLTTLSeconds:       120,

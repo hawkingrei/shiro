@@ -1,1 +1,211 @@
-# Example config used by tests and local runs.
+# Example config for tests and local runs.
+# This file is intentionally secret-free and mirrors code defaults.
+
+# MySQL DSN; database name is auto-appended if DSN path is empty.
+dsn: root:@tcp(127.0.0.1:4000)/
+database: shiro_fuzz
+seed: 0
+iterations: 1000
+workers: 1
+
+plan_cache_only: false
+plan_cache_prob: 50
+non_prepared_plan_cache_prob: 50
+plan_cache_meaningful_predicates: true
+
+max_tables: 5
+max_join_tables: 15
+max_columns: 8
+max_rows_per_table: 50
+max_data_dump_rows: 50
+max_insert_statements: 200
+statement_timeout_ms: 15000
+
+plan_replayer:
+  enabled: false
+  download_url_template: "http://127.0.0.1:10080/plan_replayer/dump/%s.zip"
+  output_dir: reports
+  timeout_seconds: 30
+  max_download_bytes: 52428800
+
+storage:
+  s3:
+    enabled: false
+    endpoint: ""
+    region: ""
+    bucket: ""
+    prefix: ""
+    access_key_id: ""
+    secret_access_key: ""
+    session_token: ""
+    use_path_style: false
+  gcs:
+    enabled: false
+    bucket: ""
+    prefix: ""
+    credentials_file: ""
+
+features:
+  joins: false
+  natural_joins: false
+  full_join_emulation: false
+  cte: false
+  recursive_cte: false
+  subqueries: false
+  set_operations: false
+  derived_tables: false
+  quantified_subqueries: false
+  aggregates: false
+  group_by: false
+  group_by_rollup: false
+  group_by_cube: false
+  group_by_grouping_sets: false
+  having: false
+  order_by: false
+  limit: false
+  distinct: false
+  plan_cache: false
+  window_funcs: false
+  window_frames: false
+  correlated_subqueries: true
+  interval_arith: false
+  views: true
+  view_max: 3
+  indexes: false
+  foreign_keys: false
+  check_constraints: false
+  partition_tables: true
+  not_exists: true
+  not_in: true
+  non_prepared_plan_cache: true
+  dsg: false
+
+weights:
+  actions:
+    ddl: 1
+    dml: 3
+    query: 6
+  dml:
+    insert: 3
+    update: 1
+    delete: 1
+  oracles:
+    norec: 4
+    tlp: 3
+    eet: 2
+    dqp: 3
+    pqs: 2
+    coddtest: 2
+    dqe: 2
+    impo: 2
+    groundtruth: 5
+  features:
+    join_count: 5
+    cte_count: 4
+    cte_count_max: 3
+    subquery_count: 5
+    aggregate_prob: 50
+    decimal_agg_prob: 70
+    group_by_prob: 30
+    having_prob: 20
+    order_by_prob: 40
+    limit_prob: 40
+    distinct_prob: 20
+    window_prob: 20
+    partition_prob: 30
+    not_exists_prob: 40
+    not_in_prob: 40
+    index_prefix_prob: 30
+    template_join_only_weight: 4
+    template_join_filter_weight: 6
+
+logging:
+  verbose: false
+  report_interval_seconds: 30
+  log_file: "logs/shiro.log"
+  metrics:
+    sql_valid_min_ratio: 0.95
+    impo_invalid_columns_max_ratio: 0.05
+    impo_base_exec_failed_max_ratio: 0.02
+
+oracles:
+  strict_predicates: true
+  predicate_level: "strict"
+  join_on_policy: "simple"
+  join_using_prob: -1
+  dqp_external_hints: []
+  dqp_base_hint_pick_limit: 3
+  dqp_set_var_hint_pick_max: 3
+  cert_min_base_rows: 20
+  groundtruth_max_rows: 50
+  impo_max_rows: 50
+  impo_max_mutations: 64
+  impo_timeout_ms: 2000
+  impo_disable_stage1: false
+  impo_keep_lr_join: false
+  eet_rewrites:
+    double_not: 4
+    and_true: 3
+    or_false: 3
+    numeric_identity: 2
+    string_identity: 2
+    date_identity: 2
+
+qpg:
+  enabled: true
+  explain_format: "brief"
+  mutation_prob: 30
+  seen_sql_ttl_seconds: 120
+  seen_sql_max: 8192
+  seen_sql_sweep_seconds: 600
+  no_join_threshold: 3
+  no_agg_threshold: 3
+  no_new_plan_threshold: 5
+  no_new_op_sig_threshold: 4
+  no_new_shape_threshold: 4
+  no_new_join_type_threshold: 3
+  no_new_join_order_threshold: 3
+  override_ttl: 5
+  template_override:
+    no_new_join_order_threshold: 3
+    no_new_shape_threshold: 4
+    no_agg_threshold: 3
+    no_new_plan_threshold: 5
+    join_weight_boost: 6
+    agg_weight_boost: 6
+    semi_weight_boost: 5
+    enabled_prob: 55
+    override_ttl: 5
+
+kqe:
+  enabled: true
+
+tqs:
+  enabled: false
+  wide_rows: 50
+  dim_tables: 3
+  dep_columns: 2
+  payload_columns: 2
+  walk_length: 4
+  walk_min: 0
+  walk_max: 0
+  gamma: 0.2
+
+signature:
+  round_scale: 6
+  plan_cache_round_scale: 4
+
+minimize:
+  enabled: true
+  max_rounds: 16
+  timeout_seconds: 60
+  merge_inserts: true
+
+adaptive:
+  enabled: true
+  ucb_exploration: 1.5
+  window_size: 50000
+  adapt_actions: false
+  adapt_oracles: true
+  adapt_dml: false
+  adapt_features: false

@@ -46,6 +46,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
+	if !cfg.QPG.Enabled {
+		t.Fatalf("expected qpg enabled by default")
+	}
+	if cfg.Features.ViewMax != 3 {
+		t.Fatalf("unexpected default view_max: %d", cfg.Features.ViewMax)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
