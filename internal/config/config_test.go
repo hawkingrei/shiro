@@ -52,6 +52,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Features.ViewMax != ViewMaxDefault {
 		t.Fatalf("unexpected default view_max: %d", cfg.Features.ViewMax)
 	}
+	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
+		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {

@@ -293,6 +293,60 @@ func downgradeDQPTimeoutFalsePositive(result *oracle.Result) bool {
 	return true
 }
 
+func normalizeErrorReason(reason string) string {
+	return strings.ToLower(strings.TrimSpace(reason))
+}
+
+func errorReasonPrefixFromReason(reason string) string {
+	normalized := normalizeErrorReason(reason)
+	if normalized == "" {
+		return ""
+	}
+	prefix, _, _ := strings.Cut(normalized, ":")
+	return prefix
+}
+
+func isGenericSQLErrorReason(reason string) bool {
+	normalized := normalizeErrorReason(reason)
+	if normalized == "" {
+		return false
+	}
+	_, suffix, ok := strings.Cut(normalized, ":")
+	if !ok {
+		return false
+	}
+	if suffix == "sql_error" {
+		return true
+	}
+	if !strings.HasPrefix(suffix, "sql_error_") {
+		return false
+	}
+	code := strings.TrimPrefix(suffix, "sql_error_")
+	if code == "" {
+		return false
+	}
+	for _, ch := range code {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func shouldForceCanonicalReason(reason string) bool {
+	return normalizeErrorReason(reason) == "pqs:runtime_1105"
+}
+
+func shouldPreferCanonicalReason(existingReason, canonicalReason string) bool {
+	if !isGenericSQLErrorReason(existingReason) {
+		return false
+	}
+	if isGenericSQLErrorReason(canonicalReason) {
+		return false
+	}
+	return errorReasonPrefixFromReason(existingReason) == errorReasonPrefixFromReason(canonicalReason)
+}
+
 func annotateResultForReporting(result *oracle.Result) {
 	if result == nil {
 		return
@@ -302,19 +356,22 @@ func annotateResultForReporting(result *oracle.Result) {
 	}
 	if result.Err != nil {
 		reason, hint := classifyResultError(result.Oracle, result.Err)
+		existingReason, hasExistingReason := result.Details["error_reason"].(string)
+		forceCanonicalReason := shouldForceCanonicalReason(reason)
+		preferCanonicalReason := hasExistingReason && shouldPreferCanonicalReason(existingReason, reason)
 		if reason != "" {
-			// Keep existing oracle-provided reasons by default, but force the
-			// runtime-1105 canonical label for PQS so report triage does not
-			// regress to generic sql_error_1105 classification.
-			if reason == "pqs:runtime_1105" {
+			switch {
+			case forceCanonicalReason:
 				result.Details["error_reason"] = reason
-			} else if _, ok := result.Details["error_reason"]; !ok {
+			case !hasExistingReason:
+				result.Details["error_reason"] = reason
+			case preferCanonicalReason:
 				result.Details["error_reason"] = reason
 			}
 			result.OK = false
 		}
 		if hint != "" {
-			if reason == "pqs:runtime_1105" {
+			if forceCanonicalReason || preferCanonicalReason {
 				result.Details["bug_hint"] = hint
 			} else if _, ok := result.Details["bug_hint"]; !ok {
 				result.Details["bug_hint"] = hint

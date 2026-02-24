@@ -99,6 +99,21 @@ func TestCODDTestPredicatePrecheckReason(t *testing.T) {
 	}
 }
 
+func TestCODDTestCaseWhenMax(t *testing.T) {
+	if got := coddtestCaseWhenMax(nil); got != 2 {
+		t.Fatalf("expected fallback max 2, got %d", got)
+	}
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.CODDCaseWhenMax = 7
+	gen := generator.New(cfg, &schema.State{}, 1)
+	if got := coddtestCaseWhenMax(gen); got != 7 {
+		t.Fatalf("expected configured max 7, got %d", got)
+	}
+}
+
 func TestCODDTestCaseKeyDedupes(t *testing.T) {
 	cols := []generator.ColumnRef{
 		{Table: "t0", Name: "id", Type: schema.TypeInt},
