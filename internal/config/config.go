@@ -315,7 +315,7 @@ func Load(path string) (Config, error) {
 const (
 	dqpBaseHintPickLimitDefault = 3
 	dqpSetVarHintPickMaxDefault = 3
-	coddtestCaseWhenMaxDefault  = 2
+	CODDCaseWhenMaxDefault      = 2
 
 	qpgNoJoinThresholdDefault         = 3
 	qpgNoAggThresholdDefault          = 3
@@ -378,7 +378,7 @@ func normalizeConfig(cfg *Config) {
 		cfg.Oracles.DQPSetVarHintPick = dqpSetVarHintPickMaxDefault
 	}
 	if cfg.Oracles.CODDCaseWhenMax <= 0 {
-		cfg.Oracles.CODDCaseWhenMax = coddtestCaseWhenMaxDefault
+		cfg.Oracles.CODDCaseWhenMax = CODDCaseWhenMaxDefault
 	}
 	if cfg.QPG.NoJoinThreshold <= 0 {
 		cfg.QPG.NoJoinThreshold = qpgNoJoinThresholdDefault
@@ -560,7 +560,7 @@ func defaultConfig() Config {
 			JoinUsingProb:      -1,
 			DQPBaseHintPick:    dqpBaseHintPickLimitDefault,
 			DQPSetVarHintPick:  dqpSetVarHintPickMaxDefault,
-			CODDCaseWhenMax:    coddtestCaseWhenMaxDefault,
+			CODDCaseWhenMax:    CODDCaseWhenMaxDefault,
 			CertMinBaseRows:    20,
 			GroundTruthMaxRows: 50,
 			ImpoMaxRows:        50,

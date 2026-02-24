@@ -100,8 +100,8 @@ func TestCODDTestPredicatePrecheckReason(t *testing.T) {
 }
 
 func TestCODDTestCaseWhenMax(t *testing.T) {
-	if got := coddtestCaseWhenMax(nil); got != 2 {
-		t.Fatalf("expected fallback max 2, got %d", got)
+	if got := coddtestCaseWhenMax(nil); got != config.CODDCaseWhenMaxDefault {
+		t.Fatalf("expected fallback max %d, got %d", config.CODDCaseWhenMaxDefault, got)
 	}
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {

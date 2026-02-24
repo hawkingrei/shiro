@@ -46,7 +46,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
-	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
+	if cfg.Oracles.CODDCaseWhenMax != CODDCaseWhenMaxDefault {
 		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
 	}
 }
@@ -234,7 +234,7 @@ func TestNormalizeCODDCaseWhenMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
+	if cfg.Oracles.CODDCaseWhenMax != CODDCaseWhenMaxDefault {
 		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
 	}
 }
