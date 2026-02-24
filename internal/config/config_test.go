@@ -46,6 +46,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
+	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
+		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -209,6 +212,30 @@ func TestNormalizeQPGThresholds(t *testing.T) {
 	}
 	if cfg.QPG.OverrideTTL != qpgOverrideTTLDefault {
 		t.Fatalf("unexpected override_ttl: %d", cfg.QPG.OverrideTTL)
+	}
+}
+
+func TestNormalizeCODDCaseWhenMax(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `oracles:
+  coddtest_case_when_max: 0
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
+		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
 	}
 }
 

@@ -182,6 +182,7 @@ type OracleConfig struct {
 	DQPExternalHints   []string          `yaml:"dqp_external_hints"`
 	DQPBaseHintPick    int               `yaml:"dqp_base_hint_pick_limit"`
 	DQPSetVarHintPick  int               `yaml:"dqp_set_var_hint_pick_max"`
+	CODDCaseWhenMax    int               `yaml:"coddtest_case_when_max"`
 	CertMinBaseRows    float64           `yaml:"cert_min_base_rows"`
 	GroundTruthMaxRows int               `yaml:"groundtruth_max_rows"`
 	ImpoMaxRows        int               `yaml:"impo_max_rows"`
@@ -314,6 +315,7 @@ func Load(path string) (Config, error) {
 const (
 	dqpBaseHintPickLimitDefault = 3
 	dqpSetVarHintPickMaxDefault = 3
+	coddtestCaseWhenMaxDefault  = 2
 
 	qpgNoJoinThresholdDefault         = 3
 	qpgNoAggThresholdDefault          = 3
@@ -374,6 +376,9 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Oracles.DQPSetVarHintPick <= 0 {
 		cfg.Oracles.DQPSetVarHintPick = dqpSetVarHintPickMaxDefault
+	}
+	if cfg.Oracles.CODDCaseWhenMax <= 0 {
+		cfg.Oracles.CODDCaseWhenMax = coddtestCaseWhenMaxDefault
 	}
 	if cfg.QPG.NoJoinThreshold <= 0 {
 		cfg.QPG.NoJoinThreshold = qpgNoJoinThresholdDefault
@@ -555,6 +560,7 @@ func defaultConfig() Config {
 			JoinUsingProb:      -1,
 			DQPBaseHintPick:    dqpBaseHintPickLimitDefault,
 			DQPSetVarHintPick:  dqpSetVarHintPickMaxDefault,
+			CODDCaseWhenMax:    coddtestCaseWhenMaxDefault,
 			CertMinBaseRows:    20,
 			GroundTruthMaxRows: 50,
 			ImpoMaxRows:        50,
