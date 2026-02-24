@@ -240,7 +240,8 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, _ *generator.
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
 }
 
-func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
+func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
+	caseWhenMax := coddtestCaseWhenMax(gen)
 	colNames := make([]string, 0, len(cols))
 	for _, col := range cols {
 		colNames = append(colNames, fmt.Sprintf("%s.%s", col.Table, col.Name))
@@ -270,6 +271,9 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 			continue
 		}
 		seen[key] = struct{}{}
+		if len(caseExpr.Whens) >= caseWhenMax {
+			break
+		}
 
 		var cond generator.Expr
 		for i, col := range cols {
@@ -283,6 +287,9 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		}
 		resultVal := buildLiteralFromBytes(values[len(values)-1], schema.TypeBool)
 		caseExpr.Whens = append(caseExpr.Whens, generator.CaseWhen{When: cond, Then: resultVal})
+	}
+	if err := rows.Err(); err != nil {
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{auxSQL}, Err: err}
 	}
 
 	if len(caseExpr.Whens) == 0 {
@@ -333,6 +340,13 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, _ *generator.Ge
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+}
+
+func coddtestCaseWhenMax(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.CODDCaseWhenMax <= 0 {
+		return 20
+	}
+	return gen.Config.Oracles.CODDCaseWhenMax
 }
 
 func coddtestCaseKey(cols []generator.ColumnRef, values []sql.RawBytes) string {
