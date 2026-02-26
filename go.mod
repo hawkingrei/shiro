@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.1-0.20241114170450-2d3c2a9cc518
 	github.com/klauspost/compress v1.18.4
 	github.com/pingcap/tidb v1.1.0-beta.0.20260226070851-a48589498190
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20260116143008-b46d38f21106
+	github.com/pingcap/tidb/pkg/parser v0.0.0-20260226070851-a48589498190
 	github.com/pkg/errors v0.9.1
 	google.golang.org/api v0.170.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -109,7 +109,7 @@ require (
 	golang.org/x/oauth2 v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/genproto v0.0.0-20240401170217-c3f982113cda // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
