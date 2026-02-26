@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"shiro/internal/config"
 	"shiro/internal/db"
@@ -163,6 +164,7 @@ func (r *Runner) baseTables() []*schema.Table {
 
 const viewDDLBoostProb = 70
 const minimizeReasonRunnerRecoveredInterrupted = "runner_recovered_interrupted"
+const tiflashReplicaReadyPollInterval = 500 * time.Millisecond
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -553,7 +555,49 @@ func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) {
 	sql := tiFlashReplicaSQL(tbl.Name, replicas)
 	if err := r.execSQL(ctx, sql); err != nil {
 		util.Detailf("skip tiflash replica table=%s replicas=%d err=%v", tbl.Name, replicas, err)
+		return
 	}
+	if err := r.waitTiFlashReplicaReady(ctx, tbl.Name); err != nil {
+		util.Detailf("tiflash replica not ready table=%s err=%v", tbl.Name, err)
+	}
+}
+
+func (r *Runner) waitTiFlashReplicaReady(ctx context.Context, tableName string) error {
+	if r == nil || r.exec == nil {
+		return nil
+	}
+	waitSec := r.cfg.Oracles.MPPTiFlashWaitSec
+	if waitSec <= 0 {
+		return nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(waitSec)*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(tiflashReplicaReadyPollInterval)
+	defer ticker.Stop()
+	for {
+		ready, err := r.isTiFlashReplicaReady(waitCtx, tableName)
+		if err != nil {
+			return err
+		}
+		if ready {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *Runner) isTiFlashReplicaReady(ctx context.Context, tableName string) (bool, error) {
+	var available int
+	row := r.exec.QueryRowContext(ctx, tiFlashReplicaReadySQL(tableName))
+	if err := row.Scan(&available); err != nil {
+		return false, err
+	}
+	return available > 0, nil
 }
 
 func (r *Runner) viewMax() int {

@@ -31,3 +31,11 @@ func TestTiFlashReplicaSQL(t *testing.T) {
 		t.Fatalf("unexpected tiflash sql: got %q want %q", got, want)
 	}
 }
+
+func TestTiFlashReplicaReadySQL(t *testing.T) {
+	got := tiFlashReplicaReadySQL("t1")
+	want := "SELECT IFNULL(MAX(CASE WHEN AVAILABLE = 1 THEN 1 ELSE 0 END), 0) FROM information_schema.TIFLASH_REPLICA WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't1'"
+	if got != want {
+		t.Fatalf("unexpected tiflash ready sql: got %q want %q", got, want)
+	}
+}

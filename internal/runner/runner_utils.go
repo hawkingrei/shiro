@@ -72,3 +72,11 @@ func shouldApplyTiFlashReplica(tbl *schema.Table, replicas int) bool {
 func tiFlashReplicaSQL(tableName string, replicas int) string {
 	return fmt.Sprintf("ALTER TABLE %s SET TIFLASH REPLICA %d", tableName, replicas)
 }
+
+func tiFlashReplicaReadySQL(tableName string) string {
+	name := strings.ReplaceAll(tableName, "'", "''")
+	return fmt.Sprintf(
+		"SELECT IFNULL(MAX(CASE WHEN AVAILABLE = 1 THEN 1 ELSE 0 END), 0) FROM information_schema.TIFLASH_REPLICA WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '%s'",
+		name,
+	)
+}
