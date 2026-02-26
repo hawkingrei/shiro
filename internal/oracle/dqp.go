@@ -492,6 +492,7 @@ func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin b
 		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableOuterJoinReorderOn, SetVarEnableOuterJoinReorderOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
+		candidates = append(candidates, toggleHints(SetVarAllowMPPOn, SetVarAllowMPPOff)...)
 	}
 	candidates = append(candidates, toggleHints(SetVarPartialOrderedTopNCost, SetVarPartialOrderedTopNDisable)...)
 	if hasSubquery {

@@ -146,6 +146,26 @@ func TestDQPSetVarHintCandidatesIncludePartialOrderedTopN(t *testing.T) {
 	}
 }
 
+func TestDQPSetVarHintCandidatesIncludeMPPWhenJoin(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 3, true, true, true, true, true, true, nil)
+	if !containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if !containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
+func TestDQPSetVarHintCandidatesSkipMPPWithoutJoin(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 1, false, false, false, false, false, false, nil)
+	if containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
 func TestDQPExternalHintCandidates(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {

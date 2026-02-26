@@ -37,6 +37,8 @@ const (
 	SetVarEnableOuterJoinReorderOff      = "SET_VAR(tidb_enable_outer_join_reorder=OFF)"
 	SetVarEnableInlJoinInnerMultiOn      = "SET_VAR(tidb_enable_inl_join_inner_multi_pattern=ON)"
 	SetVarEnableInlJoinInnerMultiOff     = "SET_VAR(tidb_enable_inl_join_inner_multi_pattern=OFF)"
+	SetVarAllowMPPOn                     = "SET_VAR(tidb_allow_mpp=ON)"
+	SetVarAllowMPPOff                    = "SET_VAR(tidb_allow_mpp=OFF)"
 	SetVarPartialOrderedTopNCost         = "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
 	SetVarPartialOrderedTopNDisable      = "SET_VAR(tidb_opt_partial_ordered_index_for_topn='DISABLE')"
 	SetVarEnableTojaOn                   = "SET_VAR(tidb_opt_use_toja=ON)"

@@ -22,6 +22,7 @@ Links:
 - When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
 
 ## Recent updates
+- Added TiDB MPP hint coverage in DQP (2026-02-26): DQP built-in `SET_VAR` candidates now include `tidb_allow_mpp=ON/OFF` for join queries so optimizer differential runs can explicitly explore MPP-enabled vs MPP-disabled plans; added regression coverage in `internal/oracle/dqp_test.go` and validated with `GOCACHE=/tmp/shiro-gocache GOTMPDIR=/tmp/shiro-gotmp go test ./internal/oracle`.
 - Refreshed config baselines (2026-02-22): expanded `config.example.yaml` from a placeholder comment to a complete, secret-free reference config aligned with code defaults, changed `defaultConfig()` to enable QPG by default (`qpg.enabled=true`), and lowered default view cap to `view_max=3`; added default assertion coverage in `internal/config/config_test.go` and validated with `GOCACHE=/tmp/shiro-gocache GOTMPDIR=/tmp/shiro-gotmp go test ./internal/...`.
 
 - Added configurable CODDTest CASE branch cap (2026-02-24): introduced `oracles.coddtest_case_when_max` (default `20`) and applied it in `internal/oracle/coddtest.go` dependent rewrite generation so generated `CASE WHEN` predicates are bounded and less likely to produce oversized queries; also added rows.Err handling and regression tests in `internal/config/config_test.go` and `internal/oracle/coddtest_test.go`, plus README/config docs updates.

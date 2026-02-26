@@ -62,7 +62,7 @@ Set it to `false` if you want broader coverage at the cost of more noisy cases.
 `oracles.coddtest_case_when_max` (default 2) caps dependent CODDTest `CASE WHEN` branches so rewritten predicates do not become excessively large.
 
 ## DQP external hint injection
-DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` in its built-in SET_VAR candidates.
+DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` and join-path `SET_VAR(tidb_allow_mpp=ON|OFF)` in its built-in SET_VAR candidates.
 You can also inject extra DQP hints from config via `oracles.dqp_external_hints`.
 
 Each entry can be either:
@@ -76,6 +76,7 @@ oracles:
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "tidb_opt_partial_ordered_index_for_topn='DISABLE'"
+    - "tidb_enforce_mpp=ON"
 ```
 
 ## GroundTruth oracle limits
