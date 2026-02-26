@@ -64,6 +64,7 @@ Set it to `false` if you want broader coverage at the cost of more noisy cases.
 ## DQP external hint injection
 DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` and join-path `SET_VAR(tidb_allow_mpp=ON|OFF)` in its built-in SET_VAR candidates.
 You can also inject extra DQP hints from config via `oracles.dqp_external_hints`.
+To prepare TiFlash-based MPP plans, set `oracles.mpp_tiflash_replica` to a positive value so Shiro issues `ALTER TABLE ... SET TIFLASH REPLICA <n>` after each base-table creation.
 
 Each entry can be either:
 - a full optimizer hint, for example `HASH_JOIN(t1, t2)` or `SET_VAR(tidb_opt_use_toja=OFF)`
@@ -73,6 +74,7 @@ Example:
 
 ```yaml
 oracles:
+  mpp_tiflash_replica: 1
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "tidb_opt_partial_ordered_index_for_topn='DISABLE'"

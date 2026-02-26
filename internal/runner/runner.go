@@ -343,6 +343,7 @@ func (r *Runner) initState(ctx context.Context) error {
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
+		r.applyTiFlashReplica(ctx, tablePtr)
 		insertCount := max(1, r.cfg.MaxRowsPerTable/5)
 		for j := 0; j < insertCount; j++ {
 			insertSQL := r.gen.InsertSQL(tablePtr)
@@ -395,12 +396,15 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 	r.gen.SetTruth(result.Truth)
 	r.tqsHistory = tqs.NewHistory(r.state, "t0")
 	r.gen.SetTQSWalker(r.tqsHistory)
-	for _, sql := range result.CreateSQL {
+	for i, sql := range result.CreateSQL {
 		if err := r.execSQL(ctx, sql); err != nil {
 			if _, ok := isWhitelistedSQLError(err); ok {
 				continue
 			}
 			return err
+		}
+		if i < len(r.state.Tables) {
+			r.applyTiFlashReplica(ctx, &r.state.Tables[i])
 		}
 	}
 	for _, sql := range result.InsertSQL {
@@ -463,6 +467,7 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
+		r.applyTiFlashReplica(ctx, tablePtr)
 		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
 		if r.cfg.TQS.Enabled && r.tqsHistory != nil {
 			r.tqsHistory.Refresh(r.state)
@@ -535,6 +540,20 @@ func (r *Runner) viewCount() int {
 		}
 	}
 	return count
+}
+
+func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) {
+	if r == nil {
+		return
+	}
+	replicas := r.cfg.Oracles.MPPTiFlashReplica
+	if !shouldApplyTiFlashReplica(tbl, replicas) {
+		return
+	}
+	sql := tiFlashReplicaSQL(tbl.Name, replicas)
+	if err := r.execSQL(ctx, sql); err != nil {
+		util.Detailf("skip tiflash replica table=%s replicas=%d err=%v", tbl.Name, replicas, err)
+	}
 }
 
 func (r *Runner) viewMax() int {

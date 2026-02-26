@@ -46,6 +46,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
+	if cfg.Oracles.MPPTiFlashReplica != 0 {
+		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
 	if !cfg.QPG.Enabled {
 		t.Fatalf("expected qpg enabled by default")
 	}
@@ -227,6 +230,7 @@ func TestLoadDQPExternalHints(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	content := `oracles:
+  mpp_tiflash_replica: 1
   dqp_base_hint_pick_limit: 6
   dqp_set_var_hint_pick_max: 7
   dqp_external_hints:
@@ -258,6 +262,9 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.DQPSetVarHintPick != 7 {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
 }
 

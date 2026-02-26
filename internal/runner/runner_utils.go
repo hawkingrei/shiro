@@ -3,6 +3,8 @@ package runner
 import (
 	"fmt"
 	"strings"
+
+	"shiro/internal/schema"
 )
 
 func formatPrepareSQL(sqlText string) string {
@@ -58,4 +60,15 @@ func materializeSQL(sqlText string, args []any) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+func shouldApplyTiFlashReplica(tbl *schema.Table, replicas int) bool {
+	if tbl == nil || tbl.IsView {
+		return false
+	}
+	return replicas > 0
+}
+
+func tiFlashReplicaSQL(tableName string, replicas int) string {
+	return fmt.Sprintf("ALTER TABLE %s SET TIFLASH REPLICA %d", tableName, replicas)
 }

@@ -179,6 +179,7 @@ type OracleConfig struct {
 	PredicateLevel     string            `yaml:"predicate_level"`
 	JoinOnPolicy       string            `yaml:"join_on_policy"`
 	JoinUsingProb      int               `yaml:"join_using_prob"`
+	MPPTiFlashReplica  int               `yaml:"mpp_tiflash_replica"`
 	DQPExternalHints   []string          `yaml:"dqp_external_hints"`
 	DQPBaseHintPick    int               `yaml:"dqp_base_hint_pick_limit"`
 	DQPSetVarHintPick  int               `yaml:"dqp_set_var_hint_pick_max"`
@@ -380,6 +381,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Oracles.DQPSetVarHintPick <= 0 {
 		cfg.Oracles.DQPSetVarHintPick = dqpSetVarHintPickMaxDefault
 	}
+	if cfg.Oracles.MPPTiFlashReplica < 0 {
+		cfg.Oracles.MPPTiFlashReplica = 0
+	}
 	if cfg.Oracles.CODDCaseWhenMax <= 0 {
 		cfg.Oracles.CODDCaseWhenMax = coddtestCaseWhenMaxDefault
 	}
@@ -561,6 +565,7 @@ func defaultConfig() Config {
 			PredicateLevel:     "strict",
 			JoinOnPolicy:       "simple",
 			JoinUsingProb:      -1,
+			MPPTiFlashReplica:  0,
 			DQPBaseHintPick:    dqpBaseHintPickLimitDefault,
 			DQPSetVarHintPick:  dqpSetVarHintPickMaxDefault,
 			CODDCaseWhenMax:    coddtestCaseWhenMaxDefault,
