@@ -32,10 +32,10 @@ func TestTiFlashReplicaSQL(t *testing.T) {
 	}
 }
 
-func TestTiFlashReplicaReadySQL(t *testing.T) {
-	got := tiFlashReplicaReadySQL("t1")
-	want := "SELECT IFNULL(MAX(CASE WHEN AVAILABLE = 1 THEN 1 ELSE 0 END), 0) FROM information_schema.TIFLASH_REPLICA WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 't1'"
+func TestTiFlashReplicaPendingSQL(t *testing.T) {
+	got := tiFlashReplicaPendingSQL()
+	want := "SELECT COUNT(*) FROM information_schema.tiflash_replica WHERE AVAILABLE = 0"
 	if got != want {
-		t.Fatalf("unexpected tiflash ready sql: got %q want %q", got, want)
+		t.Fatalf("unexpected tiflash pending sql: got %q want %q", got, want)
 	}
 }

@@ -49,9 +49,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.MPPTiFlashReplica != 0 {
 		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
-	if cfg.Oracles.MPPTiFlashWaitSec != 0 {
-		t.Fatalf("unexpected mpp_tiflash_wait_seconds default: %d", cfg.Oracles.MPPTiFlashWaitSec)
-	}
 	if !cfg.QPG.Enabled {
 		t.Fatalf("expected qpg enabled by default")
 	}
@@ -234,7 +231,6 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	content := `oracles:
   mpp_tiflash_replica: 1
-  mpp_tiflash_wait_seconds: 12
   dqp_base_hint_pick_limit: 6
   dqp_set_var_hint_pick_max: 7
   dqp_external_hints:
@@ -269,9 +265,6 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
-	}
-	if cfg.Oracles.MPPTiFlashWaitSec != 12 {
-		t.Fatalf("unexpected mpp_tiflash_wait_seconds: %d", cfg.Oracles.MPPTiFlashWaitSec)
 	}
 }
 

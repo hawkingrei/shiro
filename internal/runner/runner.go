@@ -164,7 +164,8 @@ func (r *Runner) baseTables() []*schema.Table {
 
 const viewDDLBoostProb = 70
 const minimizeReasonRunnerRecoveredInterrupted = "runner_recovered_interrupted"
-const tiflashReplicaReadyPollInterval = 500 * time.Millisecond
+const tiflashReplicaReadyPollInterval = 100 * time.Millisecond
+const tiflashReplicaReadyTimeout = 2 * time.Minute
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -345,7 +346,9 @@ func (r *Runner) initState(ctx context.Context) error {
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
-		r.applyTiFlashReplica(ctx, tablePtr)
+		if err := r.applyTiFlashReplica(ctx, tablePtr); err != nil {
+			return err
+		}
 		insertCount := max(1, r.cfg.MaxRowsPerTable/5)
 		for j := 0; j < insertCount; j++ {
 			insertSQL := r.gen.InsertSQL(tablePtr)
@@ -406,7 +409,9 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 			return err
 		}
 		if i < len(r.state.Tables) {
-			r.applyTiFlashReplica(ctx, &r.state.Tables[i])
+			if err := r.applyTiFlashReplica(ctx, &r.state.Tables[i]); err != nil {
+				return err
+			}
 		}
 	}
 	for _, sql := range result.InsertSQL {
@@ -469,7 +474,11 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
-		r.applyTiFlashReplica(ctx, tablePtr)
+		if err := r.applyTiFlashReplica(ctx, tablePtr); err != nil {
+			_ = r.execSQL(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tablePtr.Name))
+			r.state.Tables = r.state.Tables[:len(r.state.Tables)-1]
+			return
+		}
 		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
 		if r.cfg.TQS.Enabled && r.tqsHistory != nil {
 			r.tqsHistory.Refresh(r.state)
@@ -544,43 +553,39 @@ func (r *Runner) viewCount() int {
 	return count
 }
 
-func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) {
+func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) error {
 	if r == nil {
-		return
+		return nil
 	}
 	replicas := r.cfg.Oracles.MPPTiFlashReplica
 	if !shouldApplyTiFlashReplica(tbl, replicas) {
-		return
+		return nil
 	}
 	sql := tiFlashReplicaSQL(tbl.Name, replicas)
 	if err := r.execSQL(ctx, sql); err != nil {
-		util.Detailf("skip tiflash replica table=%s replicas=%d err=%v", tbl.Name, replicas, err)
-		return
+		return err
 	}
-	if err := r.waitTiFlashReplicaReady(ctx, tbl.Name); err != nil {
-		util.Detailf("tiflash replica not ready table=%s err=%v", tbl.Name, err)
+	if err := r.waitTiFlashReplicaReady(ctx); err != nil {
+		return err
 	}
+	return nil
 }
 
-func (r *Runner) waitTiFlashReplicaReady(ctx context.Context, tableName string) error {
+func (r *Runner) waitTiFlashReplicaReady(ctx context.Context) error {
 	if r == nil || r.exec == nil {
 		return nil
 	}
-	waitSec := r.cfg.Oracles.MPPTiFlashWaitSec
-	if waitSec <= 0 {
-		return nil
-	}
-	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(waitSec)*time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, tiflashReplicaReadyTimeout)
 	defer cancel()
 
 	ticker := time.NewTicker(tiflashReplicaReadyPollInterval)
 	defer ticker.Stop()
 	for {
-		ready, err := r.isTiFlashReplicaReady(waitCtx, tableName)
+		pending, err := r.tiFlashReplicaPending(waitCtx)
 		if err != nil {
 			return err
 		}
-		if ready {
+		if pending == 0 {
 			return nil
 		}
 		select {
@@ -591,13 +596,13 @@ func (r *Runner) waitTiFlashReplicaReady(ctx context.Context, tableName string) 
 	}
 }
 
-func (r *Runner) isTiFlashReplicaReady(ctx context.Context, tableName string) (bool, error) {
-	var available int
-	row := r.exec.QueryRowContext(ctx, tiFlashReplicaReadySQL(tableName))
-	if err := row.Scan(&available); err != nil {
-		return false, err
+func (r *Runner) tiFlashReplicaPending(ctx context.Context) (int, error) {
+	var pending int
+	row := r.exec.QueryRowContext(ctx, tiFlashReplicaPendingSQL())
+	if err := row.Scan(&pending); err != nil {
+		return 0, err
 	}
-	return available > 0, nil
+	return pending, nil
 }
 
 func (r *Runner) viewMax() int {
