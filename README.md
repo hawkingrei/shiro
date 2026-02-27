@@ -136,6 +136,7 @@ qpg:
 ## Plan cache only
 Set `plan_cache_only: true` for a focused plan-cache run that executes only prepared statements.
 In normal mode, Shiro still runs prepared statements and applies the same plan-cache checks; this flag just isolates that workflow.
+When `plan_cache_only` is enabled, runner skips TiFlash replica provisioning (`ALTER TABLE ... SET TIFLASH REPLICA`) during initial schema setup.
 Prepared plan-cache paths force `tidb_allow_mpp=OFF` (and try `tidb_enforce_mpp=OFF`) on the session to avoid MPP-plan noise in cache-hit checks.
 The plan-cache check verifies `SELECT @@last_plan_from_cache = 1` on the second execution (when no warning indicates a cache skip).
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.

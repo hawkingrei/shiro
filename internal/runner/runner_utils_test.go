@@ -10,20 +10,23 @@ func TestShouldApplyTiFlashReplica(t *testing.T) {
 	base := &schema.Table{Name: "t1"}
 	view := &schema.Table{Name: "v1", IsView: true}
 
-	if !shouldApplyTiFlashReplica(base, 1, false) {
+	if !shouldApplyTiFlashReplica(base, 1, false, false) {
 		t.Fatalf("expected base table with positive replicas to be eligible")
 	}
-	if shouldApplyTiFlashReplica(base, 0, false) {
+	if shouldApplyTiFlashReplica(base, 0, false, false) {
 		t.Fatalf("did not expect zero replicas to be eligible")
 	}
-	if shouldApplyTiFlashReplica(view, 1, false) {
+	if shouldApplyTiFlashReplica(view, 1, false, false) {
 		t.Fatalf("did not expect view to be eligible")
 	}
-	if shouldApplyTiFlashReplica(nil, 1, false) {
+	if shouldApplyTiFlashReplica(nil, 1, false, false) {
 		t.Fatalf("did not expect nil table to be eligible")
 	}
-	if shouldApplyTiFlashReplica(base, 1, true) {
+	if shouldApplyTiFlashReplica(base, 1, true, false) {
 		t.Fatalf("did not expect disable_mpp=true to be eligible")
+	}
+	if shouldApplyTiFlashReplica(base, 1, false, true) {
+		t.Fatalf("did not expect plan_cache_only=true to be eligible")
 	}
 }
 

@@ -561,7 +561,7 @@ func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) err
 		return nil
 	}
 	replicas := r.cfg.Oracles.MPPTiFlashReplica
-	if !shouldApplyTiFlashReplica(tbl, replicas, r.cfg.Oracles.DisableMPP) {
+	if !shouldApplyTiFlashReplica(tbl, replicas, r.cfg.Oracles.DisableMPP, r.cfg.PlanCacheOnly) {
 		return nil
 	}
 	sql := tiFlashReplicaSQL(tbl.Name, replicas)
