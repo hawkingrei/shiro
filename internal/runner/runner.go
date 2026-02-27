@@ -731,9 +731,10 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	_ = downgradeGroundTruthLowConfidenceFalsePositive(&result)
 	_ = downgradeDQPTimeoutFalsePositive(&result)
 	annotateResultForReporting(&result)
+	captureSkippedForMinimize := shouldCaptureSkipForMinimize(result)
 	skipReason := oracleSkipReason(result)
 	isPanic := isPanicError(result.Err)
-	reported := !result.OK || isPanic
+	reported := captureSkippedForMinimize || !result.OK || isPanic
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
 	r.observeVariantSubqueryCounts(result.SQL)
 	if r.gen.LastFeatures != nil {
@@ -748,6 +749,9 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		if isPanicError(result.Err) {
 			r.handleResult(ctx, result)
 			queryReward = 1
+		}
+		if captureSkippedForMinimize {
+			r.handleResult(ctx, result)
 		}
 		r.updateOracleBandit(oracleIdx, oracleReward)
 		r.updateFeatureBandits(queryReward)
