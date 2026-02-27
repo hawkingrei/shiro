@@ -83,8 +83,8 @@ features:
 weights:
   actions:
     ddl: 1
-    dml: 3
-    query: 6
+    dml: 1
+    query: 10
   dml:
     insert: 3
     update: 1

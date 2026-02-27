@@ -34,6 +34,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxJoinTables != 15 {
 		t.Fatalf("unexpected max join tables: %d", cfg.MaxJoinTables)
 	}
+	if cfg.Weights.Actions.DDL != 1 || cfg.Weights.Actions.DML != 1 || cfg.Weights.Actions.Query != 10 {
+		t.Fatalf(
+			"unexpected default action weights: ddl=%d dml=%d query=%d",
+			cfg.Weights.Actions.DDL,
+			cfg.Weights.Actions.DML,
+			cfg.Weights.Actions.Query,
+		)
+	}
 	if cfg.Logging.ReportIntervalSeconds != 30 {
 		t.Fatalf("unexpected report interval: %d", cfg.Logging.ReportIntervalSeconds)
 	}
