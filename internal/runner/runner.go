@@ -2,9 +2,11 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"shiro/internal/config"
 	"shiro/internal/db"
@@ -73,6 +75,9 @@ type Runner struct {
 	impoTotal                       int64
 	impoSkips                       int64
 	impoTrunc                       int64
+	dqpHintInjectedTotal            int64
+	dqpHintFallbackTotal            int64
+	dqpSetVarVariantTotal           int64
 	impoSkipReasons                 map[string]int64
 	impoSkipErrCodes                map[string]int64
 	impoLastFailSQL                 string
@@ -163,6 +168,10 @@ func (r *Runner) baseTables() []*schema.Table {
 
 const viewDDLBoostProb = 70
 const minimizeReasonRunnerRecoveredInterrupted = "runner_recovered_interrupted"
+const tiflashReplicaReadyPollInterval = 100 * time.Millisecond
+const tiflashReplicaReadyTimeout = 2 * time.Minute
+
+var errWaitTiFlashReplicaReadyTimeout = errors.New("wait tiflash replica ready timeout")
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -343,9 +352,15 @@ func (r *Runner) initState(ctx context.Context) error {
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
+		if err := r.applyTiFlashReplica(ctx, tablePtr); err != nil {
+			return err
+		}
 		insertCount := max(1, r.cfg.MaxRowsPerTable/5)
 		for j := 0; j < insertCount; j++ {
 			insertSQL := r.gen.InsertSQL(tablePtr)
+			if strings.TrimSpace(insertSQL) == "" {
+				continue
+			}
 			if err := r.execSQL(ctx, insertSQL); err != nil {
 				if _, ok := isWhitelistedSQLError(err); ok {
 					continue
@@ -395,12 +410,17 @@ func (r *Runner) initStateDSG(ctx context.Context) error {
 	r.gen.SetTruth(result.Truth)
 	r.tqsHistory = tqs.NewHistory(r.state, "t0")
 	r.gen.SetTQSWalker(r.tqsHistory)
-	for _, sql := range result.CreateSQL {
+	for i, sql := range result.CreateSQL {
 		if err := r.execSQL(ctx, sql); err != nil {
 			if _, ok := isWhitelistedSQLError(err); ok {
 				continue
 			}
 			return err
+		}
+		if i < len(r.state.Tables) {
+			if err := r.applyTiFlashReplica(ctx, &r.state.Tables[i]); err != nil {
+				return err
+			}
 		}
 	}
 	for _, sql := range result.InsertSQL {
@@ -463,7 +483,14 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		}
 		r.state.Tables = append(r.state.Tables, tbl)
 		tablePtr := &r.state.Tables[len(r.state.Tables)-1]
-		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
+		if err := r.applyTiFlashReplica(ctx, tablePtr); err != nil {
+			_ = r.execSQL(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tablePtr.Name))
+			r.state.Tables = r.state.Tables[:len(r.state.Tables)-1]
+			return
+		}
+		if insertSQL := r.gen.InsertSQL(tablePtr); strings.TrimSpace(insertSQL) != "" {
+			_ = r.execSQL(ctx, insertSQL)
+		}
 		if r.cfg.TQS.Enabled && r.tqsHistory != nil {
 			r.tqsHistory.Refresh(r.state)
 		}
@@ -505,6 +532,10 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		if sql == "" {
 			return
 		}
+		compatible, err := r.isForeignKeyDataCompatible(ctx, fk)
+		if err != nil || !compatible {
+			return
+		}
 		if err := r.execSQL(ctx, sql); err != nil {
 			return
 		}
@@ -535,6 +566,61 @@ func (r *Runner) viewCount() int {
 		}
 	}
 	return count
+}
+
+func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) error {
+	if r == nil {
+		return nil
+	}
+	replicas := r.cfg.Oracles.MPPTiFlashReplica
+	if !shouldApplyTiFlashReplica(tbl, replicas, r.cfg.Oracles.DisableMPP, r.cfg.PlanCacheOnly) {
+		return nil
+	}
+	sql := tiFlashReplicaSQL(tbl.Name, replicas)
+	if err := r.execSQL(ctx, sql); err != nil {
+		return err
+	}
+	if err := r.waitTiFlashReplicaReady(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *Runner) waitTiFlashReplicaReady(ctx context.Context) error {
+	if r == nil || r.exec == nil {
+		return nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, tiflashReplicaReadyTimeout)
+	defer cancel()
+
+	ticker := time.NewTicker(tiflashReplicaReadyPollInterval)
+	defer ticker.Stop()
+	for {
+		pending, err := r.tiFlashReplicaPending(waitCtx)
+		if err != nil {
+			return err
+		}
+		if pending == 0 {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return errWaitTiFlashReplicaReadyTimeout
+			}
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (r *Runner) tiFlashReplicaPending(ctx context.Context) (int, error) {
+	var pending int
+	row := r.exec.QueryRowContext(ctx, tiFlashReplicaPendingSQL())
+	if err := row.Scan(&pending); err != nil {
+		return 0, err
+	}
+	return pending, nil
 }
 
 func (r *Runner) viewMax() int {
@@ -579,7 +665,9 @@ func (r *Runner) runDML(ctx context.Context) {
 	tbl := baseTables[r.gen.Rand.Intn(len(baseTables))]
 	switch choice {
 	case 0:
-		_ = r.execSQL(ctx, r.gen.InsertSQL(tbl))
+		if insertSQL := r.gen.InsertSQL(tbl); strings.TrimSpace(insertSQL) != "" {
+			_ = r.execSQL(ctx, insertSQL)
+		}
 	case 1:
 		updateSQL, _, _, _ := r.gen.UpdateSQL(*tbl)
 		if updateSQL != "" {
@@ -646,9 +734,10 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	_ = downgradeGroundTruthLowConfidenceFalsePositive(&result)
 	_ = downgradeDQPTimeoutFalsePositive(&result)
 	annotateResultForReporting(&result)
+	captureSkippedForMinimize := shouldCaptureSkipForMinimize(result)
 	skipReason := oracleSkipReason(result)
 	isPanic := isPanicError(result.Err)
-	reported := !result.OK || isPanic
+	reported := captureSkippedForMinimize || !result.OK || isPanic
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
 	r.observeVariantSubqueryCounts(result.SQL)
 	if r.gen.LastFeatures != nil {
@@ -663,6 +752,9 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 		if isPanicError(result.Err) {
 			r.handleResult(ctx, result)
 			queryReward = 1
+		}
+		if captureSkippedForMinimize {
+			r.handleResult(ctx, result)
 		}
 		r.updateOracleBandit(oracleIdx, oracleReward)
 		r.updateFeatureBandits(queryReward)

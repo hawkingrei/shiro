@@ -1,6 +1,11 @@
 package runner
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/go-sql-driver/mysql"
+)
 
 func TestPlanCacheWarningReason(t *testing.T) {
 	testCases := []struct {
@@ -78,5 +83,57 @@ func TestFormatPlanCacheWarningReasons(t *testing.T) {
 	})
 	if got != "a reason=1,b reason=2" {
 		t.Fatalf("unexpected formatted reasons: %q", got)
+	}
+}
+
+func TestPlanCacheMPPDisableStatements(t *testing.T) {
+	got := planCacheMPPDisableStatements()
+	want := []string{
+		"SET SESSION tidb_allow_mpp=OFF",
+		"SET SESSION tidb_enforce_mpp=OFF",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected statements count: got=%d want=%d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected statement at %d: got=%q want=%q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestShouldIgnorePlanCacheMPPDisableError(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		expect bool
+	}{
+		{
+			name:   "nil",
+			err:    nil,
+			expect: false,
+		},
+		{
+			name:   "unknown system variable code",
+			err:    &mysql.MySQLError{Number: 1193, Message: "Unknown system variable"},
+			expect: true,
+		},
+		{
+			name:   "unknown system variable text",
+			err:    errors.New("Error 1105 (HY000): Unknown system variable 'tidb_enforce_mpp'"),
+			expect: true,
+		},
+		{
+			name:   "other mysql error",
+			err:    &mysql.MySQLError{Number: 1064, Message: "syntax error"},
+			expect: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldIgnorePlanCacheMPPDisableError(tc.err); got != tc.expect {
+				t.Fatalf("unexpected result: got=%t expect=%t", got, tc.expect)
+			}
+		})
 	}
 }

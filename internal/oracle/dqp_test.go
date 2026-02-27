@@ -146,6 +146,43 @@ func TestDQPSetVarHintCandidatesIncludePartialOrderedTopN(t *testing.T) {
 	}
 }
 
+func TestDQPSetVarHintCandidatesIncludeMPPWhenJoin(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 3, true, true, true, true, true, true, nil)
+	if !containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if !containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
+func TestDQPSetVarHintCandidatesSkipMPPWithoutJoin(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 1, false, false, false, false, false, false, nil)
+	if containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
+func TestDQPSetVarHintCandidatesSkipMPPWhenDisabled(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DisableMPP = true
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 17)
+	candidates := dqpSetVarHintCandidates(gen, 3, true, true, true, true, true, true, nil)
+	if containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
 func TestDQPExternalHintCandidates(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -211,6 +248,39 @@ func TestDQPExternalHintCandidatesSkipsUnsafeAndMalformed(t *testing.T) {
 		if strings.Contains(hint, "*/") {
 			t.Fatalf("unexpected unsafe hint in candidates: %q", hint)
 		}
+	}
+}
+
+func TestDQPExternalHintCandidatesSkipMPPSetVarWhenDisabled(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DisableMPP = true
+	cfg.Oracles.DQPExternalHints = []string{
+		"tidb_allow_mpp=ON",
+		"SET_VAR(tidb_enforce_mpp=ON)",
+		"SET_VAR(tidb_opt_use_toja=OFF)",
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 19)
+	noArgHints := map[string]struct{}{
+		HintStraightJoin:    {},
+		HintSemiJoinRewrite: {},
+		HintNoDecorrelate:   {},
+		HintHashAgg:         {},
+		HintStreamAgg:       {},
+		HintAggToCop:        {},
+	}
+	_, setVarHints := dqpExternalHintCandidates(gen, []string{"t1", "t2"}, noArgHints)
+	if containsHint(setVarHints, "SET_VAR(tidb_allow_mpp=ON)") {
+		t.Fatalf("did not expect tidb_allow_mpp hint when disable_mpp is true: %v", setVarHints)
+	}
+	if containsHint(setVarHints, "SET_VAR(tidb_enforce_mpp=ON)") {
+		t.Fatalf("did not expect tidb_enforce_mpp hint when disable_mpp is true: %v", setVarHints)
+	}
+	if !containsHint(setVarHints, "SET_VAR(tidb_opt_use_toja=OFF)") {
+		t.Fatalf("expected non-mpp set-var hint to remain, got %v", setVarHints)
 	}
 }
 
@@ -364,7 +434,7 @@ func TestDQPReplaySetVarAssignment(t *testing.T) {
 	}
 }
 
-func TestDQPComplexitySkipDetailsSetOpsAndDerived(t *testing.T) {
+func TestDQPComplexityGuardReasonSetOpsAndDerived(t *testing.T) {
 	simpleDerived := &generator.SelectQuery{
 		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
 		From:  generator.FromClause{BaseTable: "t0"},
@@ -384,17 +454,17 @@ func TestDQPComplexitySkipDetailsSetOpsAndDerived(t *testing.T) {
 			{Type: generator.SetOperationIntersect, Query: simpleDerived},
 		},
 	}
-	details, skip := dqpComplexitySkipDetails(query)
-	if !skip {
-		t.Fatalf("expected complexity guard skip")
-	}
-	reason, _ := details["dqp_complexity_reason"].(string)
-	if reason != "set_ops_and_derived_tables" {
+	reason := dqpComplexityGuardReason(query, 2, 3)
+	if reason != dqpComplexityConstraintSetOpsDerived {
 		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+	reason = dqpComplexityGuardReason(query, 4, 4)
+	if reason != "" {
+		t.Fatalf("expected thresholds to allow query, got %s", reason)
 	}
 }
 
-func TestDQPComplexitySkipDetailsAlwaysFalseJoinChain(t *testing.T) {
+func TestDQPComplexityGuardReasonAlwaysFalseJoinChain(t *testing.T) {
 	falseJoin := generator.BinaryExpr{
 		Left:  generator.LiteralExpr{Value: 1},
 		Op:    "=",
@@ -411,13 +481,26 @@ func TestDQPComplexitySkipDetailsAlwaysFalseJoinChain(t *testing.T) {
 			},
 		},
 	}
-	details, skip := dqpComplexitySkipDetails(query)
-	if !skip {
-		t.Fatalf("expected complexity guard skip")
-	}
-	reason, _ := details["dqp_complexity_reason"].(string)
-	if reason != "always_false_join_chain" {
+	reason := dqpComplexityGuardReason(query, 2, 3)
+	if reason != dqpComplexityConstraintFalseJoinChain {
 		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+}
+
+func TestDQPComplexityThresholdsFromConfig(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPComplexitySetOpsThreshold = 5
+	cfg.Oracles.DQPComplexityDerivedThreshold = 6
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 29)
+	if got := dqpComplexitySetOpsThreshold(gen); got != 5 {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", got)
+	}
+	if got := dqpComplexityDerivedThreshold(gen); got != 6 {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", got)
 	}
 }
 
@@ -495,5 +578,73 @@ func TestFindTopLevelSelectIndex(t *testing.T) {
 	expected += len(marker) - len("SELECT")
 	if idx != expected {
 		t.Fatalf("unexpected SELECT index: %d (expected %d)", idx, expected)
+	}
+}
+
+func TestDQPVariantMetricsObserveVariant(t *testing.T) {
+	metrics := dqpVariantMetrics{}
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT /*+ HASH_JOIN(t1, t2) */ c1 FROM t1",
+		"HASH_JOIN(t1, t2)",
+	)
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT c1 FROM t1",
+		"SET_VAR(tidb_opt_use_toja=OFF)",
+	)
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT /*+ SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2) */ c1 FROM t1",
+		"SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2)",
+	)
+
+	if metrics.hintInjectedTotal != 2 {
+		t.Fatalf("hintInjectedTotal=%d want=2", metrics.hintInjectedTotal)
+	}
+	if metrics.hintFallbackTotal != 1 {
+		t.Fatalf("hintFallbackTotal=%d want=1", metrics.hintFallbackTotal)
+	}
+	if metrics.setVarVariantTotal != 2 {
+		t.Fatalf("setVarVariantTotal=%d want=2", metrics.setVarVariantTotal)
+	}
+}
+
+func TestDQPVariantMetricsResultMetrics(t *testing.T) {
+	empty := dqpVariantMetrics{}
+	if got := empty.resultMetrics(); got != nil {
+		t.Fatalf("expected nil resultMetrics for empty stats, got %v", got)
+	}
+	metrics := dqpVariantMetrics{
+		hintInjectedTotal:  4,
+		hintFallbackTotal:  1,
+		setVarVariantTotal: 3,
+	}
+	got := metrics.resultMetrics()
+	if got["dqp_hint_injected_total"] != 4 {
+		t.Fatalf("dqp_hint_injected_total=%d want=4", got["dqp_hint_injected_total"])
+	}
+	if got["dqp_hint_fallback_total"] != 1 {
+		t.Fatalf("dqp_hint_fallback_total=%d want=1", got["dqp_hint_fallback_total"])
+	}
+	if got["dqp_set_var_variant_total"] != 3 {
+		t.Fatalf("dqp_set_var_variant_total=%d want=3", got["dqp_set_var_variant_total"])
+	}
+}
+
+func TestDQPHintContainsSetVar(t *testing.T) {
+	cases := []struct {
+		hint string
+		want bool
+	}{
+		{hint: "SET_VAR(tidb_opt_use_toja=ON)", want: true},
+		{hint: "HASH_JOIN(t1, t2), SET_VAR(tidb_opt_use_toja=OFF)", want: true},
+		{hint: "HASH_JOIN(t1, t2)", want: false},
+		{hint: "", want: false},
+	}
+	for _, tc := range cases {
+		if got := dqpHintContainsSetVar(tc.hint); got != tc.want {
+			t.Fatalf("dqpHintContainsSetVar(%q)=%v want=%v", tc.hint, got, tc.want)
+		}
 	}
 }

@@ -25,11 +25,17 @@ func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
 const dqpComplexityJoinCountThreshold = 4
-const dqpComplexitySetOpsThreshold = 2
-const dqpComplexityDerivedThreshold = 3
+const dqpComplexitySetOpsThresholdDefault = 2
+const dqpComplexityDerivedThresholdDefault = 3
 const dqpComplexityFalseJoinThreshold = 3
 const dqpBaseHintPickLimitDefault = 3
 const dqpSetVarHintPickMaxDefault = 3
+
+const (
+	dqpComplexityConstraintSetOpsDerived  = "constraint:dqp_complexity_set_ops_derived"
+	dqpComplexityConstraintFalseJoinChain = "constraint:dqp_complexity_false_join_chain"
+	dqpComplexityConstraintFalseJoinRatio = "constraint:dqp_complexity_false_join_ratio"
+)
 
 var (
 	replaySetVarNamePattern      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -53,6 +59,8 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
 	policy.allowIsNull = true
+	setOpsThreshold := dqpComplexitySetOpsThreshold(gen)
+	derivedThreshold := dqpComplexityDerivedThreshold(gen)
 	spec := QuerySpec{
 		Oracle:          "dqp",
 		Profile:         ProfileByName("DQP"),
@@ -67,13 +75,17 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			DisallowSetOps:       true,
 			MaxJoinCount:         3,
 			MaxJoinCountSet:      true,
+			QueryGuardReason:     dqpComplexityQueryGuardReason(setOpsThreshold, derivedThreshold),
 		},
 		SkipReasonOverrides: map[string]string{
-			"constraint:limit":            "dqp:limit",
-			"constraint:window":           "dqp:window",
-			"constraint:set_ops":          "dqp:set_ops",
-			"constraint:nondeterministic": "dqp:nondeterministic",
-			"constraint:predicate_guard":  "dqp:predicate_guard",
+			"constraint:limit":                    "dqp:limit",
+			"constraint:window":                   "dqp:window",
+			"constraint:set_ops":                  "dqp:set_ops",
+			"constraint:nondeterministic":         "dqp:nondeterministic",
+			"constraint:predicate_guard":          "dqp:predicate_guard",
+			dqpComplexityConstraintSetOpsDerived:  "dqp:complexity_guard",
+			dqpComplexityConstraintFalseJoinChain: "dqp:complexity_guard",
+			dqpComplexityConstraintFalseJoinRatio: "dqp:complexity_guard",
 		},
 	}
 	query, details := buildQueryWithSpec(gen, spec)
@@ -85,9 +97,6 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}
-	}
-	if details, skip := dqpComplexitySkipDetails(query); skip {
-		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	hasSubquery := queryHasSubquery(query)
 	hasSemi := queryHasSemiJoinSubquery(query)
@@ -111,7 +120,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	hasCTE := len(query.With) > 0
 	hasPartition := queryHasPartitionedTable(query, state)
-	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
+	variants, variantMetrics := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
 	for _, variant := range variants {
 		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
 		if err != nil {
@@ -142,10 +151,11 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Expected: fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
 				Actual:   fmt.Sprintf("cnt=%d checksum=%d", variantSig.Count, variantSig.Checksum),
 				Details:  details,
+				Metrics:  variantMetrics.resultMetrics(),
 			}
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Metrics: variantMetrics.resultMetrics()}
 }
 
 type dqpComplexityStats struct {
@@ -155,42 +165,39 @@ type dqpComplexityStats struct {
 	alwaysFalseJoins int
 }
 
-func dqpComplexitySkipDetails(query *generator.SelectQuery) (map[string]any, bool) {
+func dqpComplexitySetOpsThreshold(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPComplexitySetOpsThreshold <= 0 {
+		return dqpComplexitySetOpsThresholdDefault
+	}
+	return gen.Config.Oracles.DQPComplexitySetOpsThreshold
+}
+
+func dqpComplexityDerivedThreshold(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPComplexityDerivedThreshold <= 0 {
+		return dqpComplexityDerivedThresholdDefault
+	}
+	return gen.Config.Oracles.DQPComplexityDerivedThreshold
+}
+
+func dqpComplexityQueryGuardReason(setOpsThreshold int, derivedThreshold int) func(*generator.SelectQuery) (bool, string) {
+	return func(query *generator.SelectQuery) (bool, string) {
+		reason := dqpComplexityGuardReason(query, setOpsThreshold, derivedThreshold)
+		return reason == "", reason
+	}
+}
+
+func dqpComplexityGuardReason(query *generator.SelectQuery, setOpsThreshold int, derivedThreshold int) string {
 	stats := dqpCollectComplexityStats(query)
-	if stats.setOps >= dqpComplexitySetOpsThreshold && stats.derivedTables >= dqpComplexityDerivedThreshold {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "set_ops_and_derived_tables",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_setops_derived_v1",
-		}, true
+	if stats.setOps >= setOpsThreshold && stats.derivedTables >= derivedThreshold {
+		return dqpComplexityConstraintSetOpsDerived
 	}
 	if stats.alwaysFalseJoins >= dqpComplexityFalseJoinThreshold {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "always_false_join_chain",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_false_join_v1",
-		}, true
+		return dqpComplexityConstraintFalseJoinChain
 	}
 	if stats.joinCount >= dqpComplexityJoinCountThreshold && stats.alwaysFalseJoins*2 >= stats.joinCount {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "false_join_ratio_high",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_false_ratio_v1",
-		}, true
+		return dqpComplexityConstraintFalseJoinRatio
 	}
-	return nil, false
+	return ""
 }
 
 func dqpCollectComplexityStats(query *generator.SelectQuery) dqpComplexityStats {
@@ -358,13 +365,56 @@ type dqpVariant struct {
 	hint         string
 }
 
-func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) []dqpVariant {
+type dqpVariantMetrics struct {
+	hintInjectedTotal  int64
+	hintFallbackTotal  int64
+	setVarVariantTotal int64
+}
+
+func (m *dqpVariantMetrics) observeVariant(baseSQL string, variantSQL string, hint string) {
+	if m == nil {
+		return
+	}
+	if variantSQL != baseSQL {
+		m.hintInjectedTotal++
+	} else {
+		m.hintFallbackTotal++
+	}
+	if dqpHintContainsSetVar(hint) {
+		m.setVarVariantTotal++
+	}
+}
+
+func (m dqpVariantMetrics) resultMetrics() map[string]int64 {
+	if m.hintInjectedTotal == 0 && m.hintFallbackTotal == 0 && m.setVarVariantTotal == 0 {
+		return nil
+	}
+	return map[string]int64{
+		"dqp_hint_injected_total":   m.hintInjectedTotal,
+		"dqp_hint_fallback_total":   m.hintFallbackTotal,
+		"dqp_set_var_variant_total": m.setVarVariantTotal,
+	}
+}
+
+func dqpHintContainsSetVar(hint string) bool {
+	for _, token := range splitTopLevelHintList(hint) {
+		trimmed := strings.TrimSpace(token)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "SET_VAR(") {
+			return true
+		}
+	}
+	return false
+}
+
+func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) ([]dqpVariant, dqpVariantMetrics) {
 	tables := make([]string, 0, 1+len(query.From.Joins))
 	tables = append(tables, query.From.BaseTable)
 	for _, join := range query.From.Joins {
 		tables = append(tables, join.Table)
 	}
 	hasJoin := len(query.From.Joins) > 0
+	baseSQL := query.SQLString()
+	metrics := dqpVariantMetrics{}
 
 	noArgHints := map[string]struct{}{
 		HintStraightJoin:    {},
@@ -381,6 +431,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	for _, hintSQL := range baseHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 
@@ -388,11 +439,13 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	for _, hintSQL := range setVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, MaxCombinedHintVariants) {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 	if state != nil {
@@ -411,12 +464,13 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 			for _, hint := range pickHintsWithBandit(gen, hints, len(hints)) {
 				variantSQL := injectHint(query, hint)
 				variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+				metrics.observeVariant(baseSQL, variantSQL, hint)
 				variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hint})
 			}
 		}
 	}
 
-	return variants
+	return variants, metrics
 }
 
 func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}, externalBaseHints []string) []string {
@@ -488,10 +542,14 @@ func dqpSetVarHintPickMax(gen *generator.Generator) int {
 
 func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
 	var candidates []string
+	disableMPP := dqpDisableMPP(gen)
 	if hasJoin {
 		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableOuterJoinReorderOn, SetVarEnableOuterJoinReorderOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
+		if !disableMPP {
+			candidates = append(candidates, toggleHints(SetVarAllowMPPOn, SetVarAllowMPPOff)...)
+		}
 	}
 	candidates = append(candidates, toggleHints(SetVarPartialOrderedTopNCost, SetVarPartialOrderedTopNDisable)...)
 	if hasSubquery {
@@ -533,6 +591,7 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 	if len(rawHints) == 0 {
 		return nil, nil
 	}
+	disableMPP := dqpDisableMPP(gen)
 	baseHints = make([]string, 0, len(rawHints))
 	setVarHints = make([]string, 0, len(rawHints))
 	for _, raw := range rawHints {
@@ -546,6 +605,9 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 		setVarHint, isSetVar, valid := normalizeSetVarHint(trimmed)
 		if isSetVar {
 			if valid {
+				if disableMPP && isMPPSetVarHint(setVarHint) {
+					continue
+				}
 				setVarHints = append(setVarHints, setVarHint)
 			}
 			continue
@@ -553,6 +615,29 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 		baseHints = append(baseHints, buildHintSQL(trimmed, tables, noArgHints))
 	}
 	return baseHints, setVarHints
+}
+
+func dqpDisableMPP(gen *generator.Generator) bool {
+	return gen != nil && gen.Config.Oracles.DisableMPP
+}
+
+func isMPPSetVarHint(hint string) bool {
+	trimmed := strings.TrimSpace(hint)
+	upper := strings.ToUpper(trimmed)
+	if !strings.HasPrefix(upper, "SET_VAR(") || !strings.HasSuffix(trimmed, ")") {
+		return false
+	}
+	assignment := strings.TrimSpace(trimmed[len("SET_VAR(") : len(trimmed)-1])
+	name, _, ok := strings.Cut(assignment, "=")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "tidb_allow_mpp", "tidb_enforce_mpp":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeSetVarHint(raw string) (hint string, isSetVar bool, valid bool) {

@@ -31,6 +31,7 @@ const (
 	mysqlErrCodeQueryInterrupted = 1317
 	mysqlErrCodeQueryTimeout     = 3024
 	pqsRuntime1105Marker         = "index out of range"
+	skipAllowMinimizeDetailKey   = "skip_allow_minimize"
 )
 
 // sqlErrorWhitelist lists MySQL error codes considered fuzz-tool faults.
@@ -206,11 +207,23 @@ func downgradeMissingColumnFalsePositive(result *oracle.Result) bool {
 	if _, ok := result.Details["skip_error"]; !ok {
 		result.Details["skip_error"] = result.Err.Error()
 	}
+	result.Details[skipAllowMinimizeDetailKey] = true
 	delete(result.Details, "error_reason")
 	delete(result.Details, "bug_hint")
 	result.OK = true
-	result.Err = nil
 	return true
+}
+
+func shouldCaptureSkipForMinimize(result oracle.Result) bool {
+	if result.Err == nil || result.Details == nil {
+		return false
+	}
+	allowMinimize, _ := result.Details[skipAllowMinimizeDetailKey].(bool)
+	if !allowMinimize {
+		return false
+	}
+	skipReason, _ := result.Details["skip_reason"].(string)
+	return strings.TrimSpace(skipReason) != ""
 }
 
 func downgradeGroundTruthLowConfidenceFalsePositive(result *oracle.Result) bool {
@@ -355,6 +368,9 @@ func annotateResultForReporting(result *oracle.Result) {
 		result.Details = map[string]any{}
 	}
 	if result.Err != nil {
+		if shouldCaptureSkipForMinimize(*result) {
+			return
+		}
 		reason, hint := classifyResultError(result.Oracle, result.Err)
 		existingReason, hasExistingReason := result.Details["error_reason"].(string)
 		forceCanonicalReason := shouldForceCanonicalReason(reason)

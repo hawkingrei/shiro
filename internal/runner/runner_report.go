@@ -12,6 +12,11 @@ import (
 	"shiro/internal/util"
 )
 
+const (
+	foreignKeyChecksOffSQL = "SET FOREIGN_KEY_CHECKS=0"
+	foreignKeyChecksOnSQL  = "SET FOREIGN_KEY_CHECKS=1"
+)
+
 func (r *Runner) maybeObservePlan(ctx context.Context, result oracle.Result) {
 	if !r.cfg.QPG.Enabled || result.Err != nil || r.qpgState == nil {
 		return
@@ -64,6 +69,22 @@ func pickReplaySQL(result oracle.Result) string {
 		}
 	}
 	return ""
+}
+
+func wrapInsertsWithForeignKeyChecks(stmts []string) []string {
+	normalized := make([]string, 0, len(stmts))
+	for _, stmt := range stmts {
+		trimmed := strings.TrimSpace(stmt)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	out := make([]string, 0, len(normalized)+2)
+	out = append(out, foreignKeyChecksOffSQL)
+	out = append(out, normalized...)
+	out = append(out, foreignKeyChecksOnSQL)
+	return out
 }
 
 func (r *Runner) tidbVersion(ctx context.Context) string {
@@ -226,7 +247,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
-	_ = r.reporter.WriteSQL(caseData, "inserts.sql", r.insertLog)
+	_ = r.reporter.WriteSQL(caseData, "inserts.sql", wrapInsertsWithForeignKeyChecks(r.insertLog))
 	_ = r.reporter.DumpSchema(ctx, caseData, r.exec, r.state)
 	_ = r.reporter.DumpData(ctx, caseData, r.exec, r.state)
 	if minimizeEnabled {
@@ -248,7 +269,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
 			}
 			if len(minimized.insertSQL) > 0 {
-				_ = r.reporter.WriteSQL(caseData, "min/inserts.sql", minimized.insertSQL)
+				_ = r.reporter.WriteSQL(caseData, "min/inserts.sql", wrapInsertsWithForeignKeyChecks(minimized.insertSQL))
 			}
 			if len(minimized.reproSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/repro.sql", minimized.reproSQL)

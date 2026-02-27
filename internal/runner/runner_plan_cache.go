@@ -48,6 +48,9 @@ func (r *Runner) runPrepared(ctx context.Context) bool {
 	if err := r.prepareConn(qctx, conn, r.cfg.Database); err != nil {
 		return false
 	}
+	if err := r.disableMPPForPlanCacheConn(qctx, conn); err != nil {
+		return false
+	}
 	concreteSig, ok, bug := r.preparedConcreteSignature(qctx, conn, concreteSQL)
 	if !ok {
 		return bug
@@ -404,6 +407,10 @@ nextIteration:
 			closePlanCacheConn(conn)
 			return err
 		}
+		if err := r.disableMPPForPlanCacheConn(ctx, conn); err != nil {
+			closePlanCacheConn(conn)
+			return err
+		}
 		pq := r.gen.GeneratePreparedQuery()
 		if pq.SQL == "" {
 			closePlanCacheConn(conn)
@@ -733,6 +740,42 @@ nextIteration:
 		firstSkipWithWarnings,
 		formatPlanCacheWarningReasons(warningReasonCounts),
 	)
+	return nil
+}
+
+func planCacheMPPDisableStatements() []string {
+	return []string{
+		"SET SESSION tidb_allow_mpp=OFF",
+		"SET SESSION tidb_enforce_mpp=OFF",
+	}
+}
+
+func shouldIgnorePlanCacheMPPDisableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if code, ok := mysqlErrCode(err); ok {
+		// Unknown system variable; keep compatibility with older TiDB versions.
+		if code == 1193 {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unknown system variable")
+}
+
+func (r *Runner) disableMPPForPlanCacheConn(ctx context.Context, conn *sql.Conn) error {
+	if r == nil || conn == nil {
+		return nil
+	}
+	for _, sqlText := range planCacheMPPDisableStatements() {
+		if err := r.execOnConn(ctx, conn, sqlText); err != nil {
+			if shouldIgnorePlanCacheMPPDisableError(err) {
+				continue
+			}
+			return err
+		}
+	}
 	return nil
 }
 

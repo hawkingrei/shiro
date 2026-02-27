@@ -96,8 +96,8 @@ func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	if !result.OK {
 		t.Fatalf("expected downgraded result to be OK")
 	}
-	if result.Err != nil {
-		t.Fatalf("expected downgraded result err to be cleared")
+	if result.Err == nil {
+		t.Fatalf("expected downgraded result err to be preserved for minimize replay")
 	}
 	skip, _ := result.Details["skip_reason"].(string)
 	if skip != "eet:missing_column" {
@@ -106,6 +106,13 @@ func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	skipErr, _ := result.Details["skip_error_reason"].(string)
 	if skipErr != "eet:missing_column" {
 		t.Fatalf("unexpected skip_error_reason: %s", skipErr)
+	}
+	allowMinimize, _ := result.Details[skipAllowMinimizeDetailKey].(bool)
+	if !allowMinimize {
+		t.Fatalf("expected skip_allow_minimize marker")
+	}
+	if !shouldCaptureSkipForMinimize(result) {
+		t.Fatalf("expected downgraded missing-column result to be captured for minimize")
 	}
 }
 
@@ -120,6 +127,28 @@ func TestDowngradeMissingColumnFalsePositiveSkipsPlanCache(t *testing.T) {
 	}
 	if result.Err == nil {
 		t.Fatalf("expected original error to be preserved")
+	}
+}
+
+func TestAnnotateResultForReportingKeepsSkipClassificationWhenMinimizeCaptureEnabled(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		OK:     true,
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
+		Details: map[string]any{
+			"skip_reason":              "eet:missing_column",
+			skipAllowMinimizeDetailKey: true,
+		},
+	}
+	annotateResultForReporting(&result)
+	if !result.OK {
+		t.Fatalf("expected skip-classified result to stay OK")
+	}
+	if _, ok := result.Details["error_reason"]; ok {
+		t.Fatalf("unexpected error_reason for skip-classified result")
+	}
+	if _, ok := result.Details["bug_hint"]; ok {
+		t.Fatalf("unexpected bug_hint for skip-classified result")
 	}
 }
 

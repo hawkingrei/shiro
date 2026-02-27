@@ -14,6 +14,11 @@ import (
 
 const replayTraceSQLMax = 400
 
+const (
+	replayForeignKeyChecksOffSQL = "SET SESSION FOREIGN_KEY_CHECKS=0"
+	replayForeignKeyChecksOnSQL  = "SET SESSION FOREIGN_KEY_CHECKS=1"
+)
+
 type replayTrace struct {
 	lastOp  string
 	lastSQL string
@@ -57,6 +62,29 @@ func closeReplayConn(conn *sql.Conn, trace *replayTrace) {
 	}
 }
 
+func wrapReplayInsertsWithForeignKeyChecks(inserts []string) []string {
+	normalized := make([]string, 0, len(inserts))
+	for _, stmt := range inserts {
+		trimmed := strings.TrimSpace(stmt)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	out := make([]string, 0, len(normalized)+2)
+	out = append(out, replayForeignKeyChecksOffSQL)
+	out = append(out, normalized...)
+	out = append(out, replayForeignKeyChecksOnSQL)
+	return out
+}
+
+func (r *Runner) execReplayInserts(ctx context.Context, conn *sql.Conn, inserts []string, trace *replayTrace) error {
+	if len(inserts) == 0 {
+		return nil
+	}
+	return execStatements(ctx, conn, wrapReplayInsertsWithForeignKeyChecks(inserts), r.validator, trace)
+}
+
 func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []string, result oracle.Result, spec replaySpec) bool {
 	if err := ctx.Err(); err != nil {
 		return false
@@ -77,7 +105,7 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 	if err := execStatements(ctx, conn, schemaSQL, r.validator, trace); err != nil {
 		return false
 	}
-	if err := execStatements(ctx, conn, inserts, r.validator, trace); err != nil {
+	if err := r.execReplayInserts(ctx, conn, inserts, trace); err != nil {
 		return false
 	}
 

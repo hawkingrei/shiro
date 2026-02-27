@@ -297,6 +297,11 @@ func (g *Generator) AddForeignKeySQL(state *schema.State) (string, *schema.Forei
 	if childCol.Name == "" || parentCol.Name == "" {
 		return "", nil
 	}
+	// For the common id->id path, avoid guaranteed failures when child IDs already
+	// exceed the parent's existing id range.
+	if childCol.Name == "id" && parentCol.Name == "id" && child.NextID > parent.NextID {
+		return "", nil
+	}
 	for _, fk := range child.ForeignKeys {
 		if fk.Column == childCol.Name && fk.RefTable == parent.Name && fk.RefColumn == parentCol.Name {
 			return "", nil

@@ -491,6 +491,9 @@ func (g *Generator) pickUpdatableColumn(tbl schema.Table) (schema.Column, bool) 
 		if col.Name == "id" {
 			continue
 		}
+		if _, ok := foreignKeyByColumn(tbl, col.Name); ok {
+			continue
+		}
 		candidates = append(candidates, col)
 	}
 	if len(candidates) == 0 {

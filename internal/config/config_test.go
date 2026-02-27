@@ -34,6 +34,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxJoinTables != 15 {
 		t.Fatalf("unexpected max join tables: %d", cfg.MaxJoinTables)
 	}
+	if cfg.Weights.Actions.DDL != 1 || cfg.Weights.Actions.DML != 1 || cfg.Weights.Actions.Query != 10 {
+		t.Fatalf(
+			"unexpected default action weights: ddl=%d dml=%d query=%d",
+			cfg.Weights.Actions.DDL,
+			cfg.Weights.Actions.DML,
+			cfg.Weights.Actions.Query,
+		)
+	}
 	if cfg.Logging.ReportIntervalSeconds != 30 {
 		t.Fatalf("unexpected report interval: %d", cfg.Logging.ReportIntervalSeconds)
 	}
@@ -45,6 +53,24 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != dqpComplexitySetOpsThresholdDefault {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("unexpected disable_mpp default: %t", cfg.Oracles.DisableMPP)
+	}
+	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
+		t.Fatalf("unexpected mpp.enable default: %v", cfg.MPP.Enable)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
+		t.Fatalf("unexpected mpp.tiflash_replica default: %v", cfg.MPP.TiFlashReplica)
 	}
 	if !cfg.QPG.Enabled {
 		t.Fatalf("expected qpg enabled by default")
@@ -227,8 +253,12 @@ func TestLoadDQPExternalHints(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	content := `oracles:
+  disable_mpp: true
+  mpp_tiflash_replica: 1
   dqp_base_hint_pick_limit: 6
   dqp_set_var_hint_pick_max: 7
+  dqp_complexity_set_ops_threshold: 5
+  dqp_complexity_derived_threshold: 6
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "HASH_JOIN"
@@ -258,6 +288,121 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.DQPSetVarHintPick != 7 {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != 5 {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != 6 {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if !cfg.Oracles.DisableMPP {
+		t.Fatalf("expected disable_mpp override to be true")
+	}
+}
+
+func TestLoadMPPBlockOverridesLegacyOracleSettings(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: false
+  tiflash_replica: 2
+oracles:
+  disable_mpp: false
+  mpp_tiflash_replica: 9
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp.enable=false to disable mpp")
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 2 {
+		t.Fatalf("unexpected tiflash replica from mpp block: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.Enable == nil || *cfg.MPP.Enable {
+		t.Fatalf("unexpected normalized mpp.enable: %v", cfg.MPP.Enable)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 2 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
+	}
+}
+
+func TestLoadMPPEnableTrueOverridesLegacyDisable(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: true
+oracles:
+  disable_mpp: true
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp.enable=true to override legacy disable_mpp")
+	}
+	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
+		t.Fatalf("unexpected normalized mpp.enable: %v", cfg.MPP.Enable)
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("expected mpp enabled default replica to be 1, got %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
+	}
+}
+
+func TestLoadMPPEnableWithZeroReplicaNormalizesToOne(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: true
+  tiflash_replica: 0
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp to stay enabled")
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("expected replica to normalize to 1, got %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
 	}
 }
 
@@ -294,5 +439,33 @@ func TestLoadGroupByExtensionFlags(t *testing.T) {
 	}
 	if !cfg.Features.GroupByGroupingSets {
 		t.Fatalf("expected group_by_grouping_sets enabled")
+	}
+}
+
+func TestNormalizeDQPComplexityThresholds(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `oracles:
+  dqp_complexity_set_ops_threshold: 0
+  dqp_complexity_derived_threshold: -1
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != dqpComplexitySetOpsThresholdDefault {
+		t.Fatalf("unexpected normalized dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
+		t.Fatalf("unexpected normalized dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
 	}
 }
