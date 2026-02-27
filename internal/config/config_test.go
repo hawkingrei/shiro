@@ -46,6 +46,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != dqpComplexitySetOpsThresholdDefault {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
+	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
@@ -243,6 +249,8 @@ func TestLoadDQPExternalHints(t *testing.T) {
   mpp_tiflash_replica: 1
   dqp_base_hint_pick_limit: 6
   dqp_set_var_hint_pick_max: 7
+  dqp_complexity_set_ops_threshold: 5
+  dqp_complexity_derived_threshold: 6
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "HASH_JOIN"
@@ -272,6 +280,12 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.DQPSetVarHintPick != 7 {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
+	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != 5 {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != 6 {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
 	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
@@ -417,5 +431,33 @@ func TestLoadGroupByExtensionFlags(t *testing.T) {
 	}
 	if !cfg.Features.GroupByGroupingSets {
 		t.Fatalf("expected group_by_grouping_sets enabled")
+	}
+}
+
+func TestNormalizeDQPComplexityThresholds(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `oracles:
+  dqp_complexity_set_ops_threshold: 0
+  dqp_complexity_derived_threshold: -1
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DQPComplexitySetOpsThreshold != dqpComplexitySetOpsThresholdDefault {
+		t.Fatalf("unexpected normalized dqp complexity set-ops threshold: %d", cfg.Oracles.DQPComplexitySetOpsThreshold)
+	}
+	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
+		t.Fatalf("unexpected normalized dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
 	}
 }

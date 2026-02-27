@@ -140,6 +140,8 @@ oracles:
   dqp_external_hints: []
   dqp_base_hint_pick_limit: 3
   dqp_set_var_hint_pick_max: 3
+  dqp_complexity_set_ops_threshold: 2
+  dqp_complexity_derived_threshold: 3
   cert_min_base_rows: 20
   groundtruth_max_rows: 50
   impo_max_rows: 50

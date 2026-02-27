@@ -25,11 +25,17 @@ func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
 const dqpComplexityJoinCountThreshold = 4
-const dqpComplexitySetOpsThreshold = 2
-const dqpComplexityDerivedThreshold = 3
+const dqpComplexitySetOpsThresholdDefault = 2
+const dqpComplexityDerivedThresholdDefault = 3
 const dqpComplexityFalseJoinThreshold = 3
 const dqpBaseHintPickLimitDefault = 3
 const dqpSetVarHintPickMaxDefault = 3
+
+const (
+	dqpComplexityConstraintSetOpsDerived  = "constraint:dqp_complexity_set_ops_derived"
+	dqpComplexityConstraintFalseJoinChain = "constraint:dqp_complexity_false_join_chain"
+	dqpComplexityConstraintFalseJoinRatio = "constraint:dqp_complexity_false_join_ratio"
+)
 
 var (
 	replaySetVarNamePattern      = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -53,6 +59,8 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	policy := predicatePolicyFor(gen)
 	policy.allowNot = true
 	policy.allowIsNull = true
+	setOpsThreshold := dqpComplexitySetOpsThreshold(gen)
+	derivedThreshold := dqpComplexityDerivedThreshold(gen)
 	spec := QuerySpec{
 		Oracle:          "dqp",
 		Profile:         ProfileByName("DQP"),
@@ -67,13 +75,17 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			DisallowSetOps:       true,
 			MaxJoinCount:         3,
 			MaxJoinCountSet:      true,
+			QueryGuardReason:     dqpComplexityQueryGuardReason(setOpsThreshold, derivedThreshold),
 		},
 		SkipReasonOverrides: map[string]string{
-			"constraint:limit":            "dqp:limit",
-			"constraint:window":           "dqp:window",
-			"constraint:set_ops":          "dqp:set_ops",
-			"constraint:nondeterministic": "dqp:nondeterministic",
-			"constraint:predicate_guard":  "dqp:predicate_guard",
+			"constraint:limit":                    "dqp:limit",
+			"constraint:window":                   "dqp:window",
+			"constraint:set_ops":                  "dqp:set_ops",
+			"constraint:nondeterministic":         "dqp:nondeterministic",
+			"constraint:predicate_guard":          "dqp:predicate_guard",
+			dqpComplexityConstraintSetOpsDerived:  "dqp:complexity_guard",
+			dqpComplexityConstraintFalseJoinChain: "dqp:complexity_guard",
+			dqpComplexityConstraintFalseJoinRatio: "dqp:complexity_guard",
 		},
 	}
 	query, details := buildQueryWithSpec(gen, spec)
@@ -85,9 +97,6 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 	if cteHasUnstableLimit(query) {
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "dqp:cte_limit"}}
-	}
-	if details, skip := dqpComplexitySkipDetails(query); skip {
-		return Result{OK: true, Oracle: o.Name(), Details: details}
 	}
 	hasSubquery := queryHasSubquery(query)
 	hasSemi := queryHasSemiJoinSubquery(query)
@@ -155,42 +164,39 @@ type dqpComplexityStats struct {
 	alwaysFalseJoins int
 }
 
-func dqpComplexitySkipDetails(query *generator.SelectQuery) (map[string]any, bool) {
+func dqpComplexitySetOpsThreshold(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPComplexitySetOpsThreshold <= 0 {
+		return dqpComplexitySetOpsThresholdDefault
+	}
+	return gen.Config.Oracles.DQPComplexitySetOpsThreshold
+}
+
+func dqpComplexityDerivedThreshold(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.DQPComplexityDerivedThreshold <= 0 {
+		return dqpComplexityDerivedThresholdDefault
+	}
+	return gen.Config.Oracles.DQPComplexityDerivedThreshold
+}
+
+func dqpComplexityQueryGuardReason(setOpsThreshold int, derivedThreshold int) func(*generator.SelectQuery) (bool, string) {
+	return func(query *generator.SelectQuery) (bool, string) {
+		reason := dqpComplexityGuardReason(query, setOpsThreshold, derivedThreshold)
+		return reason == "", reason
+	}
+}
+
+func dqpComplexityGuardReason(query *generator.SelectQuery, setOpsThreshold int, derivedThreshold int) string {
 	stats := dqpCollectComplexityStats(query)
-	if stats.setOps >= dqpComplexitySetOpsThreshold && stats.derivedTables >= dqpComplexityDerivedThreshold {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "set_ops_and_derived_tables",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_setops_derived_v1",
-		}, true
+	if stats.setOps >= setOpsThreshold && stats.derivedTables >= derivedThreshold {
+		return dqpComplexityConstraintSetOpsDerived
 	}
 	if stats.alwaysFalseJoins >= dqpComplexityFalseJoinThreshold {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "always_false_join_chain",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_false_join_v1",
-		}, true
+		return dqpComplexityConstraintFalseJoinChain
 	}
 	if stats.joinCount >= dqpComplexityJoinCountThreshold && stats.alwaysFalseJoins*2 >= stats.joinCount {
-		return map[string]any{
-			"skip_reason":                 "dqp:complexity_guard",
-			"dqp_complexity_reason":       "false_join_ratio_high",
-			"dqp_complexity_join_count":   stats.joinCount,
-			"dqp_complexity_set_ops":      stats.setOps,
-			"dqp_complexity_derived":      stats.derivedTables,
-			"dqp_complexity_false_joins":  stats.alwaysFalseJoins,
-			"dqp_complexity_threshold_id": "dqp_complexity_false_ratio_v1",
-		}, true
+		return dqpComplexityConstraintFalseJoinRatio
 	}
-	return nil, false
+	return ""
 }
 
 func dqpCollectComplexityStats(query *generator.SelectQuery) dqpComplexityStats {

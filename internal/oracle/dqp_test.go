@@ -434,7 +434,7 @@ func TestDQPReplaySetVarAssignment(t *testing.T) {
 	}
 }
 
-func TestDQPComplexitySkipDetailsSetOpsAndDerived(t *testing.T) {
+func TestDQPComplexityGuardReasonSetOpsAndDerived(t *testing.T) {
 	simpleDerived := &generator.SelectQuery{
 		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
 		From:  generator.FromClause{BaseTable: "t0"},
@@ -454,17 +454,17 @@ func TestDQPComplexitySkipDetailsSetOpsAndDerived(t *testing.T) {
 			{Type: generator.SetOperationIntersect, Query: simpleDerived},
 		},
 	}
-	details, skip := dqpComplexitySkipDetails(query)
-	if !skip {
-		t.Fatalf("expected complexity guard skip")
-	}
-	reason, _ := details["dqp_complexity_reason"].(string)
-	if reason != "set_ops_and_derived_tables" {
+	reason := dqpComplexityGuardReason(query, 2, 3)
+	if reason != dqpComplexityConstraintSetOpsDerived {
 		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+	reason = dqpComplexityGuardReason(query, 4, 4)
+	if reason != "" {
+		t.Fatalf("expected thresholds to allow query, got %s", reason)
 	}
 }
 
-func TestDQPComplexitySkipDetailsAlwaysFalseJoinChain(t *testing.T) {
+func TestDQPComplexityGuardReasonAlwaysFalseJoinChain(t *testing.T) {
 	falseJoin := generator.BinaryExpr{
 		Left:  generator.LiteralExpr{Value: 1},
 		Op:    "=",
@@ -481,13 +481,26 @@ func TestDQPComplexitySkipDetailsAlwaysFalseJoinChain(t *testing.T) {
 			},
 		},
 	}
-	details, skip := dqpComplexitySkipDetails(query)
-	if !skip {
-		t.Fatalf("expected complexity guard skip")
-	}
-	reason, _ := details["dqp_complexity_reason"].(string)
-	if reason != "always_false_join_chain" {
+	reason := dqpComplexityGuardReason(query, 2, 3)
+	if reason != dqpComplexityConstraintFalseJoinChain {
 		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+}
+
+func TestDQPComplexityThresholdsFromConfig(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPComplexitySetOpsThreshold = 5
+	cfg.Oracles.DQPComplexityDerivedThreshold = 6
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 29)
+	if got := dqpComplexitySetOpsThreshold(gen); got != 5 {
+		t.Fatalf("unexpected dqp complexity set-ops threshold: %d", got)
+	}
+	if got := dqpComplexityDerivedThreshold(gen); got != 6 {
+		t.Fatalf("unexpected dqp complexity derived threshold: %d", got)
 	}
 }
 
