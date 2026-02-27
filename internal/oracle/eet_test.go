@@ -355,6 +355,79 @@ func TestEETHasUnstableWindowRankIgnoresNonRankWindow(t *testing.T) {
 	}
 }
 
+func TestEETHasUnstableWindowAggregateWithoutOrderBy(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "sum",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "v0"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+	}
+	if !eetHasUnstableWindowAggregate(query) {
+		t.Fatalf("expected window aggregate without ORDER BY to be unstable")
+	}
+}
+
+func TestEETHasUnstableWindowAggregateWithNonUniqueTieOrder(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "avg",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "v0"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+	}
+	if !eetHasUnstableWindowAggregate(query) {
+		t.Fatalf("expected window aggregate with non-unique tie ORDER BY to be unstable")
+	}
+}
+
+func TestEETHasUnstableWindowAggregateWithTieBreaker(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "sum",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "v0"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}},
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+	}
+	if eetHasUnstableWindowAggregate(query) {
+		t.Fatalf("expected window aggregate with tie-breaker ORDER BY to be stable")
+	}
+}
+
 func TestEETShouldRetryNoTransform(t *testing.T) {
 	retryable := []string{
 		"eet:no_transform",

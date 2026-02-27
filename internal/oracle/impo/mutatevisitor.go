@@ -111,13 +111,25 @@ func (v *MutateVisitor) visitSetOprSelectList(in *ast.SetOprSelectList, flag int
 	for _, sel := range in.Selects {
 		switch sel := sel.(type) {
 		case *ast.SetOprSelectList:
-			v.visitSetOprSelectList(sel, flag)
+			v.visitSetOprSelectList(sel, setOprBranchFlag(flag, sel.AfterSetOperator))
 		case *ast.SelectStmt:
-			v.visitSelect(sel, flag)
+			v.visitSelect(sel, setOprBranchFlag(flag, sel.AfterSetOperator))
 		}
 	}
 
 	v.miningSetOprSelectList(in, flag)
+}
+
+func setOprBranchFlag(flag int, op *ast.SetOprType) int {
+	if op == nil {
+		return flag
+	}
+	switch *op {
+	case ast.Except, ast.ExceptAll:
+		return flag ^ 1
+	default:
+		return flag
+	}
 }
 
 func (v *MutateVisitor) visitWithClause(in *ast.WithClause, flag int) {

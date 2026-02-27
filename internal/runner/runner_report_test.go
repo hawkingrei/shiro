@@ -65,6 +65,41 @@ func TestGroundTruthDSGMismatchReasonFromDetails(t *testing.T) {
 	}
 }
 
+func TestWrapInsertsWithForeignKeyChecks(t *testing.T) {
+	got := wrapInsertsWithForeignKeyChecks([]string{
+		" INSERT INTO t VALUES (1) ",
+		"",
+		"\tINSERT INTO t VALUES (2)\n",
+	})
+	want := []string{
+		foreignKeyChecksOffSQL,
+		"INSERT INTO t VALUES (1)",
+		"INSERT INTO t VALUES (2)",
+		foreignKeyChecksOnSQL,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("wrapped len=%d want=%d got=%v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wrapped[%d]=%q want=%q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestWrapInsertsWithForeignKeyChecksEmpty(t *testing.T) {
+	got := wrapInsertsWithForeignKeyChecks(nil)
+	want := []string{foreignKeyChecksOffSQL, foreignKeyChecksOnSQL}
+	if len(got) != len(want) {
+		t.Fatalf("wrapped len=%d want=%d got=%v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wrapped[%d]=%q want=%q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestApplyMinimizeOutcomeFlakyBaseReplay(t *testing.T) {
 	summary := report.Summary{
 		MinimizeStatus: "in_progress",
@@ -239,8 +274,8 @@ func TestApplyRuntime1105ReproMetaAnnotatesNotApplicableKeepsGateReason(t *testi
 		BugHint:        "tidb:runtime_error",
 	}
 	details := map[string]any{
-		"error_reason":                  "pqs:runtime_1105",
-		"bug_hint":                      "tidb:runtime_error",
+		"error_reason":                 "pqs:runtime_1105",
+		"bug_hint":                     "tidb:runtime_error",
 		"runtime_bug_hint_gate_reason": "manual_triage",
 	}
 	applyRuntime1105ReproMeta(&summary, details)

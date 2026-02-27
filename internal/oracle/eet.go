@@ -111,6 +111,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		if eetHasUnstableWindowRank(query) {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:window_rank_unstable_order"}}
 		}
+		if eetHasUnstableWindowAggregate(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:window_agg_unstable_order"}}
+		}
 		if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
 				"skip_reason":     skipReason,
@@ -372,6 +375,14 @@ func eetDistinctOrderByCompatible(query *generator.SelectQuery) bool {
 }
 
 func eetHasUnstableWindowRank(query *generator.SelectQuery) bool {
+	return eetHasUnstableWindowBy(query, eetWindowRankUnstable)
+}
+
+func eetHasUnstableWindowAggregate(query *generator.SelectQuery) bool {
+	return eetHasUnstableWindowBy(query, eetWindowAggregateUnstable)
+}
+
+func eetHasUnstableWindowBy(query *generator.SelectQuery, unstable func(generator.WindowExpr, map[string]generator.WindowDef) bool) bool {
 	if query == nil {
 		return false
 	}
@@ -384,98 +395,98 @@ func eetHasUnstableWindowRank(query *generator.SelectQuery) bool {
 		windowDefs[name] = def
 	}
 	for _, item := range query.Items {
-		if eetExprHasUnstableWindowRank(item.Expr, windowDefs) {
+		if eetExprHasUnstableWindowBy(item.Expr, windowDefs, unstable) {
 			return true
 		}
 	}
-	if query.Where != nil && eetExprHasUnstableWindowRank(query.Where, windowDefs) {
+	if query.Where != nil && eetExprHasUnstableWindowBy(query.Where, windowDefs, unstable) {
 		return true
 	}
-	if query.Having != nil && eetExprHasUnstableWindowRank(query.Having, windowDefs) {
+	if query.Having != nil && eetExprHasUnstableWindowBy(query.Having, windowDefs, unstable) {
 		return true
 	}
 	for _, expr := range query.GroupBy {
-		if eetExprHasUnstableWindowRank(expr, windowDefs) {
+		if eetExprHasUnstableWindowBy(expr, windowDefs, unstable) {
 			return true
 		}
 	}
 	for _, ob := range query.OrderBy {
-		if eetExprHasUnstableWindowRank(ob.Expr, windowDefs) {
+		if eetExprHasUnstableWindowBy(ob.Expr, windowDefs, unstable) {
 			return true
 		}
 	}
 	for _, join := range query.From.Joins {
-		if join.On != nil && eetExprHasUnstableWindowRank(join.On, windowDefs) {
+		if join.On != nil && eetExprHasUnstableWindowBy(join.On, windowDefs, unstable) {
 			return true
 		}
 	}
 	return false
 }
 
-func eetExprHasUnstableWindowRank(expr generator.Expr, defs map[string]generator.WindowDef) bool {
+func eetExprHasUnstableWindowBy(expr generator.Expr, defs map[string]generator.WindowDef, unstable func(generator.WindowExpr, map[string]generator.WindowDef) bool) bool {
 	switch e := expr.(type) {
 	case nil:
 		return false
 	case generator.WindowExpr:
-		if eetWindowRankUnstable(e, defs) {
+		if unstable(e, defs) {
 			return true
 		}
 		for _, arg := range e.Args {
-			if eetExprHasUnstableWindowRank(arg, defs) {
+			if eetExprHasUnstableWindowBy(arg, defs, unstable) {
 				return true
 			}
 		}
 		for _, part := range e.PartitionBy {
-			if eetExprHasUnstableWindowRank(part, defs) {
+			if eetExprHasUnstableWindowBy(part, defs, unstable) {
 				return true
 			}
 		}
 		for _, ob := range e.OrderBy {
-			if eetExprHasUnstableWindowRank(ob.Expr, defs) {
+			if eetExprHasUnstableWindowBy(ob.Expr, defs, unstable) {
 				return true
 			}
 		}
 		return false
 	case generator.UnaryExpr:
-		return eetExprHasUnstableWindowRank(e.Expr, defs)
+		return eetExprHasUnstableWindowBy(e.Expr, defs, unstable)
 	case generator.BinaryExpr:
-		return eetExprHasUnstableWindowRank(e.Left, defs) || eetExprHasUnstableWindowRank(e.Right, defs)
+		return eetExprHasUnstableWindowBy(e.Left, defs, unstable) || eetExprHasUnstableWindowBy(e.Right, defs, unstable)
 	case generator.FuncExpr:
 		for _, arg := range e.Args {
-			if eetExprHasUnstableWindowRank(arg, defs) {
+			if eetExprHasUnstableWindowBy(arg, defs, unstable) {
 				return true
 			}
 		}
 		return false
 	case generator.CaseExpr:
 		for _, w := range e.Whens {
-			if eetExprHasUnstableWindowRank(w.When, defs) || eetExprHasUnstableWindowRank(w.Then, defs) {
+			if eetExprHasUnstableWindowBy(w.When, defs, unstable) || eetExprHasUnstableWindowBy(w.Then, defs, unstable) {
 				return true
 			}
 		}
 		if e.Else != nil {
-			return eetExprHasUnstableWindowRank(e.Else, defs)
+			return eetExprHasUnstableWindowBy(e.Else, defs, unstable)
 		}
 		return false
 	case generator.InExpr:
-		if eetExprHasUnstableWindowRank(e.Left, defs) {
+		if eetExprHasUnstableWindowBy(e.Left, defs, unstable) {
 			return true
 		}
 		for _, item := range e.List {
-			if eetExprHasUnstableWindowRank(item, defs) {
+			if eetExprHasUnstableWindowBy(item, defs, unstable) {
 				return true
 			}
 		}
 		return false
 	case generator.SubqueryExpr:
-		return eetHasUnstableWindowRank(e.Query)
+		return eetHasUnstableWindowBy(e.Query, unstable)
 	case generator.ExistsExpr:
-		return eetHasUnstableWindowRank(e.Query)
+		return eetHasUnstableWindowBy(e.Query, unstable)
 	case generator.GroupByOrdinalExpr:
 		if e.Expr == nil {
 			return false
 		}
-		return eetExprHasUnstableWindowRank(e.Expr, defs)
+		return eetExprHasUnstableWindowBy(e.Expr, defs, unstable)
 	default:
 		return false
 	}
@@ -483,6 +494,47 @@ func eetExprHasUnstableWindowRank(expr generator.Expr, defs map[string]generator
 
 func eetWindowRankUnstable(expr generator.WindowExpr, defs map[string]generator.WindowDef) bool {
 	if !eetRankWindowFunction(expr.Name) {
+		return false
+	}
+	partitionBy, orderBy := eetResolveWindowSpec(expr, defs)
+	if len(orderBy) == 0 {
+		return true
+	}
+	allConstant := true
+	for _, ob := range orderBy {
+		if !exprIsConstant(ob.Expr) {
+			allConstant = false
+			break
+		}
+	}
+	if allConstant {
+		return true
+	}
+	partitionKeys := make(map[string]struct{}, len(partitionBy))
+	for _, expr := range partitionBy {
+		key := eetExprKey(expr)
+		if key == "" {
+			continue
+		}
+		partitionKeys[key] = struct{}{}
+	}
+	if len(partitionKeys) == 0 {
+		return false
+	}
+	for _, ob := range orderBy {
+		key := eetExprKey(ob.Expr)
+		if key == "" {
+			return false
+		}
+		if _, ok := partitionKeys[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func eetWindowAggregateUnstable(expr generator.WindowExpr, defs map[string]generator.WindowDef) bool {
+	if !eetAggregateWindowFunction(expr.Name) {
 		return false
 	}
 	partitionBy, orderBy := eetResolveWindowSpec(expr, defs)
@@ -545,6 +597,16 @@ func eetResolveWindowSpec(expr generator.WindowExpr, defs map[string]generator.W
 func eetRankWindowFunction(name string) bool {
 	switch strings.ToUpper(strings.TrimSpace(name)) {
 	case "ROW_NUMBER", "RANK", "DENSE_RANK":
+		return true
+	default:
+		return false
+	}
+}
+
+func eetAggregateWindowFunction(name string) bool {
+	switch strings.ToUpper(strings.TrimSpace(name)) {
+	case "SUM", "AVG", "COUNT", "MIN", "MAX", "BIT_AND", "BIT_OR", "BIT_XOR",
+		"STD", "STDDEV", "STDDEV_POP", "STDDEV_SAMP", "VAR_POP", "VAR_SAMP", "VARIANCE":
 		return true
 	default:
 		return false
