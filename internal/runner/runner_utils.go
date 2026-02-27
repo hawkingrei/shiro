@@ -62,7 +62,10 @@ func materializeSQL(sqlText string, args []any) string {
 	return b.String()
 }
 
-func shouldApplyTiFlashReplica(tbl *schema.Table, replicas int) bool {
+func shouldApplyTiFlashReplica(tbl *schema.Table, replicas int, disableMPP bool) bool {
+	if disableMPP {
+		return false
+	}
 	if tbl == nil || tbl.IsView {
 		return false
 	}

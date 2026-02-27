@@ -488,11 +488,14 @@ func dqpSetVarHintPickMax(gen *generator.Generator) int {
 
 func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
 	var candidates []string
+	disableMPP := dqpDisableMPP(gen)
 	if hasJoin {
 		candidates = append(candidates, toggleHints(SetVarEnableHashJoinOn, SetVarEnableHashJoinOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableOuterJoinReorderOn, SetVarEnableOuterJoinReorderOff)...)
 		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
-		candidates = append(candidates, toggleHints(SetVarAllowMPPOn, SetVarAllowMPPOff)...)
+		if !disableMPP {
+			candidates = append(candidates, toggleHints(SetVarAllowMPPOn, SetVarAllowMPPOff)...)
+		}
 	}
 	candidates = append(candidates, toggleHints(SetVarPartialOrderedTopNCost, SetVarPartialOrderedTopNDisable)...)
 	if hasSubquery {
@@ -534,6 +537,7 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 	if len(rawHints) == 0 {
 		return nil, nil
 	}
+	disableMPP := dqpDisableMPP(gen)
 	baseHints = make([]string, 0, len(rawHints))
 	setVarHints = make([]string, 0, len(rawHints))
 	for _, raw := range rawHints {
@@ -547,6 +551,9 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 		setVarHint, isSetVar, valid := normalizeSetVarHint(trimmed)
 		if isSetVar {
 			if valid {
+				if disableMPP && isMPPSetVarHint(setVarHint) {
+					continue
+				}
 				setVarHints = append(setVarHints, setVarHint)
 			}
 			continue
@@ -554,6 +561,29 @@ func dqpExternalHintCandidates(gen *generator.Generator, tables []string, noArgH
 		baseHints = append(baseHints, buildHintSQL(trimmed, tables, noArgHints))
 	}
 	return baseHints, setVarHints
+}
+
+func dqpDisableMPP(gen *generator.Generator) bool {
+	return gen != nil && gen.Config.Oracles.DisableMPP
+}
+
+func isMPPSetVarHint(hint string) bool {
+	trimmed := strings.TrimSpace(hint)
+	upper := strings.ToUpper(trimmed)
+	if !strings.HasPrefix(upper, "SET_VAR(") || !strings.HasSuffix(trimmed, ")") {
+		return false
+	}
+	assignment := strings.TrimSpace(trimmed[len("SET_VAR(") : len(trimmed)-1])
+	name, _, ok := strings.Cut(assignment, "=")
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "tidb_allow_mpp", "tidb_enforce_mpp":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeSetVarHint(raw string) (hint string, isSetVar bool, valid bool) {

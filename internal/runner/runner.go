@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -166,6 +167,8 @@ const viewDDLBoostProb = 70
 const minimizeReasonRunnerRecoveredInterrupted = "runner_recovered_interrupted"
 const tiflashReplicaReadyPollInterval = 100 * time.Millisecond
 const tiflashReplicaReadyTimeout = 2 * time.Minute
+
+var errWaitTiFlashReplicaReadyTimeout = errors.New("wait tiflash replica ready timeout")
 
 // New constructs a Runner for the given config and DB.
 func New(cfg config.Config, exec *db.DB) *Runner {
@@ -558,7 +561,7 @@ func (r *Runner) applyTiFlashReplica(ctx context.Context, tbl *schema.Table) err
 		return nil
 	}
 	replicas := r.cfg.Oracles.MPPTiFlashReplica
-	if !shouldApplyTiFlashReplica(tbl, replicas) {
+	if !shouldApplyTiFlashReplica(tbl, replicas, r.cfg.Oracles.DisableMPP) {
 		return nil
 	}
 	sql := tiFlashReplicaSQL(tbl.Name, replicas)
@@ -590,6 +593,9 @@ func (r *Runner) waitTiFlashReplicaReady(ctx context.Context) error {
 		}
 		select {
 		case <-waitCtx.Done():
+			if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+				return errWaitTiFlashReplicaReadyTimeout
+			}
 			return waitCtx.Err()
 		case <-ticker.C:
 		}

@@ -49,6 +49,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.MPPTiFlashReplica != 0 {
 		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("unexpected disable_mpp default: %t", cfg.Oracles.DisableMPP)
+	}
+	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
+		t.Fatalf("unexpected mpp.enable default: %v", cfg.MPP.Enable)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 0 {
+		t.Fatalf("unexpected mpp.tiflash_replica default: %v", cfg.MPP.TiFlashReplica)
+	}
 	if !cfg.QPG.Enabled {
 		t.Fatalf("expected qpg enabled by default")
 	}
@@ -230,6 +239,7 @@ func TestLoadDQPExternalHints(t *testing.T) {
 		t.Fatalf("create temp file: %v", err)
 	}
 	content := `oracles:
+  disable_mpp: true
   mpp_tiflash_replica: 1
   dqp_base_hint_pick_limit: 6
   dqp_set_var_hint_pick_max: 7
@@ -265,6 +275,75 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if !cfg.Oracles.DisableMPP {
+		t.Fatalf("expected disable_mpp override to be true")
+	}
+}
+
+func TestLoadMPPBlockOverridesLegacyOracleSettings(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: false
+  tiflash_replica: 2
+oracles:
+  disable_mpp: false
+  mpp_tiflash_replica: 9
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp.enable=false to disable mpp")
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 2 {
+		t.Fatalf("unexpected tiflash replica from mpp block: %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.Enable == nil || *cfg.MPP.Enable {
+		t.Fatalf("unexpected normalized mpp.enable: %v", cfg.MPP.Enable)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 2 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
+	}
+}
+
+func TestLoadMPPEnableTrueOverridesLegacyDisable(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: true
+oracles:
+  disable_mpp: true
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp.enable=true to override legacy disable_mpp")
+	}
+	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
+		t.Fatalf("unexpected normalized mpp.enable: %v", cfg.MPP.Enable)
 	}
 }
 

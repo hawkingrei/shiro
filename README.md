@@ -64,7 +64,9 @@ Set it to `false` if you want broader coverage at the cost of more noisy cases.
 ## DQP external hint injection
 DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` and join-path `SET_VAR(tidb_allow_mpp=ON|OFF)` in its built-in SET_VAR candidates.
 You can also inject extra DQP hints from config via `oracles.dqp_external_hints`.
-To prepare TiFlash-based MPP plans, set `oracles.mpp_tiflash_replica` to a positive value so Shiro issues `ALTER TABLE ... SET TIFLASH REPLICA <n>` after each base-table creation, then waits (100ms polling, 2m timeout) until `SELECT COUNT(*) FROM information_schema.tiflash_replica WHERE AVAILABLE=0` becomes `0`.
+To prepare TiFlash-based MPP plans, set `mpp.tiflash_replica` to a positive value so Shiro issues `ALTER TABLE ... SET TIFLASH REPLICA <n>` after each base-table creation, then waits (100ms polling, 2m timeout) until `SELECT COUNT(*) FROM information_schema.tiflash_replica WHERE AVAILABLE=0` becomes `0`.
+To globally disable Shiro-managed MPP exploration, set `mpp.enable: false`; this disables TiFlash replica provisioning and removes DQP MPP SET_VAR hints (`tidb_allow_mpp`, `tidb_enforce_mpp`) from built-in/external candidates.
+Legacy oracle-level keys (`oracles.disable_mpp`, `oracles.mpp_tiflash_replica`) are still accepted for compatibility.
 
 Each entry can be either:
 - a full optimizer hint, for example `HASH_JOIN(t1, t2)` or `SET_VAR(tidb_opt_use_toja=OFF)`
@@ -73,8 +75,10 @@ Each entry can be either:
 Example:
 
 ```yaml
+mpp:
+  enable: false
+  tiflash_replica: 1
 oracles:
-  mpp_tiflash_replica: 1
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "tidb_opt_partial_ordered_index_for_topn='DISABLE'"
@@ -132,6 +136,7 @@ qpg:
 ## Plan cache only
 Set `plan_cache_only: true` for a focused plan-cache run that executes only prepared statements.
 In normal mode, Shiro still runs prepared statements and applies the same plan-cache checks; this flag just isolates that workflow.
+Prepared plan-cache paths force `tidb_allow_mpp=OFF` (and try `tidb_enforce_mpp=OFF`) on the session to avoid MPP-plan noise in cache-hit checks.
 The plan-cache check verifies `SELECT @@last_plan_from_cache = 1` on the second execution (when no warning indicates a cache skip).
 On a detected bug, the runner switches to a fresh database (`<database>_rN`) and reinitializes schema/data.
 Plan-cache-only cases now record the exact `PREPARE`/`EXECUTE` SQL and parameter values in the case files.

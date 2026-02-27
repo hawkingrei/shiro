@@ -128,12 +128,15 @@ logging:
     impo_invalid_columns_max_ratio: 0.05
     impo_base_exec_failed_max_ratio: 0.02
 
+mpp:
+  enable: true
+  tiflash_replica: 0
+
 oracles:
   strict_predicates: true
   predicate_level: "strict"
   join_on_policy: "simple"
   join_using_prob: -1
-  mpp_tiflash_replica: 0
   dqp_external_hints: []
   dqp_base_hint_pick_limit: 3
   dqp_set_var_hint_pick_max: 3

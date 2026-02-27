@@ -166,6 +166,23 @@ func TestDQPSetVarHintCandidatesSkipMPPWithoutJoin(t *testing.T) {
 	}
 }
 
+func TestDQPSetVarHintCandidatesSkipMPPWhenDisabled(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DisableMPP = true
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 17)
+	candidates := dqpSetVarHintCandidates(gen, 3, true, true, true, true, true, true, nil)
+	if containsHint(candidates, SetVarAllowMPPOn) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarAllowMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarAllowMPPOff) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
 func TestDQPExternalHintCandidates(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -231,6 +248,39 @@ func TestDQPExternalHintCandidatesSkipsUnsafeAndMalformed(t *testing.T) {
 		if strings.Contains(hint, "*/") {
 			t.Fatalf("unexpected unsafe hint in candidates: %q", hint)
 		}
+	}
+}
+
+func TestDQPExternalHintCandidatesSkipMPPSetVarWhenDisabled(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DisableMPP = true
+	cfg.Oracles.DQPExternalHints = []string{
+		"tidb_allow_mpp=ON",
+		"SET_VAR(tidb_enforce_mpp=ON)",
+		"SET_VAR(tidb_opt_use_toja=OFF)",
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 19)
+	noArgHints := map[string]struct{}{
+		HintStraightJoin:    {},
+		HintSemiJoinRewrite: {},
+		HintNoDecorrelate:   {},
+		HintHashAgg:         {},
+		HintStreamAgg:       {},
+		HintAggToCop:        {},
+	}
+	_, setVarHints := dqpExternalHintCandidates(gen, []string{"t1", "t2"}, noArgHints)
+	if containsHint(setVarHints, "SET_VAR(tidb_allow_mpp=ON)") {
+		t.Fatalf("did not expect tidb_allow_mpp hint when disable_mpp is true: %v", setVarHints)
+	}
+	if containsHint(setVarHints, "SET_VAR(tidb_enforce_mpp=ON)") {
+		t.Fatalf("did not expect tidb_enforce_mpp hint when disable_mpp is true: %v", setVarHints)
+	}
+	if !containsHint(setVarHints, "SET_VAR(tidb_opt_use_toja=OFF)") {
+		t.Fatalf("expected non-mpp set-var hint to remain, got %v", setVarHints)
 	}
 }
 

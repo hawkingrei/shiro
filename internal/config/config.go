@@ -34,6 +34,7 @@ type Config struct {
 	Adaptive            Adaptive           `yaml:"adaptive"`
 	Logging             Logging            `yaml:"logging"`
 	Oracles             OracleConfig       `yaml:"oracles"`
+	MPP                 MPPConfig          `yaml:"mpp"`
 	QPG                 QPGConfig          `yaml:"qpg"`
 	KQE                 KQEConfig          `yaml:"kqe"`
 	TQS                 TQSConfig          `yaml:"tqs"`
@@ -179,6 +180,7 @@ type OracleConfig struct {
 	PredicateLevel     string            `yaml:"predicate_level"`
 	JoinOnPolicy       string            `yaml:"join_on_policy"`
 	JoinUsingProb      int               `yaml:"join_using_prob"`
+	DisableMPP         bool              `yaml:"disable_mpp"`
 	MPPTiFlashReplica  int               `yaml:"mpp_tiflash_replica"`
 	DQPExternalHints   []string          `yaml:"dqp_external_hints"`
 	DQPBaseHintPick    int               `yaml:"dqp_base_hint_pick_limit"`
@@ -192,6 +194,19 @@ type OracleConfig struct {
 	ImpoDisableStage1  bool              `yaml:"impo_disable_stage1"`
 	ImpoKeepLRJoin     bool              `yaml:"impo_keep_lr_join"`
 	EETRewrites        EETRewriteWeights `yaml:"eet_rewrites"`
+}
+
+// MPPConfig controls MPP-specific exploration switches.
+//
+// Enable=false disables Shiro-managed MPP paths (TiFlash replica setup and DQP
+// MPP set-var hints). TiFlashReplica configures table-level TiFlash replicas.
+//
+// Note: legacy oracle-level keys are still accepted for compatibility:
+// - oracles.disable_mpp
+// - oracles.mpp_tiflash_replica
+type MPPConfig struct {
+	Enable         *bool `yaml:"enable"`
+	TiFlashReplica *int  `yaml:"tiflash_replica"`
 }
 
 // EETRewriteWeights controls rewrite selection inside the EET oracle.
@@ -357,6 +372,7 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Database != "" {
 		cfg.DSN = ensureDatabaseInDSN(cfg.DSN, cfg.Database)
 	}
+	applyMPPOverrides(cfg)
 	if cfg.Features.ViewMax <= 0 {
 		cfg.Features.ViewMax = ViewMaxDefault
 	}
@@ -384,6 +400,7 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Oracles.MPPTiFlashReplica < 0 {
 		cfg.Oracles.MPPTiFlashReplica = 0
 	}
+	syncMPPConfig(cfg)
 	if cfg.Oracles.CODDCaseWhenMax <= 0 {
 		cfg.Oracles.CODDCaseWhenMax = coddtestCaseWhenMaxDefault
 	}
@@ -441,6 +458,28 @@ func normalizeConfig(cfg *Config) {
 	if cfg.QPG.TemplateOverride.OverrideTTL <= 0 {
 		cfg.QPG.TemplateOverride.OverrideTTL = qpgTemplateOverrideTTLDefault
 	}
+}
+
+func applyMPPOverrides(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if cfg.MPP.Enable != nil {
+		cfg.Oracles.DisableMPP = !*cfg.MPP.Enable
+	}
+	if cfg.MPP.TiFlashReplica != nil {
+		cfg.Oracles.MPPTiFlashReplica = *cfg.MPP.TiFlashReplica
+	}
+}
+
+func syncMPPConfig(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	enable := !cfg.Oracles.DisableMPP
+	replica := cfg.Oracles.MPPTiFlashReplica
+	cfg.MPP.Enable = &enable
+	cfg.MPP.TiFlashReplica = &replica
 }
 
 func ensureDatabaseInDSN(dsn string, dbName string) string {
@@ -565,6 +604,7 @@ func defaultConfig() Config {
 			PredicateLevel:     "strict",
 			JoinOnPolicy:       "simple",
 			JoinUsingProb:      -1,
+			DisableMPP:         false,
 			MPPTiFlashReplica:  0,
 			DQPBaseHintPick:    dqpBaseHintPickLimitDefault,
 			DQPSetVarHintPick:  dqpSetVarHintPickMaxDefault,
