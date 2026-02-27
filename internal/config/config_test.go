@@ -46,7 +46,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPSetVarHintPick != dqpSetVarHintPickMaxDefault {
 		t.Fatalf("unexpected dqp set-var hint pick max: %d", cfg.Oracles.DQPSetVarHintPick)
 	}
-	if cfg.Oracles.MPPTiFlashReplica != 0 {
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
 	if cfg.Oracles.DisableMPP {
@@ -55,7 +55,7 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
 		t.Fatalf("unexpected mpp.enable default: %v", cfg.MPP.Enable)
 	}
-	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 0 {
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp.tiflash_replica default: %v", cfg.MPP.TiFlashReplica)
 	}
 	if !cfg.QPG.Enabled {
@@ -344,6 +344,43 @@ oracles:
 	}
 	if cfg.MPP.Enable == nil || !*cfg.MPP.Enable {
 		t.Fatalf("unexpected normalized mpp.enable: %v", cfg.MPP.Enable)
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("expected mpp enabled default replica to be 1, got %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
+	}
+}
+
+func TestLoadMPPEnableWithZeroReplicaNormalizesToOne(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `mpp:
+  enable: true
+  tiflash_replica: 0
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Oracles.DisableMPP {
+		t.Fatalf("expected mpp to stay enabled")
+	}
+	if cfg.Oracles.MPPTiFlashReplica != 1 {
+		t.Fatalf("expected replica to normalize to 1, got %d", cfg.Oracles.MPPTiFlashReplica)
+	}
+	if cfg.MPP.TiFlashReplica == nil || *cfg.MPP.TiFlashReplica != 1 {
+		t.Fatalf("unexpected normalized mpp.tiflash_replica: %v", cfg.MPP.TiFlashReplica)
 	}
 }
 

@@ -400,6 +400,9 @@ func normalizeConfig(cfg *Config) {
 	if cfg.Oracles.MPPTiFlashReplica < 0 {
 		cfg.Oracles.MPPTiFlashReplica = 0
 	}
+	if !cfg.Oracles.DisableMPP && cfg.Oracles.MPPTiFlashReplica <= 0 {
+		cfg.Oracles.MPPTiFlashReplica = 1
+	}
 	syncMPPConfig(cfg)
 	if cfg.Oracles.CODDCaseWhenMax <= 0 {
 		cfg.Oracles.CODDCaseWhenMax = coddtestCaseWhenMaxDefault

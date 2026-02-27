@@ -64,7 +64,7 @@ Set it to `false` if you want broader coverage at the cost of more noisy cases.
 ## DQP external hint injection
 DQP now includes `SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST'|'DISABLE')` and join-path `SET_VAR(tidb_allow_mpp=ON|OFF)` in its built-in SET_VAR candidates.
 You can also inject extra DQP hints from config via `oracles.dqp_external_hints`.
-To prepare TiFlash-based MPP plans, set `mpp.tiflash_replica` to a positive value so Shiro issues `ALTER TABLE ... SET TIFLASH REPLICA <n>` after each base-table creation, then waits (100ms polling, 2m timeout) until `SELECT COUNT(*) FROM information_schema.tiflash_replica WHERE AVAILABLE=0` becomes `0`.
+When MPP is enabled (`mpp.enable: true`), Shiro normalizes `mpp.tiflash_replica` to at least `1` and issues `ALTER TABLE ... SET TIFLASH REPLICA <n>` after each base-table creation, then waits (100ms polling, 2m timeout) until `SELECT COUNT(*) FROM information_schema.tiflash_replica WHERE AVAILABLE=0` becomes `0`.
 To globally disable Shiro-managed MPP exploration, set `mpp.enable: false`; this disables TiFlash replica provisioning and removes DQP MPP SET_VAR hints (`tidb_allow_mpp`, `tidb_enforce_mpp`) from built-in/external candidates.
 Legacy oracle-level keys (`oracles.disable_mpp`, `oracles.mpp_tiflash_replica`) are still accepted for compatibility.
 

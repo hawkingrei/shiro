@@ -130,7 +130,7 @@ logging:
 
 mpp:
   enable: true
-  tiflash_replica: 0
+  tiflash_replica: 1
 
 oracles:
   strict_predicates: true
