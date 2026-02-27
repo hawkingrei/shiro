@@ -355,6 +355,9 @@ func (r *Runner) initState(ctx context.Context) error {
 		insertCount := max(1, r.cfg.MaxRowsPerTable/5)
 		for j := 0; j < insertCount; j++ {
 			insertSQL := r.gen.InsertSQL(tablePtr)
+			if strings.TrimSpace(insertSQL) == "" {
+				continue
+			}
 			if err := r.execSQL(ctx, insertSQL); err != nil {
 				if _, ok := isWhitelistedSQLError(err); ok {
 					continue
@@ -482,7 +485,9 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 			r.state.Tables = r.state.Tables[:len(r.state.Tables)-1]
 			return
 		}
-		_ = r.execSQL(ctx, r.gen.InsertSQL(tablePtr))
+		if insertSQL := r.gen.InsertSQL(tablePtr); strings.TrimSpace(insertSQL) != "" {
+			_ = r.execSQL(ctx, insertSQL)
+		}
 		if r.cfg.TQS.Enabled && r.tqsHistory != nil {
 			r.tqsHistory.Refresh(r.state)
 		}
@@ -653,7 +658,9 @@ func (r *Runner) runDML(ctx context.Context) {
 	tbl := baseTables[r.gen.Rand.Intn(len(baseTables))]
 	switch choice {
 	case 0:
-		_ = r.execSQL(ctx, r.gen.InsertSQL(tbl))
+		if insertSQL := r.gen.InsertSQL(tbl); strings.TrimSpace(insertSQL) != "" {
+			_ = r.execSQL(ctx, insertSQL)
+		}
 	case 1:
 		updateSQL, _, _, _ := r.gen.UpdateSQL(*tbl)
 		if updateSQL != "" {
