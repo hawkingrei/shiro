@@ -120,7 +120,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	hasCTE := len(query.With) > 0
 	hasPartition := queryHasPartitionedTable(query, state)
-	variants := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
+	variants, variantMetrics := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
 	for _, variant := range variants {
 		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
 		if err != nil {
@@ -151,10 +151,11 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Expected: fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
 				Actual:   fmt.Sprintf("cnt=%d checksum=%d", variantSig.Count, variantSig.Checksum),
 				Details:  details,
+				Metrics:  variantMetrics.resultMetrics(),
 			}
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Metrics: variantMetrics.resultMetrics()}
 }
 
 type dqpComplexityStats struct {
@@ -364,13 +365,56 @@ type dqpVariant struct {
 	hint         string
 }
 
-func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) []dqpVariant {
+type dqpVariantMetrics struct {
+	hintInjectedTotal  int64
+	hintFallbackTotal  int64
+	setVarVariantTotal int64
+}
+
+func (m *dqpVariantMetrics) observeVariant(baseSQL string, variantSQL string, hint string) {
+	if m == nil {
+		return
+	}
+	if variantSQL != baseSQL {
+		m.hintInjectedTotal++
+	} else {
+		m.hintFallbackTotal++
+	}
+	if dqpHintContainsSetVar(hint) {
+		m.setVarVariantTotal++
+	}
+}
+
+func (m dqpVariantMetrics) resultMetrics() map[string]int64 {
+	if m.hintInjectedTotal == 0 && m.hintFallbackTotal == 0 && m.setVarVariantTotal == 0 {
+		return nil
+	}
+	return map[string]int64{
+		"dqp_hint_injected_total":   m.hintInjectedTotal,
+		"dqp_hint_fallback_total":   m.hintFallbackTotal,
+		"dqp_set_var_variant_total": m.setVarVariantTotal,
+	}
+}
+
+func dqpHintContainsSetVar(hint string) bool {
+	for _, token := range splitTopLevelHintList(hint) {
+		trimmed := strings.TrimSpace(token)
+		if strings.HasPrefix(strings.ToUpper(trimmed), "SET_VAR(") {
+			return true
+		}
+	}
+	return false
+}
+
+func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) ([]dqpVariant, dqpVariantMetrics) {
 	tables := make([]string, 0, 1+len(query.From.Joins))
 	tables = append(tables, query.From.BaseTable)
 	for _, join := range query.From.Joins {
 		tables = append(tables, join.Table)
 	}
 	hasJoin := len(query.From.Joins) > 0
+	baseSQL := query.SQLString()
+	metrics := dqpVariantMetrics{}
 
 	noArgHints := map[string]struct{}{
 		HintStraightJoin:    {},
@@ -387,6 +431,7 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	for _, hintSQL := range baseHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 
@@ -394,11 +439,13 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	for _, hintSQL := range setVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, MaxCombinedHintVariants) {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
 		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
 	}
 	if state != nil {
@@ -417,12 +464,13 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 			for _, hint := range pickHintsWithBandit(gen, hints, len(hints)) {
 				variantSQL := injectHint(query, hint)
 				variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+				metrics.observeVariant(baseSQL, variantSQL, hint)
 				variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hint})
 			}
 		}
 	}
 
-	return variants
+	return variants, metrics
 }
 
 func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}, externalBaseHints []string) []string {

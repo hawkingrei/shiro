@@ -452,6 +452,15 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 	if v, ok := result.Metrics["impo_trunc"]; ok {
 		r.impoTrunc += v
 	}
+	if v, ok := result.Metrics["dqp_hint_injected_total"]; ok {
+		r.dqpHintInjectedTotal += v
+	}
+	if v, ok := result.Metrics["dqp_hint_fallback_total"]; ok {
+		r.dqpHintFallbackTotal += v
+	}
+	if v, ok := result.Metrics["dqp_set_var_variant_total"]; ok {
+		r.dqpSetVarVariantTotal += v
+	}
 	if result.Oracle == "Impo" && result.Details != nil {
 		if reason, ok := result.Details["impo_skip_reason"].(string); ok && reason != "" {
 			if r.impoSkipReasons == nil {
@@ -547,6 +556,9 @@ func (r *Runner) startStatsLogger() func() {
 		var lastImpoTotal int64
 		var lastImpoSkips int64
 		var lastImpoTrunc int64
+		var lastDQPHintInjectedTotal int64
+		var lastDQPHintFallbackTotal int64
+		var lastDQPSetVarVariantTotal int64
 		var lastViewQueries int64
 		var lastViewTableRefs int64
 		var lastPlans int
@@ -631,6 +643,9 @@ func (r *Runner) startStatsLogger() func() {
 				impoTotal := r.impoTotal
 				impoSkips := r.impoSkips
 				impoTrunc := r.impoTrunc
+				dqpHintInjectedTotal := r.dqpHintInjectedTotal
+				dqpHintFallbackTotal := r.dqpHintFallbackTotal
+				dqpSetVarVariantTotal := r.dqpSetVarVariantTotal
 				oraclePickTotal := r.oraclePickTotal
 				certPickTotal := r.certPickTotal
 				viewQueries := r.viewQueries
@@ -813,6 +828,9 @@ func (r *Runner) startStatsLogger() func() {
 				deltaImpoTotal := impoTotal - lastImpoTotal
 				deltaImpoSkips := impoSkips - lastImpoSkips
 				deltaImpoTrunc := impoTrunc - lastImpoTrunc
+				deltaDQPHintInjectedTotal := dqpHintInjectedTotal - lastDQPHintInjectedTotal
+				deltaDQPHintFallbackTotal := dqpHintFallbackTotal - lastDQPHintFallbackTotal
+				deltaDQPSetVarVariantTotal := dqpSetVarVariantTotal - lastDQPSetVarVariantTotal
 				deltaOraclePicks := oraclePickTotal - lastOraclePickTotal
 				deltaCertPicks := certPickTotal - lastCertPickTotal
 				deltaViewQueries := viewQueries - lastViewQueries
@@ -929,6 +947,9 @@ func (r *Runner) startStatsLogger() func() {
 				lastImpoTotal = impoTotal
 				lastImpoSkips = impoSkips
 				lastImpoTrunc = impoTrunc
+				lastDQPHintInjectedTotal = dqpHintInjectedTotal
+				lastDQPHintFallbackTotal = dqpHintFallbackTotal
+				lastDQPSetVarVariantTotal = dqpSetVarVariantTotal
 				lastOraclePickTotal = oraclePickTotal
 				lastCertPickTotal = certPickTotal
 				lastViewQueries = viewQueries
@@ -1127,6 +1148,14 @@ func (r *Runner) startStatsLogger() func() {
 						minimizeInFlight,
 						stalledReason(controlState.LowSample, controlState.InfraUnhealthy, minimizeInFlight, deltaOracleTimeoutCounts),
 					)
+					if deltaDQPHintInjectedTotal > 0 || deltaDQPHintFallbackTotal > 0 || deltaDQPSetVarVariantTotal > 0 {
+						util.Infof(
+							"dqp_variant_metrics last interval: dqp_hint_injected_total=%d dqp_hint_fallback_total=%d dqp_set_var_variant_total=%d",
+							deltaDQPHintInjectedTotal,
+							deltaDQPHintFallbackTotal,
+							deltaDQPSetVarVariantTotal,
+						)
+					}
 					deltaSubqueryDisallowReasons := make(map[string]int64, len(subqueryDisallowReasons))
 					for reason, total := range subqueryDisallowReasons {
 						prev := lastSubqueryDisallowReasons[reason]

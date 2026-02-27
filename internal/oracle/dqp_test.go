@@ -580,3 +580,71 @@ func TestFindTopLevelSelectIndex(t *testing.T) {
 		t.Fatalf("unexpected SELECT index: %d (expected %d)", idx, expected)
 	}
 }
+
+func TestDQPVariantMetricsObserveVariant(t *testing.T) {
+	metrics := dqpVariantMetrics{}
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT /*+ HASH_JOIN(t1, t2) */ c1 FROM t1",
+		"HASH_JOIN(t1, t2)",
+	)
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT c1 FROM t1",
+		"SET_VAR(tidb_opt_use_toja=OFF)",
+	)
+	metrics.observeVariant(
+		"SELECT c1 FROM t1",
+		"SELECT /*+ SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2) */ c1 FROM t1",
+		"SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2)",
+	)
+
+	if metrics.hintInjectedTotal != 2 {
+		t.Fatalf("hintInjectedTotal=%d want=2", metrics.hintInjectedTotal)
+	}
+	if metrics.hintFallbackTotal != 1 {
+		t.Fatalf("hintFallbackTotal=%d want=1", metrics.hintFallbackTotal)
+	}
+	if metrics.setVarVariantTotal != 2 {
+		t.Fatalf("setVarVariantTotal=%d want=2", metrics.setVarVariantTotal)
+	}
+}
+
+func TestDQPVariantMetricsResultMetrics(t *testing.T) {
+	empty := dqpVariantMetrics{}
+	if got := empty.resultMetrics(); got != nil {
+		t.Fatalf("expected nil resultMetrics for empty stats, got %v", got)
+	}
+	metrics := dqpVariantMetrics{
+		hintInjectedTotal:  4,
+		hintFallbackTotal:  1,
+		setVarVariantTotal: 3,
+	}
+	got := metrics.resultMetrics()
+	if got["dqp_hint_injected_total"] != 4 {
+		t.Fatalf("dqp_hint_injected_total=%d want=4", got["dqp_hint_injected_total"])
+	}
+	if got["dqp_hint_fallback_total"] != 1 {
+		t.Fatalf("dqp_hint_fallback_total=%d want=1", got["dqp_hint_fallback_total"])
+	}
+	if got["dqp_set_var_variant_total"] != 3 {
+		t.Fatalf("dqp_set_var_variant_total=%d want=3", got["dqp_set_var_variant_total"])
+	}
+}
+
+func TestDQPHintContainsSetVar(t *testing.T) {
+	cases := []struct {
+		hint string
+		want bool
+	}{
+		{hint: "SET_VAR(tidb_opt_use_toja=ON)", want: true},
+		{hint: "HASH_JOIN(t1, t2), SET_VAR(tidb_opt_use_toja=OFF)", want: true},
+		{hint: "HASH_JOIN(t1, t2)", want: false},
+		{hint: "", want: false},
+	}
+	for _, tc := range cases {
+		if got := dqpHintContainsSetVar(tc.hint); got != tc.want {
+			t.Fatalf("dqpHintContainsSetVar(%q)=%v want=%v", tc.hint, got, tc.want)
+		}
+	}
+}

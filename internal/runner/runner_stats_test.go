@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"shiro/internal/generator"
+	"shiro/internal/oracle"
 	"shiro/internal/tqs"
 )
 
@@ -246,5 +247,34 @@ func TestObserveJoinSignatureFullJoinAttemptEmitted(t *testing.T) {
 func TestCountMapTotal(t *testing.T) {
 	if got := countMapTotal(map[string]int64{"a": 2, "b": 3}); got != 5 {
 		t.Fatalf("countMapTotal=%d want=5", got)
+	}
+}
+
+func TestApplyResultMetricsDQPVariantCounters(t *testing.T) {
+	r := &Runner{}
+	r.applyResultMetrics(oracle.Result{
+		Oracle: "DQP",
+		Metrics: map[string]int64{
+			"dqp_hint_injected_total":   9,
+			"dqp_hint_fallback_total":   1,
+			"dqp_set_var_variant_total": 5,
+		},
+	})
+	r.applyResultMetrics(oracle.Result{
+		Oracle: "DQP",
+		Metrics: map[string]int64{
+			"dqp_hint_injected_total":   3,
+			"dqp_set_var_variant_total": 2,
+		},
+	})
+
+	if r.dqpHintInjectedTotal != 12 {
+		t.Fatalf("dqpHintInjectedTotal=%d want=12", r.dqpHintInjectedTotal)
+	}
+	if r.dqpHintFallbackTotal != 1 {
+		t.Fatalf("dqpHintFallbackTotal=%d want=1", r.dqpHintFallbackTotal)
+	}
+	if r.dqpSetVarVariantTotal != 7 {
+		t.Fatalf("dqpSetVarVariantTotal=%d want=7", r.dqpSetVarVariantTotal)
 	}
 }

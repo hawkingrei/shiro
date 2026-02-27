@@ -75,6 +75,9 @@ type Runner struct {
 	impoTotal                       int64
 	impoSkips                       int64
 	impoTrunc                       int64
+	dqpHintInjectedTotal            int64
+	dqpHintFallbackTotal            int64
+	dqpSetVarVariantTotal           int64
 	impoSkipReasons                 map[string]int64
 	impoSkipErrCodes                map[string]int64
 	impoLastFailSQL                 string
