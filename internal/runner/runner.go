@@ -529,6 +529,10 @@ func (r *Runner) runDDLAction(ctx context.Context, action string, baseTables []*
 		if sql == "" {
 			return
 		}
+		compatible, err := r.isForeignKeyDataCompatible(ctx, fk)
+		if err != nil || !compatible {
+			return
+		}
 		if err := r.execSQL(ctx, sql); err != nil {
 			return
 		}

@@ -45,3 +45,28 @@ func TestTiFlashReplicaPendingSQL(t *testing.T) {
 		t.Fatalf("unexpected tiflash pending sql: got %q want %q", got, want)
 	}
 }
+
+func TestForeignKeyCompatibilitySQL(t *testing.T) {
+	fk := &schema.ForeignKey{
+		Name:      "fk_43",
+		Table:     "t4",
+		Column:    "id",
+		RefTable:  "t0",
+		RefColumn: "id",
+	}
+	got := foreignKeyCompatibilitySQL(fk)
+	want := "SELECT 1 FROM t4 c LEFT JOIN t0 p ON c.id <=> p.id WHERE c.id IS NOT NULL AND p.id IS NULL LIMIT 1"
+	if got != want {
+		t.Fatalf("unexpected fk compatibility sql: got %q want %q", got, want)
+	}
+}
+
+func TestForeignKeyCompatibilitySQLEmpty(t *testing.T) {
+	if foreignKeyCompatibilitySQL(nil) != "" {
+		t.Fatalf("expected empty sql for nil fk")
+	}
+	empty := &schema.ForeignKey{}
+	if foreignKeyCompatibilitySQL(empty) != "" {
+		t.Fatalf("expected empty sql for empty fk")
+	}
+}
