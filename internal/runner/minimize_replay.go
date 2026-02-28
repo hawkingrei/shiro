@@ -13,6 +13,7 @@ import (
 )
 
 const replayTraceSQLMax = 400
+const replayErrorMessageMax = 240
 
 const (
 	replayForeignKeyChecksOffSQL = "SET SESSION FOREIGN_KEY_CHECKS=0"
@@ -42,7 +43,11 @@ func (t *replayTrace) recordErr(err error) {
 }
 
 func abbrevSQL(sqlText string, maxLen int) string {
-	trimmed := strings.TrimSpace(sqlText)
+	return abbrevText(sqlText, maxLen)
+}
+
+func abbrevText(text string, maxLen int) string {
+	trimmed := strings.TrimSpace(text)
 	if maxLen <= 0 || len(trimmed) <= maxLen {
 		return trimmed
 	}
@@ -642,9 +647,23 @@ func errorMatches(err error, expected error) bool {
 		return hasKeywordOverlap(expKeywords, gotKeywords)
 	}
 	if len(expKeywords) == 0 || len(gotKeywords) == 0 {
+		if shouldWarnUnknownNonMySQLError(expCodeOK, gotCodeOK, expKeywords, gotKeywords) {
+			util.Warnf(
+				"minimize replay unknown non-mysql error class: expected=%q got=%q",
+				abbrevText(expected.Error(), replayErrorMessageMax),
+				abbrevText(err.Error(), replayErrorMessageMax),
+			)
+		}
 		return false
 	}
 	return hasKeywordOverlap(expKeywords, gotKeywords)
+}
+
+func shouldWarnUnknownNonMySQLError(expCodeOK bool, gotCodeOK bool, expKeywords []string, gotKeywords []string) bool {
+	if expCodeOK || gotCodeOK {
+		return false
+	}
+	return len(expKeywords) == 0 || len(gotKeywords) == 0
 }
 
 func hasKeywordOverlap(left []string, right []string) bool {

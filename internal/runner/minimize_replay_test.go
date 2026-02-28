@@ -81,6 +81,18 @@ func TestErrorMatchesNonMySQLByKeyword(t *testing.T) {
 	}
 }
 
+func TestShouldWarnUnknownNonMySQLError(t *testing.T) {
+	if !shouldWarnUnknownNonMySQLError(false, false, nil, nil) {
+		t.Fatalf("expected warning for unknown non-mysql error classes")
+	}
+	if !shouldWarnUnknownNonMySQLError(false, false, []string{"timeout"}, nil) {
+		t.Fatalf("expected warning when one side has unknown non-mysql error class")
+	}
+	if shouldWarnUnknownNonMySQLError(true, true, nil, nil) {
+		t.Fatalf("did not expect warning for mysql-coded errors")
+	}
+}
+
 func TestBuildReplaySpecPrefersDetailsForErrorResult(t *testing.T) {
 	spec := buildReplaySpec(oracle.Result{
 		Err: errors.New("signature execution failed"),
