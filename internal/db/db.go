@@ -96,7 +96,7 @@ func (d *DB) QuerySignatureWithWarnings(ctx context.Context, query string) (Sign
 	warnings, warnErr := queryWarningsOnConn(ctx, conn)
 	if warnErr != nil {
 		util.Detailf("show warnings failed after signature query: %v", warnErr)
-		return sig, nil, nil
+		return sig, nil, warnErr
 	}
 	return sig, warnings, nil
 }
