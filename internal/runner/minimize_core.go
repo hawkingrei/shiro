@@ -603,6 +603,13 @@ func buildReproSQL(schemaSQL, inserts, caseSQL []string, spec replaySpec) []stri
 		if spec.actualSQL != "" {
 			steps = append(steps, spec.actualSQL)
 		}
+	case "error_sql":
+		if spec.setVar != "" {
+			steps = append(steps, "SET SESSION "+spec.setVar)
+		}
+		if spec.expectedSQL != "" {
+			steps = append(steps, spec.expectedSQL)
+		}
 	case "case_error":
 		steps = append(steps, caseSQL...)
 	default:

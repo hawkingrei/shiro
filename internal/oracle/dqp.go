@@ -123,10 +123,15 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 
 	baseSQL := query.SQLString()
-	baseSig, baseWarnings, err := exec.QuerySignatureWithWarnings(ctx, query.SignatureSQL())
+	baseSignatureSQL := query.SignatureSQL()
+	baseSig, baseWarnings, err := exec.QuerySignatureWithWarnings(ctx, baseSignatureSQL)
 	if err != nil {
 		reason, code := sqlErrorReason("dqp", err)
-		details := map[string]any{"error_reason": reason}
+		details := map[string]any{
+			"error_reason":        reason,
+			"replay_kind":         "error_sql",
+			"replay_expected_sql": baseSignatureSQL,
+		}
 		if code != 0 {
 			details["error_code"] = int(code)
 		}

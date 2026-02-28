@@ -169,6 +169,20 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 		}
 		cmp := compareRowSets(baseRows, mutRows)
 		return !implicationOK(spec.impoIsUpper, cmp)
+	case "error_sql":
+		if strings.TrimSpace(spec.expectedSQL) == "" {
+			return false
+		}
+		if spec.setVar != "" {
+			if err := r.execOnConnWithTrace(ctx, conn, "SET SESSION "+spec.setVar, trace); err != nil {
+				return false
+			}
+		}
+		err := execStatements(ctx, conn, []string{spec.expectedSQL}, r.validator, trace)
+		if spec.setVar != "" {
+			resetVarOnConn(ctx, conn, spec.setVar, trace)
+		}
+		return errorMatches(err, result.Err)
 	case "case_error":
 		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
 		return errorMatches(err, result.Err)
@@ -207,31 +221,33 @@ func (r *Runner) resetDatabaseOnConn(ctx context.Context, conn *sql.Conn, name s
 }
 
 func buildReplaySpec(result oracle.Result) replaySpec {
+	if result.Details != nil {
+		kind, _ := result.Details["replay_kind"].(string)
+		expected, _ := result.Details["replay_expected_sql"].(string)
+		actual, _ := result.Details["replay_actual_sql"].(string)
+		setVar, _ := result.Details["replay_set_var"].(string)
+		tol, _ := result.Details["replay_tolerance"].(float64)
+		maxRows, _ := result.Details["replay_max_rows"].(int)
+		impoIsUpper, _ := result.Details["replay_impo_is_upper"].(bool)
+		if tol == 0 {
+			tol = 0.1
+		}
+		if strings.TrimSpace(kind) != "" {
+			return replaySpec{
+				kind:        kind,
+				expectedSQL: expected,
+				actualSQL:   actual,
+				setVar:      setVar,
+				tolerance:   tol,
+				maxRows:     maxRows,
+				impoIsUpper: impoIsUpper,
+			}
+		}
+	}
 	if result.Err != nil {
 		return replaySpec{kind: "case_error"}
 	}
-	if result.Details == nil {
-		return replaySpec{}
-	}
-	kind, _ := result.Details["replay_kind"].(string)
-	expected, _ := result.Details["replay_expected_sql"].(string)
-	actual, _ := result.Details["replay_actual_sql"].(string)
-	setVar, _ := result.Details["replay_set_var"].(string)
-	tol, _ := result.Details["replay_tolerance"].(float64)
-	maxRows, _ := result.Details["replay_max_rows"].(int)
-	impoIsUpper, _ := result.Details["replay_impo_is_upper"].(bool)
-	if tol == 0 {
-		tol = 0.1
-	}
-	return replaySpec{
-		kind:        kind,
-		expectedSQL: expected,
-		actualSQL:   actual,
-		setVar:      setVar,
-		tolerance:   tol,
-		maxRows:     maxRows,
-		impoIsUpper: impoIsUpper,
-	}
+	return replaySpec{}
 }
 
 func dedupeStatements(stmts []string) []string {

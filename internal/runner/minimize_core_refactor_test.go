@@ -159,3 +159,23 @@ func TestMinimizeBaseReplayGate(t *testing.T) {
 		t.Fatalf("expected non-case_error base replay gate failure, got ok=%v flaky=%v", ok, flaky)
 	}
 }
+
+func TestBuildReproSQLErrorSQLKind(t *testing.T) {
+	schemaSQL := []string{"CREATE TABLE t(id INT)"}
+	inserts := []string{"INSERT INTO t VALUES (1)"}
+	spec := replaySpec{
+		kind:        "error_sql",
+		setVar:      "tidb_allow_mpp=OFF",
+		expectedSQL: "SELECT COUNT(*) FROM (SELECT * FROM t) q",
+	}
+	out := buildReproSQL(schemaSQL, inserts, nil, spec)
+	if len(out) != 4 {
+		t.Fatalf("unexpected repro sql length: %d (%v)", len(out), out)
+	}
+	if out[2] != "SET SESSION tidb_allow_mpp=OFF" {
+		t.Fatalf("expected set var before error sql, got %q", out[2])
+	}
+	if out[3] != "SELECT COUNT(*) FROM (SELECT * FROM t) q" {
+		t.Fatalf("unexpected replay sql: %q", out[3])
+	}
+}
