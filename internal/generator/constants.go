@@ -49,7 +49,7 @@ const (
 	// CTEExtraProb is the extra chance to allow CTE when multiple tables are present.
 	CTEExtraProb = 50
 	// CTECountMax is the maximum number of CTEs to generate.
-	CTECountMax = 2
+	CTECountMax = 3
 	// SetOperationProb is the chance to attach a set operation to a query.
 	SetOperationProb = 25
 	// SetOperationChainProb is the chance to append a second set operation.

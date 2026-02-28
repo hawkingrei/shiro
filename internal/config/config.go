@@ -338,8 +338,8 @@ const (
 	dqpBaseHintPickLimitDefault             = 4
 	dqpSetVarHintPickMaxDefault             = 4
 	dqpComplexitySetOpsThresholdDefault     = 2
-	dqpComplexityDerivedThresholdDefault    = 3
-	eetComplexityJoinTablesThresholdDefault = 4
+	dqpComplexityDerivedThresholdDefault    = 4
+	eetComplexityJoinTablesThresholdDefault = 5
 	coddtestCaseWhenMaxDefault              = 2
 
 	qpgNoJoinThresholdDefault         = 3
@@ -606,7 +606,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 1, Query: 10},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, EET: 2, DQP: 3, PQS: 2, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
-			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 2, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30, TemplateJoinOnlyWeight: 4, TemplateJoinFilterWeight: 6},
+			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 3, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30, TemplateJoinOnlyWeight: 4, TemplateJoinFilterWeight: 6},
 		},
 		Logging: Logging{
 			ReportIntervalSeconds: 30,

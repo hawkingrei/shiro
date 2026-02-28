@@ -45,7 +45,7 @@ These are three-valued logic safe and do not change predicate semantics.
 ## Guardrails
 - Only applies to deterministic predicates.
 - Requires at least one predicate in `WHERE`, `HAVING`, or `JOIN ON`.
-- Enforces a unified query-complexity budget via `oracles.eet_complexity_join_tables_threshold` (default `4`), counting main-query table factors plus CTE definitions and CTE-body table factors.
+- Enforces a unified query-complexity budget via `oracles.eet_complexity_join_tables_threshold` (default `5`), counting main-query table factors plus CTE definitions and CTE-body table factors.
 - Skips non-`SELECT` statements or parse failures.
 
 ## Expected Coverage

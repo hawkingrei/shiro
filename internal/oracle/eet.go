@@ -30,7 +30,7 @@ func (o EET) Name() string { return "EET" }
 
 const eetBuildMaxTries = 10
 const eetTransformRetryMax = 3
-const eetComplexityJoinTableThresholdDefault = 4
+const eetComplexityJoinTableThresholdDefault = 5
 
 const eetComplexityConstraintJoinTables = "constraint:eet_complexity_join_tables"
 
