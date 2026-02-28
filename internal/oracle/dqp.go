@@ -34,7 +34,7 @@ const dqpComplexityFalseJoinThreshold = 3
 const dqpBaseHintPickLimitDefault = 4
 const dqpSetVarHintPickMaxDefault = 4
 const dqpWarningLogMaxItems = 5
-const dqpMinHintGroupCount = 2
+const dqpMaxHintsPerSQL = 4
 
 const (
 	dqpVariantGroupBaseHint = "base_hint"
@@ -142,7 +142,6 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	hasCTE := len(query.With) > 0
 	hasPartition := queryHasPartitionedTable(query, state)
 	variants, variantMetrics := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
-	executedHintGroups := make(map[string]struct{}, 5)
 	for _, variant := range variants {
 		variantSig, warnings, err := exec.QuerySignatureWithWarnings(ctx, variant.signatureSQL)
 		if err != nil {
@@ -176,22 +175,6 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Details:  details,
 				Metrics:  variantMetrics.resultMetrics(),
 			}
-		}
-		if strings.TrimSpace(variant.group) != "" {
-			executedHintGroups[variant.group] = struct{}{}
-		}
-	}
-	if len(executedHintGroups) < dqpMinHintGroupCount {
-		return Result{
-			OK:     true,
-			Oracle: o.Name(),
-			SQL:    []string{baseSQL},
-			Details: map[string]any{
-				"skip_reason":      "dqp:insufficient_hint_groups",
-				"hint_groups":      dqpFormatHintGroups(executedHintGroups),
-				"hint_group_count": len(executedHintGroups),
-			},
-			Metrics: variantMetrics.resultMetrics(),
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Metrics: variantMetrics.resultMetrics()}
@@ -848,13 +831,17 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	variants := make([]dqpVariant, 0, len(baseHints)+1)
 
 	for _, hintSQL := range baseHints {
-		variantSQL := injectHint(query, hintSQL)
+		cappedHint := dqpLimitHintTokens(hintSQL, dqpMaxHintsPerSQL)
+		if cappedHint == "" {
+			continue
+		}
+		variantSQL := injectHint(query, cappedHint)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
+		metrics.observeVariant(baseSQL, variantSQL, cappedHint)
 		variants = append(variants, dqpVariant{
 			sql:          variantSQL,
 			signatureSQL: variantSig,
-			hint:         hintSQL,
+			hint:         cappedHint,
 			group:        dqpVariantGroupBaseHint,
 		})
 	}
@@ -863,47 +850,63 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 	nonMPPSetVarHints := dqpFilterSetVarHints(setVarHints, false)
 	mppSetVarHints := dqpFilterSetVarHints(setVarHints, true)
 	for _, hintSQL := range nonMPPSetVarHints {
-		variantSQL := injectHint(query, hintSQL)
+		cappedHint := dqpLimitHintTokens(hintSQL, dqpMaxHintsPerSQL)
+		if cappedHint == "" {
+			continue
+		}
+		variantSQL := injectHint(query, cappedHint)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
+		metrics.observeVariant(baseSQL, variantSQL, cappedHint)
 		variants = append(variants, dqpVariant{
 			sql:          variantSQL,
 			signatureSQL: variantSig,
-			hint:         hintSQL,
+			hint:         cappedHint,
 			group:        dqpVariantGroupSetVar,
 		})
 	}
 	for _, hintSQL := range mppSetVarHints {
-		variantSQL := injectHint(query, hintSQL)
+		cappedHint := dqpLimitHintTokens(hintSQL, dqpMaxHintsPerSQL)
+		if cappedHint == "" {
+			continue
+		}
+		variantSQL := injectHint(query, cappedHint)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
+		metrics.observeVariant(baseSQL, variantSQL, cappedHint)
 		variants = append(variants, dqpVariant{
 			sql:          variantSQL,
 			signatureSQL: variantSig,
-			hint:         hintSQL,
+			hint:         cappedHint,
 			group:        dqpVariantGroupMPP,
 		})
 	}
 	combinedSetVarHints := dqpCombinedSetVarHints(nonMPPSetVarHints, mppSetVarHints)
 	for _, hintSQL := range buildCombinedHints(combinedSetVarHints, baseHints, MaxCombinedHintVariants) {
-		variantSQL := injectHint(query, hintSQL)
+		cappedHint := dqpLimitHintTokens(hintSQL, dqpMaxHintsPerSQL)
+		if cappedHint == "" {
+			continue
+		}
+		variantSQL := injectHint(query, cappedHint)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
+		metrics.observeVariant(baseSQL, variantSQL, cappedHint)
 		variants = append(variants, dqpVariant{
 			sql:          variantSQL,
 			signatureSQL: variantSig,
-			hint:         hintSQL,
+			hint:         cappedHint,
 			group:        dqpVariantGroupCombined,
 		})
 	}
 	for _, hint := range dqpIndexHintCandidates(query, state) {
-		variantSQL := injectHint(query, hint)
+		cappedHint := dqpLimitHintTokens(hint, dqpMaxHintsPerSQL)
+		if cappedHint == "" {
+			continue
+		}
+		variantSQL := injectHint(query, cappedHint)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-		metrics.observeVariant(baseSQL, variantSQL, hint)
+		metrics.observeVariant(baseSQL, variantSQL, cappedHint)
 		variants = append(variants, dqpVariant{
 			sql:          variantSQL,
 			signatureSQL: variantSig,
-			hint:         hint,
+			hint:         cappedHint,
 			group:        dqpVariantGroupIndex,
 		})
 	}
@@ -1434,6 +1437,28 @@ func splitTopLevelHintList(hints string) []string {
 	}
 	out = append(out, hints[start:])
 	return out
+}
+
+func dqpLimitHintTokens(hint string, maxTokens int) string {
+	if maxTokens <= 0 {
+		return ""
+	}
+	tokens := splitTopLevelHintList(hint)
+	if len(tokens) == 0 {
+		return strings.TrimSpace(hint)
+	}
+	limited := make([]string, 0, min(maxTokens, len(tokens)))
+	for _, token := range tokens {
+		trimmed := strings.TrimSpace(token)
+		if trimmed == "" {
+			continue
+		}
+		limited = append(limited, trimmed)
+		if len(limited) >= maxTokens {
+			break
+		}
+	}
+	return strings.Join(limited, ", ")
 }
 
 func cteHasUnstableLimit(query *generator.SelectQuery) bool {

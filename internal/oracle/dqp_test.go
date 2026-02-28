@@ -735,6 +735,24 @@ func TestBuildCombinedHints(t *testing.T) {
 	}
 }
 
+func TestDQPLimitHintTokens(t *testing.T) {
+	hint := strings.Join([]string{
+		"SET_VAR(a=1)",
+		"HASH_JOIN(t1, t2)",
+		"USE_INDEX(t1)",
+		"LEADING(t1, t2)",
+		"NO_HASH_JOIN(t1, t2)",
+	}, ", ")
+	got := dqpLimitHintTokens(hint, 4)
+	tokens := splitTopLevelHintList(got)
+	if len(tokens) != 4 {
+		t.Fatalf("expected 4 hint tokens, got %d (%q)", len(tokens), got)
+	}
+	if strings.Contains(got, "NO_HASH_JOIN") {
+		t.Fatalf("expected 5th hint token to be dropped, got %q", got)
+	}
+}
+
 func TestDQPFormatHintGroups(t *testing.T) {
 	groups := map[string]struct{}{
 		dqpVariantGroupCombined: {},

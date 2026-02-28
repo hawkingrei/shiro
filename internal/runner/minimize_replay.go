@@ -638,7 +638,7 @@ func errorMatches(err error, expected error) bool {
 	expCode, expCodeOK := mysqlErrCode(expected)
 	gotCode, gotCodeOK := mysqlErrCode(err)
 	if expCodeOK || gotCodeOK {
-		if !(expCodeOK && gotCodeOK && expCode == gotCode) {
+		if !expCodeOK || !gotCodeOK || expCode != gotCode {
 			return false
 		}
 		if len(expKeywords) == 0 || len(gotKeywords) == 0 {
