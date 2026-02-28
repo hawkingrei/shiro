@@ -350,6 +350,187 @@ func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
 	}
 }
 
+func TestOrderByFromItemsStableSkipsConstantSelectItems(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	items := []SelectItem{
+		{
+			Expr: WindowExpr{
+				Name:       "ROW_NUMBER",
+				WindowName: "w0",
+			},
+			Alias: "c0",
+		},
+		{Expr: FuncExpr{Name: "ABS", Args: []Expr{LiteralExpr{Value: 96}}}, Alias: "c1"},
+		{Expr: FuncExpr{Name: "DATE_ADD", Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c6", Type: schema.TypeDate}}, LiteralExpr{Value: 1}}}, Alias: "c2"},
+	}
+	orderBy := gen.orderByFromItemsStable(items)
+	if len(orderBy) < 2 {
+		t.Fatalf("expected at least two ordinals, got %v", orderBy)
+	}
+	ord0, ok0 := orderBy[0].Expr.(LiteralExpr)
+	ord1, ok1 := orderBy[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 3 {
+		t.Fatalf("expected ordinals 1,3 to avoid constant c1 tie-breaker, got %v", orderBy)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerAppendsDeterministicColumn(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 1)
+	limit := 8
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1", Type: schema.TypeInt}}},
+		},
+		Limit: &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, state.Tables)
+	if len(out) != 3 {
+		t.Fatalf("expected one appended tie-breaker, got %v", out)
+	}
+	last, ok := out[2].Expr.(ColumnExpr)
+	if !ok {
+		t.Fatalf("expected appended column tie-breaker, got %T", out[2].Expr)
+	}
+	if last.Ref.Table != "t0" || last.Ref.Name != "id" {
+		t.Fatalf("expected id tie-breaker, got %s.%s", last.Ref.Table, last.Ref.Name)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerKeepsSelectOrderCompatibility(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	limit := 3
+	query := &SelectQuery{
+		Distinct: true,
+		Items: []SelectItem{
+			{Expr: LiteralExpr{Value: 10}, Alias: "c0"},
+			{Expr: LiteralExpr{Value: 20}, Alias: "c1"},
+		},
+		OrderBy: []OrderBy{{Expr: LiteralExpr{Value: 1}}},
+		Limit:   &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, nil)
+	if len(out) < 2 {
+		t.Fatalf("expected select-order tie-breaker to keep at least two keys, got %v", out)
+	}
+	ord0, ok0 := out[0].Expr.(LiteralExpr)
+	ord1, ok1 := out[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 2 {
+		t.Fatalf("expected ordinal tie-breakers 1,2, got %v", out)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerReplacesConstantOrdinalTieBreaker(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	limit := 14
+	query := &SelectQuery{
+		Distinct: true,
+		Items: []SelectItem{
+			{
+				Expr: WindowExpr{
+					Name:       "ROW_NUMBER",
+					WindowName: "w2",
+				},
+				Alias: "c0",
+			},
+			{Expr: FuncExpr{Name: "ABS", Args: []Expr{LiteralExpr{Value: 96}}}, Alias: "c1"},
+			{Expr: FuncExpr{Name: "DATE_ADD", Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c6", Type: schema.TypeDate}}, LiteralExpr{Value: 1}}}, Alias: "c2"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: LiteralExpr{Value: 1}},
+			{Expr: LiteralExpr{Value: 2}},
+		},
+		Limit: &limit,
+	}
+	out := gen.ensureLimitOrderByTieBreaker(query, nil)
+	if len(out) < 2 {
+		t.Fatalf("expected two order keys, got %v", out)
+	}
+	ord0, ok0 := out[0].Expr.(LiteralExpr)
+	ord1, ok1 := out[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 3 {
+		t.Fatalf("expected rewritten ordinal tie-breakers 1,3, got %v", out)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerAppendsAllDeterministicColumns(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "k0", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+					{Name: "k2", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 2)
+	limit := 5
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k1", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k1", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k2", Type: schema.TypeInt}}},
+		},
+		Limit: &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, state.Tables)
+	if len(out) != 4 {
+		t.Fatalf("expected two appended deterministic columns, got %v", out)
+	}
+	last1, ok1 := out[2].Expr.(ColumnExpr)
+	last2, ok2 := out[3].Expr.(ColumnExpr)
+	if !ok1 || !ok2 {
+		t.Fatalf("expected appended column expressions, got %T and %T", out[2].Expr, out[3].Expr)
+	}
+	if last1.Ref.Name != "id" || last2.Ref.Name != "k0" {
+		t.Fatalf("expected appended deterministic columns id,k0, got %s,%s", last1.Ref.Name, last2.Ref.Name)
+	}
+}
+
 func assertPanic(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

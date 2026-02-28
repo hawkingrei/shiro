@@ -87,7 +87,7 @@ func TestClassifyResultErrorPQSRuntime1105KeepsGenericForOtherOracles(t *testing
 func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	result := oracle.Result{
 		Oracle: "EET",
-		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
 	}
 	changed := downgradeMissingColumnFalsePositive(&result)
 	if !changed {
@@ -113,6 +113,23 @@ func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	}
 	if !shouldCaptureSkipForMinimize(result) {
 		t.Fatalf("expected downgraded missing-column result to be captured for minimize")
+	}
+}
+
+func TestDowngradeMissingColumnFalsePositiveKeepsInternalColumnIDErrors(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
+	}
+	changed := downgradeMissingColumnFalsePositive(&result)
+	if changed {
+		t.Fatalf("expected internal Column# missing-column to remain reportable")
+	}
+	if result.OK {
+		t.Fatalf("expected result to remain non-OK")
+	}
+	if result.Err == nil {
+		t.Fatalf("expected original error to be preserved")
 	}
 }
 

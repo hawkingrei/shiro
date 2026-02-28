@@ -186,6 +186,14 @@ func shouldDowngradeMissingColumn(oracleName string) bool {
 	}
 }
 
+func isInternalColumnIDMissingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "can't find column column#")
+}
+
 func downgradeMissingColumnFalsePositive(result *oracle.Result) bool {
 	if result == nil || result.Err == nil {
 		return false
@@ -194,6 +202,11 @@ func downgradeMissingColumnFalsePositive(result *oracle.Result) bool {
 		return false
 	}
 	if !shouldDowngradeMissingColumn(result.Oracle) {
+		return false
+	}
+	// Keep internal Column#-style missing-column errors reportable since they
+	// are likely optimizer/runtime defects rather than benign SQL-shape misses.
+	if isInternalColumnIDMissingErr(result.Err) {
 		return false
 	}
 	if result.Details == nil {

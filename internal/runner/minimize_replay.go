@@ -13,6 +13,7 @@ import (
 )
 
 const replayTraceSQLMax = 400
+const replayErrorMessageMax = 240
 
 const (
 	replayForeignKeyChecksOffSQL = "SET SESSION FOREIGN_KEY_CHECKS=0"
@@ -42,7 +43,11 @@ func (t *replayTrace) recordErr(err error) {
 }
 
 func abbrevSQL(sqlText string, maxLen int) string {
-	trimmed := strings.TrimSpace(sqlText)
+	return abbrevText(sqlText, maxLen)
+}
+
+func abbrevText(text string, maxLen int) string {
+	trimmed := strings.TrimSpace(text)
 	if maxLen <= 0 || len(trimmed) <= maxLen {
 		return trimmed
 	}
@@ -169,6 +174,20 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 		}
 		cmp := compareRowSets(baseRows, mutRows)
 		return !implicationOK(spec.impoIsUpper, cmp)
+	case "error_sql":
+		if strings.TrimSpace(spec.expectedSQL) == "" {
+			return false
+		}
+		if spec.setVar != "" {
+			if err := r.execOnConnWithTrace(ctx, conn, "SET SESSION "+spec.setVar, trace); err != nil {
+				return false
+			}
+		}
+		err := execStatements(ctx, conn, []string{spec.expectedSQL}, r.validator, trace)
+		if spec.setVar != "" {
+			resetVarOnConn(ctx, conn, spec.setVar, trace)
+		}
+		return errorMatches(err, result.Err)
 	case "case_error":
 		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
 		return errorMatches(err, result.Err)
@@ -207,31 +226,33 @@ func (r *Runner) resetDatabaseOnConn(ctx context.Context, conn *sql.Conn, name s
 }
 
 func buildReplaySpec(result oracle.Result) replaySpec {
+	if result.Details != nil {
+		kind, _ := result.Details["replay_kind"].(string)
+		expected, _ := result.Details["replay_expected_sql"].(string)
+		actual, _ := result.Details["replay_actual_sql"].(string)
+		setVar, _ := result.Details["replay_set_var"].(string)
+		tol, _ := result.Details["replay_tolerance"].(float64)
+		maxRows, _ := result.Details["replay_max_rows"].(int)
+		impoIsUpper, _ := result.Details["replay_impo_is_upper"].(bool)
+		if tol == 0 {
+			tol = 0.1
+		}
+		if strings.TrimSpace(kind) != "" {
+			return replaySpec{
+				kind:        kind,
+				expectedSQL: expected,
+				actualSQL:   actual,
+				setVar:      setVar,
+				tolerance:   tol,
+				maxRows:     maxRows,
+				impoIsUpper: impoIsUpper,
+			}
+		}
+	}
 	if result.Err != nil {
 		return replaySpec{kind: "case_error"}
 	}
-	if result.Details == nil {
-		return replaySpec{}
-	}
-	kind, _ := result.Details["replay_kind"].(string)
-	expected, _ := result.Details["replay_expected_sql"].(string)
-	actual, _ := result.Details["replay_actual_sql"].(string)
-	setVar, _ := result.Details["replay_set_var"].(string)
-	tol, _ := result.Details["replay_tolerance"].(float64)
-	maxRows, _ := result.Details["replay_max_rows"].(int)
-	impoIsUpper, _ := result.Details["replay_impo_is_upper"].(bool)
-	if tol == 0 {
-		tol = 0.1
-	}
-	return replaySpec{
-		kind:        kind,
-		expectedSQL: expected,
-		actualSQL:   actual,
-		setVar:      setVar,
-		tolerance:   tol,
-		maxRows:     maxRows,
-		impoIsUpper: impoIsUpper,
-	}
+	return replaySpec{}
 }
 
 func dedupeStatements(stmts []string) []string {
@@ -609,10 +630,98 @@ func errorMatches(err error, expected error) bool {
 	if err == nil {
 		return false
 	}
-	if isPanicError(expected) {
-		return isPanicError(err)
+	if isPanicError(expected) || isPanicError(err) {
+		return isPanicError(expected) && isPanicError(err)
 	}
-	exp := strings.ToLower(expected.Error())
-	got := strings.ToLower(err.Error())
-	return strings.Contains(got, exp) || strings.Contains(exp, got)
+	expKeywords := errorKeywords(expected.Error())
+	gotKeywords := errorKeywords(err.Error())
+	expCode, expCodeOK := mysqlErrCode(expected)
+	gotCode, gotCodeOK := mysqlErrCode(err)
+	if expCodeOK || gotCodeOK {
+		if !expCodeOK || !gotCodeOK || expCode != gotCode {
+			return false
+		}
+		if len(expKeywords) == 0 || len(gotKeywords) == 0 {
+			return true
+		}
+		return hasKeywordOverlap(expKeywords, gotKeywords)
+	}
+	if len(expKeywords) == 0 || len(gotKeywords) == 0 {
+		if shouldWarnUnknownNonMySQLError(expCodeOK, gotCodeOK, expKeywords, gotKeywords) {
+			util.Warnf(
+				"minimize replay unknown non-mysql error class: expected=%q got=%q",
+				abbrevText(expected.Error(), replayErrorMessageMax),
+				abbrevText(err.Error(), replayErrorMessageMax),
+			)
+		}
+		return false
+	}
+	return hasKeywordOverlap(expKeywords, gotKeywords)
+}
+
+func shouldWarnUnknownNonMySQLError(expCodeOK bool, gotCodeOK bool, expKeywords []string, gotKeywords []string) bool {
+	if expCodeOK || gotCodeOK {
+		return false
+	}
+	return len(expKeywords) == 0 || len(gotKeywords) == 0
+}
+
+func hasKeywordOverlap(left []string, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, item := range left {
+		seen[item] = struct{}{}
+	}
+	for _, item := range right {
+		if _, ok := seen[item]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func errorKeywords(msg string) []string {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	if lower == "" {
+		return nil
+	}
+	keywords := make([]string, 0, 4)
+	appendKeyword := func(keyword string, patterns ...string) {
+		for _, pattern := range patterns {
+			if strings.Contains(lower, pattern) {
+				keywords = append(keywords, keyword)
+				return
+			}
+		}
+	}
+	appendKeyword("missing_column",
+		"can't find column",
+		"unknown column",
+		"column not found",
+		"invalid column id",
+		"invalidate column id",
+	)
+	appendKeyword("timeout",
+		"context deadline exceeded",
+		"timeout",
+		"timed out",
+	)
+	appendKeyword("canceled",
+		"cancelled",
+		"canceled",
+		"query interrupted",
+	)
+	appendKeyword("deadlock", "deadlock")
+	appendKeyword("lock_wait_timeout", "lock wait timeout")
+	appendKeyword("index_out_of_range", "index out of range")
+	appendKeyword("syntax_error", "syntax error", "parse error")
+	appendKeyword("connection_error",
+		"connection reset",
+		"connection refused",
+		"broken pipe",
+		"bad connection",
+	)
+	return keywords
 }

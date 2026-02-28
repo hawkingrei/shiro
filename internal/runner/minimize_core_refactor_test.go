@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"shiro/internal/schema"
 )
 
 func TestValidatedMergedInsertsRespectsReplay(t *testing.T) {
@@ -122,5 +124,101 @@ func TestReplayConsensus(t *testing.T) {
 	}
 	if replayConsensus(func() bool { return true }, 0, 1) {
 		t.Fatalf("non-positive attempts should fail when success is required")
+	}
+}
+
+func TestMinimizeBaseReplayGate(t *testing.T) {
+	results := []bool{true, false, true}
+	idx := 0
+	ok, flaky := minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "signature")
+	if !ok || flaky {
+		t.Fatalf("expected strict base replay gate pass without flaky, got ok=%v flaky=%v", ok, flaky)
+	}
+
+	results = []bool{false, true, false, false, false, true}
+	idx = 0
+	ok, flaky = minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "case_error")
+	if !ok || !flaky {
+		t.Fatalf("expected case_error fallback base replay pass with flaky=true, got ok=%v flaky=%v", ok, flaky)
+	}
+
+	results = []bool{false, true, false, false, false, true}
+	idx = 0
+	ok, flaky = minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "signature")
+	if ok || !flaky {
+		t.Fatalf("expected non-case_error base replay gate failure, got ok=%v flaky=%v", ok, flaky)
+	}
+}
+
+func TestBuildReproSQLErrorSQLKind(t *testing.T) {
+	schemaSQL := []string{"CREATE TABLE t(id INT)"}
+	inserts := []string{"INSERT INTO t VALUES (1)"}
+	spec := replaySpec{
+		kind:        "error_sql",
+		setVar:      "tidb_allow_mpp=OFF",
+		expectedSQL: "SELECT COUNT(*) FROM (SELECT * FROM t) q",
+	}
+	out := buildReproSQL(schemaSQL, inserts, nil, spec)
+	if len(out) != 4 {
+		t.Fatalf("unexpected repro sql length: %d (%v)", len(out), out)
+	}
+	if out[2] != "SET SESSION tidb_allow_mpp=OFF" {
+		t.Fatalf("expected set var before error sql, got %q", out[2])
+	}
+	if out[3] != "SELECT COUNT(*) FROM (SELECT * FROM t) q" {
+		t.Fatalf("unexpected replay sql: %q", out[3])
+	}
+}
+
+func TestExpandMinimizeTablesForViewDependencies(t *testing.T) {
+	r := &Runner{
+		state: &schema.State{
+			Tables: []schema.Table{
+				{Name: "t0"},
+				{Name: "t1"},
+				{Name: "v0", IsView: true},
+			},
+		},
+	}
+	input := map[string]struct{}{"v0": {}}
+	got := r.expandMinimizeTablesForViewDependencies(input)
+	if len(got) != 3 {
+		t.Fatalf("expected all tables to be included when view is referenced, got=%v", got)
+	}
+	for _, name := range []string{"t0", "t1", "v0"} {
+		if _, ok := got[name]; !ok {
+			t.Fatalf("expected expanded tables to include %s, got=%v", name, got)
+		}
+	}
+}
+
+func TestExpandMinimizeTablesForViewDependenciesNoViewReference(t *testing.T) {
+	r := &Runner{
+		state: &schema.State{
+			Tables: []schema.Table{
+				{Name: "t0"},
+				{Name: "v0", IsView: true},
+			},
+		},
+	}
+	input := map[string]struct{}{"t0": {}}
+	got := r.expandMinimizeTablesForViewDependencies(input)
+	if len(got) != 1 {
+		t.Fatalf("expected input table set to remain unchanged, got=%v", got)
+	}
+	if _, ok := got["t0"]; !ok {
+		t.Fatalf("expected table t0 to remain in set, got=%v", got)
 	}
 }

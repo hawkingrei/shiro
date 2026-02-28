@@ -30,6 +30,9 @@ func (o EET) Name() string { return "EET" }
 
 const eetBuildMaxTries = 10
 const eetTransformRetryMax = 3
+const eetComplexityJoinTableThresholdDefault = 5
+
+const eetComplexityConstraintJoinTables = "constraint:eet_complexity_join_tables"
 
 func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 	policy := predicatePolicyFor(gen)
@@ -43,6 +46,7 @@ func eetPredicatePolicy(gen *generator.Generator) predicatePolicy {
 // signatures for mismatches.
 func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) Result {
 	policy := eetPredicatePolicy(gen)
+	complexityThreshold := eetComplexityJoinTableThreshold(gen)
 	spec := QuerySpec{
 		Oracle:          "eet",
 		Profile:         ProfileByName("EET"),
@@ -53,19 +57,15 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			RequireDeterministic: true,
 			DisallowSetOps:       true,
 			QueryGuardReason: func(query *generator.SelectQuery) (bool, string) {
-				if !eetQueryHasPredicate(query) {
-					return false, "constraint:query_guard"
-				}
-				if !queryHasPredicateMatch(query, policy) {
-					return false, "constraint:predicate_guard"
-				}
-				return true, ""
+				reason := eetQueryGuardReason(query, policy, complexityThreshold)
+				return reason == "", reason
 			},
 		},
 		SkipReasonOverrides: map[string]string{
-			"constraint:nondeterministic": "eet:nondeterministic",
-			"constraint:predicate_guard":  "eet:predicate_guard",
-			"constraint:set_ops":          "eet:set_ops",
+			"constraint:nondeterministic":     "eet:nondeterministic",
+			"constraint:predicate_guard":      "eet:predicate_guard",
+			"constraint:set_ops":              "eet:set_ops",
+			eetComplexityConstraintJoinTables: "eet:complexity_guard",
 		},
 	}
 
@@ -190,6 +190,26 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+}
+
+func eetComplexityJoinTableThreshold(gen *generator.Generator) int {
+	if gen == nil || gen.Config.Oracles.EETComplexityJoinTableThreshold <= 0 {
+		return eetComplexityJoinTableThresholdDefault
+	}
+	return gen.Config.Oracles.EETComplexityJoinTableThreshold
+}
+
+func eetQueryGuardReason(query *generator.SelectQuery, policy predicatePolicy, complexityThreshold int) string {
+	if !eetQueryHasPredicate(query) {
+		return "constraint:query_guard"
+	}
+	if !queryHasPredicateMatch(query, policy) {
+		return "constraint:predicate_guard"
+	}
+	if queryTableFactorCountWithCTE(query) > complexityThreshold {
+		return eetComplexityConstraintJoinTables
+	}
+	return ""
 }
 
 func eetShouldRetryNoTransform(details map[string]any) bool {

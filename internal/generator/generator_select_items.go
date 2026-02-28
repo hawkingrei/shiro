@@ -207,17 +207,62 @@ func (g *Generator) orderByFromItemsStable(items []SelectItem) []OrderBy {
 	if len(items) == 0 {
 		return nil
 	}
-	orderBy := g.GenerateOrderByFromItems(items)
-	if orderByDistinctColumns(orderBy) >= 2 {
-		return orderBy
+	ordinals := stableOrderByOrdinals(items, 2)
+	if len(ordinals) == 0 {
+		return nil
 	}
-	if len(items) >= 2 {
-		return []OrderBy{
-			{Expr: LiteralExpr{Value: 1}, Desc: util.Chance(g.Rand, OrderByDescProb)},
-			{Expr: LiteralExpr{Value: 2}, Desc: util.Chance(g.Rand, OrderByDescProb)},
-		}
+	orderBy := make([]OrderBy, 0, len(ordinals))
+	for _, ord := range ordinals {
+		orderBy = append(orderBy, OrderBy{
+			Expr: LiteralExpr{Value: ord},
+			Desc: util.Chance(g.Rand, OrderByDescProb),
+		})
 	}
 	return orderBy
+}
+
+func stableOrderByOrdinals(items []SelectItem, maxCount int) []int {
+	if len(items) == 0 || maxCount <= 0 {
+		return nil
+	}
+	maxCount = min(maxCount, len(items))
+	primary := make([]int, 0, len(items))
+	secondary := make([]int, 0, len(items))
+	for idx, item := range items {
+		ord := idx + 1
+		if selectExprLikelyConstant(item.Expr) {
+			secondary = append(secondary, ord)
+			continue
+		}
+		primary = append(primary, ord)
+	}
+	out := make([]int, 0, maxCount)
+	out = append(out, primary...)
+	out = append(out, secondary...)
+	if len(out) > maxCount {
+		out = out[:maxCount]
+	}
+	return out
+}
+
+func selectExprLikelyConstant(expr Expr) bool {
+	if expr == nil {
+		return true
+	}
+	if len(expr.Columns()) > 0 {
+		return false
+	}
+	switch e := expr.(type) {
+	case WindowExpr:
+		// Window functions depend on row order/partition and should not be treated as constants.
+		return false
+	case GroupByOrdinalExpr:
+		return selectExprLikelyConstant(e.Expr)
+	case SubqueryExpr, ExistsExpr, CompareSubqueryExpr:
+		return false
+	default:
+		return expr.Deterministic()
+	}
 }
 
 func orderByDistinctColumns(orderBy []OrderBy) int {

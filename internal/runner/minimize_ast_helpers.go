@@ -126,6 +126,11 @@ func uniqueStrings(values []string) []string {
 
 func simplifyExpr(expr ast.ExprNode) ast.ExprNode {
 	switch v := expr.(type) {
+	case *ast.ParenthesesExpr:
+		if v.Expr != nil {
+			return simplifyExpr(v.Expr)
+		}
+		return ast.NewValueExpr(1, "", "")
 	case *ast.BinaryOperationExpr:
 		switch v.Op {
 		case opcode.LogicAnd, opcode.LogicOr:
@@ -154,6 +159,60 @@ func simplifyExpr(expr ast.ExprNode) ast.ExprNode {
 		return ast.NewValueExpr(1, "", "")
 	default:
 		return ast.NewValueExpr(1, "", "")
+	}
+}
+
+func predicateReduceCandidates(expr ast.ExprNode) []ast.ExprNode {
+	if expr == nil {
+		return nil
+	}
+	var out []ast.ExprNode
+	collectPredicateReduceCandidates(expr, &out)
+	return out
+}
+
+func collectPredicateReduceCandidates(expr ast.ExprNode, out *[]ast.ExprNode) {
+	if expr == nil || out == nil {
+		return
+	}
+	expr = unwrapParenthesesExpr(expr)
+	switch v := expr.(type) {
+	case *ast.BinaryOperationExpr:
+		switch v.Op {
+		case opcode.LogicAnd, opcode.LogicOr:
+			if v.L != nil {
+				left := unwrapParenthesesExpr(v.L)
+				if left != nil {
+					*out = append(*out, left)
+					collectPredicateReduceCandidates(left, out)
+				}
+			}
+			if v.R != nil {
+				right := unwrapParenthesesExpr(v.R)
+				if right != nil {
+					*out = append(*out, right)
+					collectPredicateReduceCandidates(right, out)
+				}
+			}
+		}
+	case *ast.UnaryOperationExpr:
+		if v.V != nil {
+			inner := unwrapParenthesesExpr(v.V)
+			if inner != nil {
+				*out = append(*out, inner)
+				collectPredicateReduceCandidates(inner, out)
+			}
+		}
+	}
+}
+
+func unwrapParenthesesExpr(expr ast.ExprNode) ast.ExprNode {
+	for {
+		paren, ok := expr.(*ast.ParenthesesExpr)
+		if !ok || paren == nil || paren.Expr == nil {
+			return expr
+		}
+		expr = paren.Expr
 	}
 }
 

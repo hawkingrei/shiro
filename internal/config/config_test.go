@@ -60,6 +60,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
 		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
 	}
+	if cfg.Oracles.EETComplexityJoinTableThreshold != eetComplexityJoinTablesThresholdDefault {
+		t.Fatalf("unexpected eet complexity join-table threshold: %d", cfg.Oracles.EETComplexityJoinTableThreshold)
+	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica default: %d", cfg.Oracles.MPPTiFlashReplica)
 	}
@@ -259,6 +262,7 @@ func TestLoadDQPExternalHints(t *testing.T) {
   dqp_set_var_hint_pick_max: 7
   dqp_complexity_set_ops_threshold: 5
   dqp_complexity_derived_threshold: 6
+  eet_complexity_join_tables_threshold: 9
   dqp_external_hints:
     - "SET_VAR(tidb_opt_partial_ordered_index_for_topn='COST')"
     - "HASH_JOIN"
@@ -294,6 +298,9 @@ func TestLoadDQPExternalHints(t *testing.T) {
 	}
 	if cfg.Oracles.DQPComplexityDerivedThreshold != 6 {
 		t.Fatalf("unexpected dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
+	}
+	if cfg.Oracles.EETComplexityJoinTableThreshold != 9 {
+		t.Fatalf("unexpected eet complexity join-table threshold: %d", cfg.Oracles.EETComplexityJoinTableThreshold)
 	}
 	if cfg.Oracles.MPPTiFlashReplica != 1 {
 		t.Fatalf("unexpected mpp_tiflash_replica: %d", cfg.Oracles.MPPTiFlashReplica)
@@ -450,6 +457,7 @@ func TestNormalizeDQPComplexityThresholds(t *testing.T) {
 	content := `oracles:
   dqp_complexity_set_ops_threshold: 0
   dqp_complexity_derived_threshold: -1
+  eet_complexity_join_tables_threshold: 0
 `
 	if _, err := tmp.WriteString(content); err != nil {
 		t.Fatalf("write temp file: %v", err)
@@ -467,5 +475,8 @@ func TestNormalizeDQPComplexityThresholds(t *testing.T) {
 	}
 	if cfg.Oracles.DQPComplexityDerivedThreshold != dqpComplexityDerivedThresholdDefault {
 		t.Fatalf("unexpected normalized dqp complexity derived threshold: %d", cfg.Oracles.DQPComplexityDerivedThreshold)
+	}
+	if cfg.Oracles.EETComplexityJoinTableThreshold != eetComplexityJoinTablesThresholdDefault {
+		t.Fatalf("unexpected normalized eet complexity join-table threshold: %d", cfg.Oracles.EETComplexityJoinTableThreshold)
 	}
 }

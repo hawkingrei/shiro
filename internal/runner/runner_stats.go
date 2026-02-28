@@ -461,6 +461,32 @@ func (r *Runner) applyResultMetrics(result oracle.Result) {
 	if v, ok := result.Metrics["dqp_set_var_variant_total"]; ok {
 		r.dqpSetVarVariantTotal += v
 	}
+	hintLenCount, hasHintLenCount := result.Metrics["dqp_hint_length_count"]
+	hintLenSum, hasHintLenSum := result.Metrics["dqp_hint_length_sum"]
+	hintLenMin, hasHintLenMin := result.Metrics["dqp_hint_length_min"]
+	hintLenMax, hasHintLenMax := result.Metrics["dqp_hint_length_max"]
+	if hasHintLenCount && hasHintLenSum && hintLenCount > 0 && hintLenSum >= 0 {
+		r.dqpHintLengthCountTotal += hintLenCount
+		r.dqpHintLengthSumTotal += hintLenSum
+		r.dqpHintLengthIntervalCount += hintLenCount
+		r.dqpHintLengthIntervalSum += hintLenSum
+	}
+	if hasHintLenMin && hintLenMin > 0 {
+		if r.dqpHintLengthMinTotal == 0 || hintLenMin < r.dqpHintLengthMinTotal {
+			r.dqpHintLengthMinTotal = hintLenMin
+		}
+		if r.dqpHintLengthIntervalMin == 0 || hintLenMin < r.dqpHintLengthIntervalMin {
+			r.dqpHintLengthIntervalMin = hintLenMin
+		}
+	}
+	if hasHintLenMax && hintLenMax > 0 {
+		if hintLenMax > r.dqpHintLengthMaxTotal {
+			r.dqpHintLengthMaxTotal = hintLenMax
+		}
+		if hintLenMax > r.dqpHintLengthIntervalMax {
+			r.dqpHintLengthIntervalMax = hintLenMax
+		}
+	}
 	if result.Oracle == "Impo" && result.Details != nil {
 		if reason, ok := result.Details["impo_skip_reason"].(string); ok && reason != "" {
 			if r.impoSkipReasons == nil {
@@ -646,6 +672,14 @@ func (r *Runner) startStatsLogger() func() {
 				dqpHintInjectedTotal := r.dqpHintInjectedTotal
 				dqpHintFallbackTotal := r.dqpHintFallbackTotal
 				dqpSetVarVariantTotal := r.dqpSetVarVariantTotal
+				dqpHintLengthIntervalSum := r.dqpHintLengthIntervalSum
+				dqpHintLengthIntervalCount := r.dqpHintLengthIntervalCount
+				dqpHintLengthIntervalMin := r.dqpHintLengthIntervalMin
+				dqpHintLengthIntervalMax := r.dqpHintLengthIntervalMax
+				r.dqpHintLengthIntervalSum = 0
+				r.dqpHintLengthIntervalCount = 0
+				r.dqpHintLengthIntervalMin = 0
+				r.dqpHintLengthIntervalMax = 0
 				oraclePickTotal := r.oraclePickTotal
 				certPickTotal := r.certPickTotal
 				viewQueries := r.viewQueries
@@ -831,6 +865,10 @@ func (r *Runner) startStatsLogger() func() {
 				deltaDQPHintInjectedTotal := dqpHintInjectedTotal - lastDQPHintInjectedTotal
 				deltaDQPHintFallbackTotal := dqpHintFallbackTotal - lastDQPHintFallbackTotal
 				deltaDQPSetVarVariantTotal := dqpSetVarVariantTotal - lastDQPSetVarVariantTotal
+				deltaDQPHintLengthSum := dqpHintLengthIntervalSum
+				deltaDQPHintLengthCount := dqpHintLengthIntervalCount
+				deltaDQPHintLengthMin := dqpHintLengthIntervalMin
+				deltaDQPHintLengthMax := dqpHintLengthIntervalMax
 				deltaOraclePicks := oraclePickTotal - lastOraclePickTotal
 				deltaCertPicks := certPickTotal - lastCertPickTotal
 				deltaViewQueries := viewQueries - lastViewQueries
@@ -1148,12 +1186,23 @@ func (r *Runner) startStatsLogger() func() {
 						minimizeInFlight,
 						stalledReason(controlState.LowSample, controlState.InfraUnhealthy, minimizeInFlight, deltaOracleTimeoutCounts),
 					)
-					if deltaDQPHintInjectedTotal > 0 || deltaDQPHintFallbackTotal > 0 || deltaDQPSetVarVariantTotal > 0 {
+					if deltaDQPHintInjectedTotal > 0 ||
+						deltaDQPHintFallbackTotal > 0 ||
+						deltaDQPSetVarVariantTotal > 0 ||
+						deltaDQPHintLengthCount > 0 {
+						dqpHintLengthAvg := 0.0
+						if deltaDQPHintLengthCount > 0 {
+							dqpHintLengthAvg = float64(deltaDQPHintLengthSum) / float64(deltaDQPHintLengthCount)
+						}
 						util.Infof(
-							"dqp_variant_metrics last interval: dqp_hint_injected_total=%d dqp_hint_fallback_total=%d dqp_set_var_variant_total=%d",
+							"dqp_variant_metrics last interval: dqp_hint_injected_total=%d dqp_hint_fallback_total=%d dqp_set_var_variant_total=%d dqp_hint_len_min=%d dqp_hint_len_avg=%.2f dqp_hint_len_max=%d dqp_hint_len_count=%d",
 							deltaDQPHintInjectedTotal,
 							deltaDQPHintFallbackTotal,
 							deltaDQPSetVarVariantTotal,
+							deltaDQPHintLengthMin,
+							dqpHintLengthAvg,
+							deltaDQPHintLengthMax,
+							deltaDQPHintLengthCount,
 						)
 					}
 					deltaSubqueryDisallowReasons := make(map[string]int64, len(subqueryDisallowReasons))

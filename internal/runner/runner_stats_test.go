@@ -258,6 +258,10 @@ func TestApplyResultMetricsDQPVariantCounters(t *testing.T) {
 			"dqp_hint_injected_total":   9,
 			"dqp_hint_fallback_total":   1,
 			"dqp_set_var_variant_total": 5,
+			"dqp_hint_length_min":       10,
+			"dqp_hint_length_max":       30,
+			"dqp_hint_length_sum":       70,
+			"dqp_hint_length_count":     2,
 		},
 	})
 	r.applyResultMetrics(oracle.Result{
@@ -265,6 +269,10 @@ func TestApplyResultMetricsDQPVariantCounters(t *testing.T) {
 		Metrics: map[string]int64{
 			"dqp_hint_injected_total":   3,
 			"dqp_set_var_variant_total": 2,
+			"dqp_hint_length_min":       8,
+			"dqp_hint_length_max":       20,
+			"dqp_hint_length_sum":       28,
+			"dqp_hint_length_count":     2,
 		},
 	})
 
@@ -276,5 +284,29 @@ func TestApplyResultMetricsDQPVariantCounters(t *testing.T) {
 	}
 	if r.dqpSetVarVariantTotal != 7 {
 		t.Fatalf("dqpSetVarVariantTotal=%d want=7", r.dqpSetVarVariantTotal)
+	}
+	if r.dqpHintLengthSumTotal != 98 {
+		t.Fatalf("dqpHintLengthSumTotal=%d want=98", r.dqpHintLengthSumTotal)
+	}
+	if r.dqpHintLengthCountTotal != 4 {
+		t.Fatalf("dqpHintLengthCountTotal=%d want=4", r.dqpHintLengthCountTotal)
+	}
+	if r.dqpHintLengthMinTotal != 8 {
+		t.Fatalf("dqpHintLengthMinTotal=%d want=8", r.dqpHintLengthMinTotal)
+	}
+	if r.dqpHintLengthMaxTotal != 30 {
+		t.Fatalf("dqpHintLengthMaxTotal=%d want=30", r.dqpHintLengthMaxTotal)
+	}
+	if r.dqpHintLengthIntervalSum != 98 {
+		t.Fatalf("dqpHintLengthIntervalSum=%d want=98", r.dqpHintLengthIntervalSum)
+	}
+	if r.dqpHintLengthIntervalCount != 4 {
+		t.Fatalf("dqpHintLengthIntervalCount=%d want=4", r.dqpHintLengthIntervalCount)
+	}
+	if r.dqpHintLengthIntervalMin != 8 {
+		t.Fatalf("dqpHintLengthIntervalMin=%d want=8", r.dqpHintLengthIntervalMin)
+	}
+	if r.dqpHintLengthIntervalMax != 30 {
+		t.Fatalf("dqpHintLengthIntervalMax=%d want=30", r.dqpHintLengthIntervalMax)
 	}
 }
