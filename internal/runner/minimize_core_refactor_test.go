@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"shiro/internal/schema"
 )
 
 func TestValidatedMergedInsertsRespectsReplay(t *testing.T) {
@@ -177,5 +179,46 @@ func TestBuildReproSQLErrorSQLKind(t *testing.T) {
 	}
 	if out[3] != "SELECT COUNT(*) FROM (SELECT * FROM t) q" {
 		t.Fatalf("unexpected replay sql: %q", out[3])
+	}
+}
+
+func TestExpandMinimizeTablesForViewDependencies(t *testing.T) {
+	r := &Runner{
+		state: &schema.State{
+			Tables: []schema.Table{
+				{Name: "t0"},
+				{Name: "t1"},
+				{Name: "v0", IsView: true},
+			},
+		},
+	}
+	input := map[string]struct{}{"v0": {}}
+	got := r.expandMinimizeTablesForViewDependencies(input)
+	if len(got) != 3 {
+		t.Fatalf("expected all tables to be included when view is referenced, got=%v", got)
+	}
+	for _, name := range []string{"t0", "t1", "v0"} {
+		if _, ok := got[name]; !ok {
+			t.Fatalf("expected expanded tables to include %s, got=%v", name, got)
+		}
+	}
+}
+
+func TestExpandMinimizeTablesForViewDependenciesNoViewReference(t *testing.T) {
+	r := &Runner{
+		state: &schema.State{
+			Tables: []schema.Table{
+				{Name: "t0"},
+				{Name: "v0", IsView: true},
+			},
+		},
+	}
+	input := map[string]struct{}{"t0": {}}
+	got := r.expandMinimizeTablesForViewDependencies(input)
+	if len(got) != 1 {
+		t.Fatalf("expected input table set to remain unchanged, got=%v", got)
+	}
+	if _, ok := got["t0"]; !ok {
+		t.Fatalf("expected table t0 to remain in set, got=%v", got)
 	}
 }

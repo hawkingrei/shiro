@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strings"
@@ -50,6 +51,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		return minimizeOutput{status: "not_applicable"}
 	}
 	tablesUsed := tablesForMinimize(result)
+	tablesUsed = r.expandMinimizeTablesForViewDependencies(tablesUsed)
 	schemaSQL := r.schemaSQL(ctx, tablesUsed)
 	if len(schemaSQL) == 0 {
 		return minimizeOutput{status: "skipped", reason: "schema_unavailable"}
@@ -385,14 +387,53 @@ func (r *Runner) schemaSQL(ctx context.Context, tables map[string]struct{}) []st
 				continue
 			}
 		}
-		row := r.exec.QueryRowContext(qctx, fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name))
-		var name, createSQL string
-		if err := row.Scan(&name, &createSQL); err != nil {
+		showSQL := fmt.Sprintf("SHOW CREATE TABLE %s", tbl.Name)
+		if tbl.IsView {
+			showSQL = fmt.Sprintf("SHOW CREATE VIEW %s", tbl.Name)
+		}
+		createSQL, err := r.showCreateSQL(qctx, showSQL)
+		if err != nil {
 			continue
 		}
-		out = append(out, normalizeCreateTable(createSQL))
+		if !tbl.IsView {
+			createSQL = normalizeCreateTable(createSQL)
+		}
+		out = append(out, createSQL)
 	}
 	return out
+}
+
+func (r *Runner) showCreateSQL(ctx context.Context, showSQL string) (string, error) {
+	rows, err := r.exec.QueryContext(ctx, showSQL)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return "", err
+	}
+	if len(cols) < 2 {
+		return "", fmt.Errorf("show create has insufficient columns: %d", len(cols))
+	}
+	raw := make([]sql.RawBytes, len(cols))
+	dest := make([]any, len(cols))
+	for i := range raw {
+		dest[i] = &raw[i]
+	}
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return "", sql.ErrNoRows
+	}
+	if err := rows.Scan(dest...); err != nil {
+		return "", err
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return string(raw[1]), nil
 }
 
 var autoIncPattern = regexp.MustCompile(`(?i)\sAUTO_INCREMENT=\d+`)
@@ -431,6 +472,34 @@ func tablesForMinimize(result oracle.Result) map[string]struct{} {
 		return nil
 	}
 	return tables
+}
+
+func (r *Runner) expandMinimizeTablesForViewDependencies(tables map[string]struct{}) map[string]struct{} {
+	if len(tables) == 0 || r == nil || r.state == nil {
+		return tables
+	}
+	hasViewRef := false
+	for _, tbl := range r.state.Tables {
+		if !tbl.IsView {
+			continue
+		}
+		if _, ok := tables[strings.ToLower(tbl.Name)]; ok {
+			hasViewRef = true
+			break
+		}
+	}
+	if !hasViewRef {
+		return tables
+	}
+	expanded := make(map[string]struct{}, len(r.state.Tables))
+	for _, tbl := range r.state.Tables {
+		name := strings.ToLower(strings.TrimSpace(tbl.Name))
+		if name == "" {
+			continue
+		}
+		expanded[name] = struct{}{}
+	}
+	return expanded
 }
 
 func collectTables(p *parser.Parser, tables map[string]struct{}, sqls ...string) {
