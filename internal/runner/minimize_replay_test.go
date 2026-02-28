@@ -57,11 +57,27 @@ func TestErrorMatchesByMySQLErrorCodeOnly(t *testing.T) {
 	}
 }
 
+func TestErrorMatchesMySQLErrorCodeWithKeywordMismatch(t *testing.T) {
+	expected := &mysql.MySQLError{Number: 1105, Message: "Can't find column Column#123"}
+	got := &mysql.MySQLError{Number: 1105, Message: "index out of range [1] with length 0"}
+	if errorMatches(got, expected) {
+		t.Fatalf("expected same mysql code with different keyword class not to match")
+	}
+}
+
 func TestErrorMatchesNoTextFallbackForNonMySQLErrors(t *testing.T) {
 	expected := errors.New("some runtime failure")
 	got := errors.New("some runtime failure")
 	if errorMatches(got, expected) {
 		t.Fatalf("expected non-mysql errors not to match by text")
+	}
+}
+
+func TestErrorMatchesNonMySQLByKeyword(t *testing.T) {
+	expected := errors.New("context deadline exceeded")
+	got := errors.New("query timed out while waiting response")
+	if !errorMatches(got, expected) {
+		t.Fatalf("expected timeout keyword match for non-mysql errors")
 	}
 }
 

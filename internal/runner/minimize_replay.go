@@ -628,10 +628,81 @@ func errorMatches(err error, expected error) bool {
 	if isPanicError(expected) || isPanicError(err) {
 		return isPanicError(expected) && isPanicError(err)
 	}
+	expKeywords := errorKeywords(expected.Error())
+	gotKeywords := errorKeywords(err.Error())
 	expCode, expCodeOK := mysqlErrCode(expected)
 	gotCode, gotCodeOK := mysqlErrCode(err)
 	if expCodeOK || gotCodeOK {
-		return expCodeOK && gotCodeOK && expCode == gotCode
+		if !(expCodeOK && gotCodeOK && expCode == gotCode) {
+			return false
+		}
+		if len(expKeywords) == 0 || len(gotKeywords) == 0 {
+			return true
+		}
+		return hasKeywordOverlap(expKeywords, gotKeywords)
+	}
+	if len(expKeywords) == 0 || len(gotKeywords) == 0 {
+		return false
+	}
+	return hasKeywordOverlap(expKeywords, gotKeywords)
+}
+
+func hasKeywordOverlap(left []string, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, item := range left {
+		seen[item] = struct{}{}
+	}
+	for _, item := range right {
+		if _, ok := seen[item]; ok {
+			return true
+		}
 	}
 	return false
+}
+
+func errorKeywords(msg string) []string {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	if lower == "" {
+		return nil
+	}
+	keywords := make([]string, 0, 4)
+	appendKeyword := func(keyword string, patterns ...string) {
+		for _, pattern := range patterns {
+			if strings.Contains(lower, pattern) {
+				keywords = append(keywords, keyword)
+				return
+			}
+		}
+	}
+	appendKeyword("missing_column",
+		"can't find column",
+		"unknown column",
+		"column not found",
+		"invalid column id",
+		"invalidate column id",
+	)
+	appendKeyword("timeout",
+		"context deadline exceeded",
+		"timeout",
+		"timed out",
+	)
+	appendKeyword("canceled",
+		"cancelled",
+		"canceled",
+		"query interrupted",
+	)
+	appendKeyword("deadlock", "deadlock")
+	appendKeyword("lock_wait_timeout", "lock wait timeout")
+	appendKeyword("index_out_of_range", "index out of range")
+	appendKeyword("syntax_error", "syntax error", "parse error")
+	appendKeyword("connection_error",
+		"connection reset",
+		"connection refused",
+		"broken pipe",
+		"bad connection",
+	)
+	return keywords
 }

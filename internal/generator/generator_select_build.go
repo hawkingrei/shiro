@@ -455,7 +455,6 @@ func (g *Generator) ensureLimitOrderByTieBreaker(query *SelectQuery, tables []sc
 			continue
 		}
 		orderBy = append(orderBy, OrderBy{Expr: ob.Expr, Desc: false})
-		break
 	}
 	return orderBy
 }

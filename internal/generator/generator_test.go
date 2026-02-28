@@ -421,6 +421,51 @@ func TestEnsureLimitOrderByTieBreakerKeepsSelectOrderCompatibility(t *testing.T)
 	}
 }
 
+func TestEnsureLimitOrderByTieBreakerAppendsAllDeterministicColumns(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "k0", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+					{Name: "k2", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 2)
+	limit := 5
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k1", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k1", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k2", Type: schema.TypeInt}}},
+		},
+		Limit: &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, state.Tables)
+	if len(out) != 4 {
+		t.Fatalf("expected two appended deterministic columns, got %v", out)
+	}
+	last1, ok1 := out[2].Expr.(ColumnExpr)
+	last2, ok2 := out[3].Expr.(ColumnExpr)
+	if !ok1 || !ok2 {
+		t.Fatalf("expected appended column expressions, got %T and %T", out[2].Expr, out[3].Expr)
+	}
+	if last1.Ref.Name != "id" || last2.Ref.Name != "k0" {
+		t.Fatalf("expected appended deterministic columns id,k0, got %s,%s", last1.Ref.Name, last2.Ref.Name)
+	}
+}
+
 func assertPanic(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {
