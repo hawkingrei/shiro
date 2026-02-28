@@ -403,12 +403,16 @@ func (r *Runner) schemaSQL(ctx context.Context, tables map[string]struct{}) []st
 	return out
 }
 
-func (r *Runner) showCreateSQL(ctx context.Context, showSQL string) (string, error) {
+func (r *Runner) showCreateSQL(ctx context.Context, showSQL string) (createSQL string, retErr error) {
 	rows, err := r.exec.QueryContext(ctx, showSQL)
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); retErr == nil && closeErr != nil {
+			retErr = closeErr
+		}
+	}()
 	cols, err := rows.Columns()
 	if err != nil {
 		return "", err
