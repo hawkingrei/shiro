@@ -112,6 +112,20 @@ func selectCandidates(p *parser.Parser, n *ast.SelectStmt) []string {
 			s.With = nil
 		}))
 	}
+	if n.With != nil && len(n.With.CTEs) > 1 {
+		for idx := range n.With.CTEs {
+			i := idx
+			candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
+				if s.With == nil || len(s.With.CTEs) <= 1 || i < 0 || i >= len(s.With.CTEs) {
+					return
+				}
+				s.With.CTEs = append([]*ast.CommonTableExpression{}, append(s.With.CTEs[:i], s.With.CTEs[i+1:]...)...)
+				if len(s.With.CTEs) == 0 {
+					s.With = nil
+				}
+			}))
+		}
+	}
 	if n.OrderBy != nil {
 		candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
 			s.OrderBy = nil
@@ -159,6 +173,18 @@ func selectCandidates(p *parser.Parser, n *ast.SelectStmt) []string {
 				s.Having.Expr = simplifyExpr(s.Having.Expr)
 			}
 		}))
+		for _, expr := range predicateReduceCandidates(n.Having.Expr) {
+			if expr == nil {
+				continue
+			}
+			reducedExpr := expr
+			candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
+				if s.Having == nil {
+					return
+				}
+				s.Having.Expr = reducedExpr
+			}))
+		}
 	}
 	if n.GroupBy != nil && len(n.GroupBy.Items) > 0 {
 		candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
@@ -196,6 +222,15 @@ func selectCandidates(p *parser.Parser, n *ast.SelectStmt) []string {
 		candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
 			s.Where = simplifyExpr(s.Where)
 		}))
+		for _, expr := range predicateReduceCandidates(n.Where) {
+			if expr == nil {
+				continue
+			}
+			reducedExpr := expr
+			candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
+				s.Where = reducedExpr
+			}))
+		}
 	}
 	candidates = append(candidates, mutateSelect(p, base, func(s *ast.SelectStmt) {
 		applyDeepSimplify(s)
@@ -270,6 +305,20 @@ func setOprCandidates(p *parser.Parser, n *ast.SetOprStmt) []string {
 		candidates = append(candidates, mutateSetOpr(p, base, func(u *ast.SetOprStmt) {
 			u.With = nil
 		}))
+	}
+	if n.With != nil && len(n.With.CTEs) > 1 {
+		for idx := range n.With.CTEs {
+			i := idx
+			candidates = append(candidates, mutateSetOpr(p, base, func(u *ast.SetOprStmt) {
+				if u.With == nil || len(u.With.CTEs) <= 1 || i < 0 || i >= len(u.With.CTEs) {
+					return
+				}
+				u.With.CTEs = append([]*ast.CommonTableExpression{}, append(u.With.CTEs[:i], u.With.CTEs[i+1:]...)...)
+				if len(u.With.CTEs) == 0 {
+					u.With = nil
+				}
+			}))
+		}
 	}
 	if n.OrderBy != nil {
 		candidates = append(candidates, mutateSetOpr(p, base, func(u *ast.SetOprStmt) {
