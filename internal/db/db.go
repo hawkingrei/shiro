@@ -83,7 +83,7 @@ func (d *DB) QuerySignatureWithWarnings(ctx context.Context, query string) (Sign
 	if err := d.validate(query); err != nil {
 		return Signature{}, nil, err
 	}
-	conn, err := d.DB.Conn(ctx)
+	conn, err := d.Conn(ctx)
 	if err != nil {
 		return Signature{}, nil, err
 	}
