@@ -124,3 +124,38 @@ func TestReplayConsensus(t *testing.T) {
 		t.Fatalf("non-positive attempts should fail when success is required")
 	}
 }
+
+func TestMinimizeBaseReplayGate(t *testing.T) {
+	results := []bool{true, false, true}
+	idx := 0
+	ok, flaky := minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "signature")
+	if !ok || flaky {
+		t.Fatalf("expected strict base replay gate pass without flaky, got ok=%v flaky=%v", ok, flaky)
+	}
+
+	results = []bool{false, true, false, false, false, true}
+	idx = 0
+	ok, flaky = minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "case_error")
+	if !ok || !flaky {
+		t.Fatalf("expected case_error fallback base replay pass with flaky=true, got ok=%v flaky=%v", ok, flaky)
+	}
+
+	results = []bool{false, true, false, false, false, true}
+	idx = 0
+	ok, flaky = minimizeBaseReplayGate(func() bool {
+		v := results[idx]
+		idx++
+		return v
+	}, "signature")
+	if ok || !flaky {
+		t.Fatalf("expected non-case_error base replay gate failure, got ok=%v flaky=%v", ok, flaky)
+	}
+}

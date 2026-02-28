@@ -73,9 +73,10 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	origCase := append([]string{}, result.SQL...)
 
 	origInserts = expandInsertStatements(origInserts)
-	if !replayConsensus(func() bool {
+	baseReproducible, baseFlaky := minimizeBaseReplayGate(func() bool {
 		return test(origInserts, origCase)
-	}, minimizeBaseReplayAttempts, minimizeBaseReplayRequired) {
+	}, spec.kind)
+	if !baseReproducible {
 		return minimizeOutput{
 			status: "skipped",
 			reason: minimizeReasonBaseReplayNotReproducible,
@@ -122,7 +123,19 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		reproSQL:  reproSQL,
 		minimized: true,
 		status:    "success",
+		flaky:     baseFlaky,
 	}
+}
+
+func minimizeBaseReplayGate(run func() bool, specKind string) (ok bool, flaky bool) {
+	if replayConsensus(run, minimizeBaseReplayAttempts, minimizeBaseReplayRequired) {
+		return true, false
+	}
+	if strings.EqualFold(strings.TrimSpace(specKind), "case_error") &&
+		replayConsensus(run, minimizeBaseReplayAttempts, 1) {
+		return true, true
+	}
+	return false, true
 }
 
 func reduceCaseErrorCandidate(
