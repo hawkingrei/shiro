@@ -78,6 +78,14 @@ type Runner struct {
 	dqpHintInjectedTotal            int64
 	dqpHintFallbackTotal            int64
 	dqpSetVarVariantTotal           int64
+	dqpHintLengthSumTotal           int64
+	dqpHintLengthCountTotal         int64
+	dqpHintLengthMinTotal           int64
+	dqpHintLengthMaxTotal           int64
+	dqpHintLengthIntervalSum        int64
+	dqpHintLengthIntervalCount      int64
+	dqpHintLengthIntervalMin        int64
+	dqpHintLengthIntervalMax        int64
 	impoSkipReasons                 map[string]int64
 	impoSkipErrCodes                map[string]int64
 	impoLastFailSQL                 string

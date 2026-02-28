@@ -102,7 +102,7 @@ weights:
   features:
     join_count: 5
     cte_count: 4
-    cte_count_max: 3
+    cte_count_max: 2
     subquery_count: 5
     aggregate_prob: 50
     decimal_agg_prob: 70
@@ -138,10 +138,11 @@ oracles:
   join_on_policy: "simple"
   join_using_prob: -1
   dqp_external_hints: []
-  dqp_base_hint_pick_limit: 3
-  dqp_set_var_hint_pick_max: 3
+  dqp_base_hint_pick_limit: 4
+  dqp_set_var_hint_pick_max: 4
   dqp_complexity_set_ops_threshold: 2
   dqp_complexity_derived_threshold: 3
+  eet_complexity_join_tables_threshold: 4
   cert_min_base_rows: 20
   groundtruth_max_rows: 50
   impo_max_rows: 50

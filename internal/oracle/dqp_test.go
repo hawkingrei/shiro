@@ -60,6 +60,49 @@ func TestJoinReorderThresholdHintsRange(t *testing.T) {
 	}
 }
 
+func TestDQPJoinTableCountIncludesCTEAndBodyTables(t *testing.T) {
+	cteQuery := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 1},
+					},
+				},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		With: []generator.CTE{{Name: "c1", Query: cteQuery}},
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "c1", Name: "c0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "c1",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 1},
+					},
+				},
+			},
+		},
+	}
+	if got := dqpJoinTableCountWithCTE(query); got != 5 {
+		t.Fatalf("dqpJoinTableCountWithCTE=%d want=5", got)
+	}
+}
+
 func TestDQPSetVarHintsCount(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -69,8 +112,8 @@ func TestDQPSetVarHintsCount(t *testing.T) {
 	gen := generator.New(cfg, &state, 2)
 	for i := 0; i < 20; i++ {
 		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
-		if len(hints) > 3 {
-			t.Fatalf("expected <=3 set_var hints, got %d", len(hints))
+		if len(hints) > 2 {
+			t.Fatalf("expected <=2 set_var hints, got %d", len(hints))
 		}
 		if len(hints) == 0 {
 			t.Fatalf("expected at least one set_var hint")
@@ -94,8 +137,8 @@ func TestDQPHintsForQueryCount(t *testing.T) {
 		HintAggToCop:        {},
 	}
 	hints := dqpHintsForQuery(gen, []string{"t1", "t2"}, true, true, true, true, noArgHints, nil)
-	if len(hints) > 3 {
-		t.Fatalf("expected <=3 hints, got %d", len(hints))
+	if len(hints) > 4 {
+		t.Fatalf("expected <=4 hints, got %d", len(hints))
 	}
 	for _, hint := range hints {
 		if strings.TrimSpace(hint) == "" {
@@ -128,8 +171,8 @@ func TestDQPHintPickLimitsFromConfig(t *testing.T) {
 		t.Fatalf("expected <=6 base hints, got %d", len(baseHints))
 	}
 	setVarHints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
-	if len(setVarHints) > 7 {
-		t.Fatalf("expected <=7 set_var hints, got %d", len(setVarHints))
+	if len(setVarHints) > 2 {
+		t.Fatalf("expected <=2 set_var hints, got %d", len(setVarHints))
 	}
 	if len(setVarHints) == 0 {
 		t.Fatalf("expected set_var hints when candidates exist")
@@ -146,13 +189,23 @@ func TestDQPSetVarHintCandidatesIncludePartialOrderedTopN(t *testing.T) {
 	}
 }
 
-func TestDQPSetVarHintCandidatesIncludeMPPWhenJoin(t *testing.T) {
+func TestDQPSetVarHintCandidatesIncludeAllowMPPWhenJoin(t *testing.T) {
 	candidates := dqpSetVarHintCandidates(nil, 3, true, true, true, true, true, true, nil)
 	if !containsHint(candidates, SetVarAllowMPPOn) {
 		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOn, candidates)
 	}
 	if !containsHint(candidates, SetVarAllowMPPOff) {
 		t.Fatalf("expected %s in candidates, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
+func TestDQPSetVarHintCandidatesIncludeEnforceMPPWhenJoin(t *testing.T) {
+	candidates := dqpSetVarHintCandidates(nil, 3, true, true, true, true, true, true, nil)
+	if !containsHint(candidates, SetVarEnforceMPPOn) {
+		t.Fatalf("expected %s in candidates, got %v", SetVarEnforceMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarEnforceMPPOff) {
+		t.Fatalf("did not expect %s in candidates, got %v", SetVarEnforceMPPOff, candidates)
 	}
 }
 
@@ -164,9 +217,15 @@ func TestDQPSetVarHintCandidatesSkipMPPWithoutJoin(t *testing.T) {
 	if containsHint(candidates, SetVarAllowMPPOff) {
 		t.Fatalf("did not expect %s without joins, got %v", SetVarAllowMPPOff, candidates)
 	}
+	if containsHint(candidates, SetVarEnforceMPPOn) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarEnforceMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarEnforceMPPOff) {
+		t.Fatalf("did not expect %s without joins, got %v", SetVarEnforceMPPOff, candidates)
+	}
 }
 
-func TestDQPSetVarHintCandidatesSkipMPPWhenDisabled(t *testing.T) {
+func TestDQPSetVarHintCandidatesSkipAllowMPPWhenDisabled(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("load config: %v", err)
@@ -180,6 +239,126 @@ func TestDQPSetVarHintCandidatesSkipMPPWhenDisabled(t *testing.T) {
 	}
 	if containsHint(candidates, SetVarAllowMPPOff) {
 		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarAllowMPPOff, candidates)
+	}
+}
+
+func TestDQPSetVarHintCandidatesSkipEnforceMPPWhenDisabled(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DisableMPP = true
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 17)
+	candidates := dqpSetVarHintCandidates(gen, 3, true, true, true, true, true, true, nil)
+	if containsHint(candidates, SetVarEnforceMPPOn) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarEnforceMPPOn, candidates)
+	}
+	if containsHint(candidates, SetVarEnforceMPPOff) {
+		t.Fatalf("did not expect %s when disable_mpp is true, got %v", SetVarEnforceMPPOff, candidates)
+	}
+}
+
+func TestDQPShouldRequireMPPSetVar(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 31)
+	if !dqpShouldRequireMPPSetVar(gen, true) {
+		t.Fatalf("expected MPP set-var requirement when TiFlash replicas are enabled")
+	}
+
+	cfgNoReplica := cfg
+	cfgNoReplica.Oracles.MPPTiFlashReplica = 0
+	genNoReplica := generator.New(cfgNoReplica, &state, 32)
+	if dqpShouldRequireMPPSetVar(genNoReplica, true) {
+		t.Fatalf("did not expect MPP set-var requirement without TiFlash replicas")
+	}
+
+	cfgDisableMPP := cfg
+	cfgDisableMPP.Oracles.DisableMPP = true
+	genDisableMPP := generator.New(cfgDisableMPP, &state, 33)
+	if dqpShouldRequireMPPSetVar(genDisableMPP, true) {
+		t.Fatalf("did not expect MPP set-var requirement when disable_mpp=true")
+	}
+	if dqpShouldRequireMPPSetVar(gen, false) {
+		t.Fatalf("did not expect MPP set-var requirement without joins")
+	}
+}
+
+func TestDQPSetVarHintsRequireMPPWhenTiFlashReplicaAvailable(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPSetVarHintPick = 1
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 41)
+	for i := 0; i < 20; i++ {
+		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
+		if len(hints) == 0 {
+			t.Fatalf("expected non-empty set-var hints")
+		}
+		if !dqpHasSetVarCategory(hints, true) {
+			t.Fatalf("expected MPP set-var hint in %v", hints)
+		}
+		if len(hints) > 1 {
+			assertDQPSetVarPair(t, hints[0], hints[1])
+		}
+	}
+}
+
+func TestDQPSetVarHintsKeepMPPAndNonMPPWhenLimitAllows(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPSetVarHintPick = 2
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 42)
+	for i := 0; i < 20; i++ {
+		hints := dqpSetVarHints(gen, 3, true, true, true, true, true, true, nil)
+		if !dqpHasSetVarCategory(hints, true) {
+			t.Fatalf("expected MPP set-var hint in %v", hints)
+		}
+		if len(hints) > 2 {
+			t.Fatalf("expected <=2 set-var hints, got %d (%v)", len(hints), hints)
+		}
+		if len(hints) == 2 {
+			assertDQPSetVarPair(t, hints[0], hints[1])
+		}
+	}
+}
+
+func TestDQPEnsureSetVarTogglePairs(t *testing.T) {
+	selected := []string{SetVarEnableHashJoinOn}
+	candidates := []string{
+		SetVarEnableHashJoinOn,
+		SetVarEnableHashJoinOff,
+		SetVarAllowMPPOn,
+		SetVarAllowMPPOff,
+	}
+	out := dqpEnsureSetVarTogglePairs(selected, candidates, 2)
+	if !containsHint(out, SetVarEnableHashJoinOn) || !containsHint(out, SetVarEnableHashJoinOff) {
+		t.Fatalf("expected hash join ON/OFF pair, got %v", out)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected pair-limited size 2, got %d (%v)", len(out), out)
+	}
+}
+
+func TestDQPEnsureSetVarTogglePairsEnforceMPPMapsToAllowOff(t *testing.T) {
+	selected := []string{SetVarEnforceMPPOn}
+	candidates := []string{
+		SetVarAllowMPPOn,
+		SetVarAllowMPPOff,
+		SetVarEnforceMPPOn,
+	}
+	out := dqpEnsureSetVarTogglePairs(selected, candidates, 2)
+	if !containsHint(out, SetVarEnforceMPPOn) || !containsHint(out, SetVarAllowMPPOff) {
+		t.Fatalf("expected enforce ON + allow OFF pair, got %v", out)
 	}
 }
 
@@ -349,6 +528,199 @@ func containsHint(hints []string, target string) bool {
 	return false
 }
 
+func containsHintPrefix(hints []string, prefix string) bool {
+	for _, hint := range hints {
+		if strings.HasPrefix(hint, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func dqpHintContainsMPPSetVar(hint string) bool {
+	for _, token := range splitTopLevelHintList(hint) {
+		if isMPPSetVarHint(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertDQPSetVarPair(t *testing.T, first string, second string) {
+	t.Helper()
+	name1, value1, ok1 := dqpParseSingleSetVarHint(first)
+	name2, value2, ok2 := dqpParseSingleSetVarHint(second)
+	if !ok1 || !ok2 {
+		t.Fatalf("expected set-var hints, got first=%q second=%q", first, second)
+	}
+	targets := dqpOppositeSetVarTargets(name1, value1)
+	if len(targets) == 0 {
+		t.Fatalf("expected opposite targets for %q, got none", first)
+	}
+	name2 = strings.ToLower(strings.TrimSpace(name2))
+	toggle2 := dqpNormalizeToggleValue(value2)
+	for _, target := range targets {
+		if target.name == name2 && target.value == toggle2 {
+			return
+		}
+	}
+	t.Fatalf("expected opposite of %q, got %q", first, second)
+}
+
+func TestDQPJoinHintCandidatesGateOuterJoin(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinLeft,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "k0"}},
+					},
+				},
+			},
+		},
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{Name: "t0", HasPK: true, Columns: []schema.Column{{Name: "k0", HasIndex: true}}},
+			{Name: "t1", HasPK: true, Columns: []schema.Column{{Name: "k0", HasIndex: true}}},
+		},
+	}
+	noArgHints := map[string]struct{}{
+		HintStraightJoin: {},
+	}
+	hints := dqpJoinHintCandidates(query, &state, noArgHints)
+	if !containsHint(hints, "HASH_JOIN(t0, t1)") {
+		t.Fatalf("expected HASH_JOIN hint, got %v", hints)
+	}
+	if containsHintPrefix(hints, "LEADING(") {
+		t.Fatalf("did not expect LEADING for outer join query, got %v", hints)
+	}
+	if containsHintPrefix(hints, "INL_JOIN(") || containsHintPrefix(hints, "INL_HASH_JOIN(") || containsHintPrefix(hints, "INL_MERGE_JOIN(") {
+		t.Fatalf("did not expect INL join hints for outer join query, got %v", hints)
+	}
+	if containsHintPrefix(hints, "HASH_JOIN_BUILD(") || containsHintPrefix(hints, "HASH_JOIN_PROBE(") {
+		t.Fatalf("did not expect HASH_JOIN_BUILD/PROBE hints for outer join query, got %v", hints)
+	}
+}
+
+func TestDQPJoinHintCandidatesInnerJoinIndexedTarget(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "k0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "k0"}},
+					},
+				},
+			},
+		},
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{Name: "t0", Columns: []schema.Column{{Name: "k0"}}},
+			{Name: "t1", HasPK: true, Columns: []schema.Column{{Name: "k0", HasIndex: true}}},
+		},
+	}
+	noArgHints := map[string]struct{}{
+		HintStraightJoin: {},
+	}
+	hints := dqpJoinHintCandidates(query, &state, noArgHints)
+	for _, expected := range []string{
+		"LEADING(t0, t1)",
+		"INL_JOIN(t1)",
+		"HASH_JOIN_BUILD(t1)",
+		"HASH_JOIN_PROBE(t1)",
+	} {
+		if !containsHint(hints, expected) {
+			t.Fatalf("expected %s in hints, got %v", expected, hints)
+		}
+	}
+}
+
+func TestDQPIndexHintCandidatesUseIndexMergeByQueryShape(t *testing.T) {
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name:  "t0",
+				HasPK: true,
+				Columns: []schema.Column{
+					{Name: "k0", HasIndex: true},
+					{Name: "k1", HasIndex: true},
+				},
+			},
+		},
+	}
+	orQuery := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{BaseTable: "t0"},
+		Where: generator.BinaryExpr{
+			Left: generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+				Op:    "=",
+				Right: generator.LiteralExpr{Value: 1},
+			},
+			Op: "OR",
+			Right: generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k1"}},
+				Op:    "=",
+				Right: generator.LiteralExpr{Value: 2},
+			},
+		},
+	}
+	orHints := dqpIndexHintCandidates(orQuery, &state)
+	if !containsHint(orHints, "USE_INDEX(t0)") {
+		t.Fatalf("expected USE_INDEX(t0), got %v", orHints)
+	}
+	if !containsHint(orHints, "USE_INDEX_MERGE(t0)") {
+		t.Fatalf("expected USE_INDEX_MERGE(t0), got %v", orHints)
+	}
+
+	andQuery := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{BaseTable: "t0"},
+		Where: generator.BinaryExpr{
+			Left: generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k0"}},
+				Op:    "=",
+				Right: generator.LiteralExpr{Value: 1},
+			},
+			Op: "AND",
+			Right: generator.BinaryExpr{
+				Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "k1"}},
+				Op:    "=",
+				Right: generator.LiteralExpr{Value: 2},
+			},
+		},
+	}
+	andHints := dqpIndexHintCandidates(andQuery, &state)
+	if !containsHint(andHints, "USE_INDEX(t0)") {
+		t.Fatalf("expected USE_INDEX(t0), got %v", andHints)
+	}
+	if containsHint(andHints, "USE_INDEX_MERGE(t0)") {
+		t.Fatalf("did not expect USE_INDEX_MERGE(t0) without OR predicate, got %v", andHints)
+	}
+}
+
 func TestBuildCombinedHints(t *testing.T) {
 	setVars := []string{"SET_VAR(a=1)", "SET_VAR(b=2)"}
 	base := []string{"HASH_JOIN(t1,t2)", "LEADING(t1,t2)"}
@@ -360,6 +732,115 @@ func TestBuildCombinedHints(t *testing.T) {
 		if !strings.Contains(hint, ", ") {
 			t.Fatalf("expected comma-separated hint, got %s", hint)
 		}
+	}
+}
+
+func TestDQPFormatHintGroups(t *testing.T) {
+	groups := map[string]struct{}{
+		dqpVariantGroupCombined: {},
+		dqpVariantGroupBaseHint: {},
+		"":                      {},
+	}
+	if got, want := dqpFormatHintGroups(groups), "base_hint,combined_hint"; got != want {
+		t.Fatalf("dqpFormatHintGroups()=%q want=%q", got, want)
+	}
+}
+
+func TestBuildDQPVariantsIncludesMultipleHintGroups(t *testing.T) {
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c1"}},
+				Alias: "c1",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t1",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c1"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "c1"}},
+					},
+				},
+			},
+		},
+	}
+
+	variants, _ := buildDQPVariants(query, nil, true, false, false, false, false, false, nil)
+	if len(variants) == 0 {
+		t.Fatalf("expected non-empty variants")
+	}
+	groups := make(map[string]struct{}, 4)
+	for _, variant := range variants {
+		if strings.TrimSpace(variant.group) == "" {
+			t.Fatalf("variant group should not be empty: %+v", variant)
+		}
+		groups[variant.group] = struct{}{}
+	}
+	if _, ok := groups[dqpVariantGroupBaseHint]; !ok {
+		t.Fatalf("expected %s group, got %v", dqpVariantGroupBaseHint, groups)
+	}
+	if _, ok := groups[dqpVariantGroupSetVar]; !ok {
+		if _, ok := groups[dqpVariantGroupMPP]; !ok {
+			t.Fatalf("expected %s or %s group, got %v", dqpVariantGroupSetVar, dqpVariantGroupMPP, groups)
+		}
+	}
+	if _, ok := groups[dqpVariantGroupCombined]; !ok {
+		t.Fatalf("expected %s group, got %v", dqpVariantGroupCombined, groups)
+	}
+}
+
+func TestBuildDQPVariantsMPPOverlapsCombinedHints(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.DQPSetVarHintPick = 1
+	state := schema.State{}
+	gen := generator.New(cfg, &state, 77)
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c1"}},
+				Alias: "c1",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t1",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c1"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "c1"}},
+					},
+				},
+			},
+		},
+	}
+
+	variants, _ := buildDQPVariants(query, nil, false, false, false, false, false, false, gen)
+	hasMPPGroup := false
+	hasCombinedMPP := false
+	for _, variant := range variants {
+		if variant.group == dqpVariantGroupMPP && dqpHintContainsMPPSetVar(variant.hint) {
+			hasMPPGroup = true
+		}
+		if variant.group == dqpVariantGroupCombined && dqpHintContainsMPPSetVar(variant.hint) {
+			hasCombinedMPP = true
+		}
+	}
+	if !hasMPPGroup {
+		t.Fatalf("expected MPP-specific hint variants, got %#v", variants)
+	}
+	if !hasCombinedMPP {
+		t.Fatalf("expected combined hints to include MPP set-var overlays, got %#v", variants)
 	}
 }
 
@@ -487,6 +968,50 @@ func TestDQPComplexityGuardReasonAlwaysFalseJoinChain(t *testing.T) {
 	}
 }
 
+func TestDQPComplexityGuardReasonJoinTablesWithCTE(t *testing.T) {
+	cteQuery := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 1},
+					},
+				},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		With: []generator.CTE{{Name: "c1", Query: cteQuery}},
+		Items: []generator.SelectItem{
+			{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "c1",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 1},
+					},
+				},
+			},
+		},
+	}
+	reason := dqpComplexityGuardReason(query, 10, 10)
+	if reason != dqpComplexityConstraintJoinTables {
+		t.Fatalf("unexpected complexity reason: %s", reason)
+	}
+}
+
 func TestDQPComplexityThresholdsFromConfig(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -583,20 +1108,23 @@ func TestFindTopLevelSelectIndex(t *testing.T) {
 
 func TestDQPVariantMetricsObserveVariant(t *testing.T) {
 	metrics := dqpVariantMetrics{}
+	hintHashJoin := "HASH_JOIN(t1, t2)"
+	hintSetVar := "SET_VAR(tidb_opt_use_toja=OFF)"
+	hintCombined := "SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2)"
 	metrics.observeVariant(
 		"SELECT c1 FROM t1",
 		"SELECT /*+ HASH_JOIN(t1, t2) */ c1 FROM t1",
-		"HASH_JOIN(t1, t2)",
+		hintHashJoin,
 	)
 	metrics.observeVariant(
 		"SELECT c1 FROM t1",
 		"SELECT c1 FROM t1",
-		"SET_VAR(tidb_opt_use_toja=OFF)",
+		hintSetVar,
 	)
 	metrics.observeVariant(
 		"SELECT c1 FROM t1",
 		"SELECT /*+ SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2) */ c1 FROM t1",
-		"SET_VAR(tidb_opt_use_toja=ON), HASH_JOIN(t1, t2)",
+		hintCombined,
 	)
 
 	if metrics.hintInjectedTotal != 2 {
@@ -607,6 +1135,18 @@ func TestDQPVariantMetricsObserveVariant(t *testing.T) {
 	}
 	if metrics.setVarVariantTotal != 2 {
 		t.Fatalf("setVarVariantTotal=%d want=2", metrics.setVarVariantTotal)
+	}
+	if metrics.hintLengthCount != 3 {
+		t.Fatalf("hintLengthCount=%d want=3", metrics.hintLengthCount)
+	}
+	if metrics.hintLengthMin != int64(len(hintHashJoin)) {
+		t.Fatalf("hintLengthMin=%d want=%d", metrics.hintLengthMin, len(hintHashJoin))
+	}
+	if metrics.hintLengthMax != int64(len(hintCombined)) {
+		t.Fatalf("hintLengthMax=%d want=%d", metrics.hintLengthMax, len(hintCombined))
+	}
+	if metrics.hintLengthSum != int64(len(hintHashJoin)+len(hintSetVar)+len(hintCombined)) {
+		t.Fatalf("hintLengthSum=%d want=%d", metrics.hintLengthSum, len(hintHashJoin)+len(hintSetVar)+len(hintCombined))
 	}
 }
 
@@ -619,6 +1159,10 @@ func TestDQPVariantMetricsResultMetrics(t *testing.T) {
 		hintInjectedTotal:  4,
 		hintFallbackTotal:  1,
 		setVarVariantTotal: 3,
+		hintLengthMin:      11,
+		hintLengthMax:      37,
+		hintLengthSum:      99,
+		hintLengthCount:    4,
 	}
 	got := metrics.resultMetrics()
 	if got["dqp_hint_injected_total"] != 4 {
@@ -629,6 +1173,49 @@ func TestDQPVariantMetricsResultMetrics(t *testing.T) {
 	}
 	if got["dqp_set_var_variant_total"] != 3 {
 		t.Fatalf("dqp_set_var_variant_total=%d want=3", got["dqp_set_var_variant_total"])
+	}
+	if got["dqp_hint_length_min"] != 11 {
+		t.Fatalf("dqp_hint_length_min=%d want=11", got["dqp_hint_length_min"])
+	}
+	if got["dqp_hint_length_max"] != 37 {
+		t.Fatalf("dqp_hint_length_max=%d want=37", got["dqp_hint_length_max"])
+	}
+	if got["dqp_hint_length_sum"] != 99 {
+		t.Fatalf("dqp_hint_length_sum=%d want=99", got["dqp_hint_length_sum"])
+	}
+	if got["dqp_hint_length_count"] != 4 {
+		t.Fatalf("dqp_hint_length_count=%d want=4", got["dqp_hint_length_count"])
+	}
+}
+
+func TestDQPWarningSample(t *testing.T) {
+	warnings := []string{"w1", "w2", "w3", "w4"}
+	sample, omitted := dqpWarningSample(warnings, 2)
+	if omitted != 2 {
+		t.Fatalf("omitted=%d want=2", omitted)
+	}
+	if len(sample) != 2 || sample[0] != "w1" || sample[1] != "w2" {
+		t.Fatalf("unexpected sample: %#v", sample)
+	}
+
+	all, omittedAll := dqpWarningSample(warnings, 10)
+	if omittedAll != 0 {
+		t.Fatalf("omittedAll=%d want=0", omittedAll)
+	}
+	if len(all) != 4 {
+		t.Fatalf("len(all)=%d want=4", len(all))
+	}
+}
+
+func TestDQPCompactSQL(t *testing.T) {
+	sqlText := "SELECT  \n  *   FROM t0   WHERE id = 1"
+	got := dqpCompactSQL(sqlText, 0)
+	if got != "SELECT * FROM t0 WHERE id = 1" {
+		t.Fatalf("compact sql=%q", got)
+	}
+	truncated := dqpCompactSQL(sqlText, 10)
+	if truncated != "SELECT * F..." {
+		t.Fatalf("truncated sql=%q", truncated)
 	}
 }
 

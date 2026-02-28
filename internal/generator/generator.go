@@ -114,7 +114,7 @@ func New(cfg config.Config, state *schema.State, seed int64) *Generator {
 		State:        state,
 		Seed:         seed,
 		maxDepth:     3,
-		maxSubqDepth: 3,
+		maxSubqDepth: 2,
 	}
 }
 

@@ -176,26 +176,27 @@ type MetricsThresholds struct {
 
 // OracleConfig holds oracle-specific settings.
 type OracleConfig struct {
-	StrictPredicates              bool              `yaml:"strict_predicates"`
-	PredicateLevel                string            `yaml:"predicate_level"`
-	JoinOnPolicy                  string            `yaml:"join_on_policy"`
-	JoinUsingProb                 int               `yaml:"join_using_prob"`
-	DisableMPP                    bool              `yaml:"disable_mpp"`
-	MPPTiFlashReplica             int               `yaml:"mpp_tiflash_replica"`
-	DQPExternalHints              []string          `yaml:"dqp_external_hints"`
-	DQPBaseHintPick               int               `yaml:"dqp_base_hint_pick_limit"`
-	DQPSetVarHintPick             int               `yaml:"dqp_set_var_hint_pick_max"`
-	DQPComplexitySetOpsThreshold  int               `yaml:"dqp_complexity_set_ops_threshold"`
-	DQPComplexityDerivedThreshold int               `yaml:"dqp_complexity_derived_threshold"`
-	CODDCaseWhenMax               int               `yaml:"coddtest_case_when_max"`
-	CertMinBaseRows               float64           `yaml:"cert_min_base_rows"`
-	GroundTruthMaxRows            int               `yaml:"groundtruth_max_rows"`
-	ImpoMaxRows                   int               `yaml:"impo_max_rows"`
-	ImpoMaxMutations              int               `yaml:"impo_max_mutations"`
-	ImpoTimeoutMs                 int               `yaml:"impo_timeout_ms"`
-	ImpoDisableStage1             bool              `yaml:"impo_disable_stage1"`
-	ImpoKeepLRJoin                bool              `yaml:"impo_keep_lr_join"`
-	EETRewrites                   EETRewriteWeights `yaml:"eet_rewrites"`
+	StrictPredicates                bool              `yaml:"strict_predicates"`
+	PredicateLevel                  string            `yaml:"predicate_level"`
+	JoinOnPolicy                    string            `yaml:"join_on_policy"`
+	JoinUsingProb                   int               `yaml:"join_using_prob"`
+	DisableMPP                      bool              `yaml:"disable_mpp"`
+	MPPTiFlashReplica               int               `yaml:"mpp_tiflash_replica"`
+	DQPExternalHints                []string          `yaml:"dqp_external_hints"`
+	DQPBaseHintPick                 int               `yaml:"dqp_base_hint_pick_limit"`
+	DQPSetVarHintPick               int               `yaml:"dqp_set_var_hint_pick_max"`
+	DQPComplexitySetOpsThreshold    int               `yaml:"dqp_complexity_set_ops_threshold"`
+	DQPComplexityDerivedThreshold   int               `yaml:"dqp_complexity_derived_threshold"`
+	EETComplexityJoinTableThreshold int               `yaml:"eet_complexity_join_tables_threshold"`
+	CODDCaseWhenMax                 int               `yaml:"coddtest_case_when_max"`
+	CertMinBaseRows                 float64           `yaml:"cert_min_base_rows"`
+	GroundTruthMaxRows              int               `yaml:"groundtruth_max_rows"`
+	ImpoMaxRows                     int               `yaml:"impo_max_rows"`
+	ImpoMaxMutations                int               `yaml:"impo_max_mutations"`
+	ImpoTimeoutMs                   int               `yaml:"impo_timeout_ms"`
+	ImpoDisableStage1               bool              `yaml:"impo_disable_stage1"`
+	ImpoKeepLRJoin                  bool              `yaml:"impo_keep_lr_join"`
+	EETRewrites                     EETRewriteWeights `yaml:"eet_rewrites"`
 }
 
 // MPPConfig controls MPP-specific exploration switches.
@@ -334,11 +335,12 @@ const (
 	// ViewMaxDefault is the default upper bound of generated views.
 	ViewMaxDefault = 3
 
-	dqpBaseHintPickLimitDefault          = 3
-	dqpSetVarHintPickMaxDefault          = 3
-	dqpComplexitySetOpsThresholdDefault  = 2
-	dqpComplexityDerivedThresholdDefault = 3
-	coddtestCaseWhenMaxDefault           = 2
+	dqpBaseHintPickLimitDefault             = 4
+	dqpSetVarHintPickMaxDefault             = 4
+	dqpComplexitySetOpsThresholdDefault     = 2
+	dqpComplexityDerivedThresholdDefault    = 3
+	eetComplexityJoinTablesThresholdDefault = 4
+	coddtestCaseWhenMaxDefault              = 2
 
 	qpgNoJoinThresholdDefault         = 3
 	qpgNoAggThresholdDefault          = 3
@@ -406,6 +408,9 @@ func normalizeConfig(cfg *Config) {
 	}
 	if cfg.Oracles.DQPComplexityDerivedThreshold <= 0 {
 		cfg.Oracles.DQPComplexityDerivedThreshold = dqpComplexityDerivedThresholdDefault
+	}
+	if cfg.Oracles.EETComplexityJoinTableThreshold <= 0 {
+		cfg.Oracles.EETComplexityJoinTableThreshold = eetComplexityJoinTablesThresholdDefault
 	}
 	if cfg.Oracles.MPPTiFlashReplica < 0 {
 		cfg.Oracles.MPPTiFlashReplica = 0
@@ -601,7 +606,7 @@ func defaultConfig() Config {
 			Actions:  ActionWeights{DDL: 1, DML: 1, Query: 10},
 			DML:      DMLWeights{Insert: 3, Update: 1, Delete: 1},
 			Oracles:  OracleWeights{NoREC: 4, TLP: 3, EET: 2, DQP: 3, PQS: 2, CODDTest: 2, DQE: 2, Impo: 2, GroundTruth: 5},
-			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 3, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30, TemplateJoinOnlyWeight: 4, TemplateJoinFilterWeight: 6},
+			Features: FeatureWeights{JoinCount: 5, CTECount: 4, CTECountMax: 2, SubqCount: 5, AggProb: 50, DecimalAggProb: 70, GroupByProb: 30, HavingProb: 20, OrderByProb: 40, LimitProb: 40, DistinctProb: 20, WindowProb: 20, PartitionProb: 30, NotExistsProb: 40, NotInProb: 40, IndexPrefixProb: 30, TemplateJoinOnlyWeight: 4, TemplateJoinFilterWeight: 6},
 		},
 		Logging: Logging{
 			ReportIntervalSeconds: 30,
@@ -613,23 +618,24 @@ func defaultConfig() Config {
 			},
 		},
 		Oracles: OracleConfig{
-			StrictPredicates:              true,
-			PredicateLevel:                "strict",
-			JoinOnPolicy:                  "simple",
-			JoinUsingProb:                 -1,
-			DisableMPP:                    false,
-			MPPTiFlashReplica:             0,
-			DQPBaseHintPick:               dqpBaseHintPickLimitDefault,
-			DQPSetVarHintPick:             dqpSetVarHintPickMaxDefault,
-			DQPComplexitySetOpsThreshold:  dqpComplexitySetOpsThresholdDefault,
-			DQPComplexityDerivedThreshold: dqpComplexityDerivedThresholdDefault,
-			CODDCaseWhenMax:               coddtestCaseWhenMaxDefault,
-			CertMinBaseRows:               20,
-			GroundTruthMaxRows:            50,
-			ImpoMaxRows:                   50,
-			ImpoMaxMutations:              64,
-			ImpoTimeoutMs:                 2000,
-			EETRewrites:                   EETRewriteWeights{DoubleNot: 4, AndTrue: 3, OrFalse: 3, NumericIdentity: 2, StringIdentity: 2, DateIdentity: 2},
+			StrictPredicates:                true,
+			PredicateLevel:                  "strict",
+			JoinOnPolicy:                    "simple",
+			JoinUsingProb:                   -1,
+			DisableMPP:                      false,
+			MPPTiFlashReplica:               0,
+			DQPBaseHintPick:                 dqpBaseHintPickLimitDefault,
+			DQPSetVarHintPick:               dqpSetVarHintPickMaxDefault,
+			DQPComplexitySetOpsThreshold:    dqpComplexitySetOpsThresholdDefault,
+			DQPComplexityDerivedThreshold:   dqpComplexityDerivedThresholdDefault,
+			EETComplexityJoinTableThreshold: eetComplexityJoinTablesThresholdDefault,
+			CODDCaseWhenMax:                 coddtestCaseWhenMaxDefault,
+			CertMinBaseRows:                 20,
+			GroundTruthMaxRows:              50,
+			ImpoMaxRows:                     50,
+			ImpoMaxMutations:                64,
+			ImpoTimeoutMs:                   2000,
+			EETRewrites:                     EETRewriteWeights{DoubleNot: 4, AndTrue: 3, OrFalse: 3, NumericIdentity: 2, StringIdentity: 2, DateIdentity: 2},
 		},
 		Adaptive: Adaptive{Enabled: true, UCBExploration: 1.5, WindowSize: 50000},
 		QPG: QPGConfig{

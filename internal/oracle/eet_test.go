@@ -187,6 +187,76 @@ func TestApplyEETTransformFallbackRewriteKind(t *testing.T) {
 	}
 }
 
+func TestEETComplexityJoinTableThreshold(t *testing.T) {
+	if got := eetComplexityJoinTableThreshold(nil); got != eetComplexityJoinTableThresholdDefault {
+		t.Fatalf("eetComplexityJoinTableThreshold(nil)=%d want=%d", got, eetComplexityJoinTableThresholdDefault)
+	}
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Oracles.EETComplexityJoinTableThreshold = 9
+	gen := generator.New(cfg, &schema.State{}, 1)
+	if got := eetComplexityJoinTableThreshold(gen); got != 9 {
+		t.Fatalf("eetComplexityJoinTableThreshold=%d want=9", got)
+	}
+}
+
+func TestEETQueryGuardReasonComplexity(t *testing.T) {
+	cteQuery := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id"}},
+					},
+				},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		With: []generator.CTE{{Name: "c1", Query: cteQuery}},
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "id"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "c1",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "c1", Name: "c0"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "id"}},
+					},
+				},
+			},
+		},
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "id"}},
+			Op:    ">",
+			Right: generator.LiteralExpr{Value: 1},
+		},
+	}
+	if got := queryTableFactorCountWithCTE(query); got != 5 {
+		t.Fatalf("queryTableFactorCountWithCTE=%d want=5", got)
+	}
+	policy := predicatePolicy{}
+	if reason := eetQueryGuardReason(query, policy, 5); reason != "" {
+		t.Fatalf("eetQueryGuardReason(threshold=5)=%q want empty", reason)
+	}
+	if reason := eetQueryGuardReason(query, policy, 4); reason != eetComplexityConstraintJoinTables {
+		t.Fatalf("eetQueryGuardReason(threshold=4)=%q want=%q", reason, eetComplexityConstraintJoinTables)
+	}
+}
+
 func TestOrderByAllConstant(t *testing.T) {
 	orderBy := []generator.OrderBy{
 		{Expr: generator.LiteralExpr{Value: 1}},

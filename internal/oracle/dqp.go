@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 
 	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
+	"shiro/internal/util"
 )
 
 // DQP implements differential query plan testing.
@@ -25,13 +27,25 @@ func (o DQP) Name() string { return "DQP" }
 
 const dqpBuildMaxTries = 10
 const dqpComplexityJoinCountThreshold = 4
+const dqpComplexityJoinTableThreshold = 4
 const dqpComplexitySetOpsThresholdDefault = 2
 const dqpComplexityDerivedThresholdDefault = 3
 const dqpComplexityFalseJoinThreshold = 3
-const dqpBaseHintPickLimitDefault = 3
-const dqpSetVarHintPickMaxDefault = 3
+const dqpBaseHintPickLimitDefault = 4
+const dqpSetVarHintPickMaxDefault = 4
+const dqpWarningLogMaxItems = 5
+const dqpMinHintGroupCount = 2
 
 const (
+	dqpVariantGroupBaseHint = "base_hint"
+	dqpVariantGroupSetVar   = "set_var_hint"
+	dqpVariantGroupMPP      = "mpp_hint"
+	dqpVariantGroupCombined = "combined_hint"
+	dqpVariantGroupIndex    = "index_hint"
+)
+
+const (
+	dqpComplexityConstraintJoinTables     = "constraint:dqp_complexity_join_tables"
 	dqpComplexityConstraintSetOpsDerived  = "constraint:dqp_complexity_set_ops_derived"
 	dqpComplexityConstraintFalseJoinChain = "constraint:dqp_complexity_false_join_chain"
 	dqpComplexityConstraintFalseJoinRatio = "constraint:dqp_complexity_false_join_ratio"
@@ -83,6 +97,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			"constraint:set_ops":                  "dqp:set_ops",
 			"constraint:nondeterministic":         "dqp:nondeterministic",
 			"constraint:predicate_guard":          "dqp:predicate_guard",
+			dqpComplexityConstraintJoinTables:     "dqp:complexity_guard",
 			dqpComplexityConstraintSetOpsDerived:  "dqp:complexity_guard",
 			dqpComplexityConstraintFalseJoinChain: "dqp:complexity_guard",
 			dqpComplexityConstraintFalseJoinRatio: "dqp:complexity_guard",
@@ -108,7 +123,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	}
 
 	baseSQL := query.SQLString()
-	baseSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
+	baseSig, baseWarnings, err := exec.QuerySignatureWithWarnings(ctx, query.SignatureSQL())
 	if err != nil {
 		reason, code := sqlErrorReason("dqp", err)
 		details := map[string]any{"error_reason": reason}
@@ -117,15 +132,18 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
 	}
+	dqpLogWarnings("base", "", baseSQL, baseWarnings)
 
 	hasCTE := len(query.With) > 0
 	hasPartition := queryHasPartitionedTable(query, state)
 	variants, variantMetrics := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
+	executedHintGroups := make(map[string]struct{}, 5)
 	for _, variant := range variants {
-		variantSig, err := exec.QuerySignature(ctx, variant.signatureSQL)
+		variantSig, warnings, err := exec.QuerySignatureWithWarnings(ctx, variant.signatureSQL)
 		if err != nil {
 			continue
 		}
+		dqpLogWarnings("variant", variant.hint, variant.sql, warnings)
 		mismatch := variantSig != baseSig
 		updateHintBandit(variant.hint, dqpHintReward(mismatch), gen.Config.Adaptive.WindowSize, gen.Config.Adaptive.UCBExploration)
 		if mismatch {
@@ -153,6 +171,22 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				Details:  details,
 				Metrics:  variantMetrics.resultMetrics(),
 			}
+		}
+		if strings.TrimSpace(variant.group) != "" {
+			executedHintGroups[variant.group] = struct{}{}
+		}
+	}
+	if len(executedHintGroups) < dqpMinHintGroupCount {
+		return Result{
+			OK:     true,
+			Oracle: o.Name(),
+			SQL:    []string{baseSQL},
+			Details: map[string]any{
+				"skip_reason":      "dqp:insufficient_hint_groups",
+				"hint_groups":      dqpFormatHintGroups(executedHintGroups),
+				"hint_group_count": len(executedHintGroups),
+			},
+			Metrics: variantMetrics.resultMetrics(),
 		}
 	}
 	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Metrics: variantMetrics.resultMetrics()}
@@ -190,6 +224,9 @@ func dqpComplexityGuardReason(query *generator.SelectQuery, setOpsThreshold int,
 	stats := dqpCollectComplexityStats(query)
 	if stats.setOps >= setOpsThreshold && stats.derivedTables >= derivedThreshold {
 		return dqpComplexityConstraintSetOpsDerived
+	}
+	if dqpJoinTableCountWithCTE(query) > dqpComplexityJoinTableThreshold {
+		return dqpComplexityConstraintJoinTables
 	}
 	if stats.alwaysFalseJoins >= dqpComplexityFalseJoinThreshold {
 		return dqpComplexityConstraintFalseJoinChain
@@ -231,6 +268,10 @@ func dqpCollectComplexityStats(query *generator.SelectQuery) dqpComplexityStats 
 	}
 	walk(query)
 	return stats
+}
+
+func dqpJoinTableCountWithCTE(query *generator.SelectQuery) int {
+	return queryTableFactorCountWithCTE(query)
 }
 
 func dqpExprAlwaysFalse(expr generator.Expr) bool {
@@ -363,12 +404,17 @@ type dqpVariant struct {
 	sql          string
 	signatureSQL string
 	hint         string
+	group        string
 }
 
 type dqpVariantMetrics struct {
 	hintInjectedTotal  int64
 	hintFallbackTotal  int64
 	setVarVariantTotal int64
+	hintLengthMin      int64
+	hintLengthMax      int64
+	hintLengthSum      int64
+	hintLengthCount    int64
 }
 
 func (m *dqpVariantMetrics) observeVariant(baseSQL string, variantSQL string, hint string) {
@@ -383,17 +429,39 @@ func (m *dqpVariantMetrics) observeVariant(baseSQL string, variantSQL string, hi
 	if dqpHintContainsSetVar(hint) {
 		m.setVarVariantTotal++
 	}
+	hintLen := int64(len(strings.TrimSpace(hint)))
+	if hintLen <= 0 {
+		return
+	}
+	if m.hintLengthCount == 0 || hintLen < m.hintLengthMin {
+		m.hintLengthMin = hintLen
+	}
+	if hintLen > m.hintLengthMax {
+		m.hintLengthMax = hintLen
+	}
+	m.hintLengthSum += hintLen
+	m.hintLengthCount++
 }
 
 func (m dqpVariantMetrics) resultMetrics() map[string]int64 {
-	if m.hintInjectedTotal == 0 && m.hintFallbackTotal == 0 && m.setVarVariantTotal == 0 {
+	if m.hintInjectedTotal == 0 &&
+		m.hintFallbackTotal == 0 &&
+		m.setVarVariantTotal == 0 &&
+		m.hintLengthCount == 0 {
 		return nil
 	}
-	return map[string]int64{
+	metrics := map[string]int64{
 		"dqp_hint_injected_total":   m.hintInjectedTotal,
 		"dqp_hint_fallback_total":   m.hintFallbackTotal,
 		"dqp_set_var_variant_total": m.setVarVariantTotal,
 	}
+	if m.hintLengthCount > 0 {
+		metrics["dqp_hint_length_min"] = m.hintLengthMin
+		metrics["dqp_hint_length_max"] = m.hintLengthMax
+		metrics["dqp_hint_length_sum"] = m.hintLengthSum
+		metrics["dqp_hint_length_count"] = m.hintLengthCount
+	}
+	return metrics
 }
 
 func dqpHintContainsSetVar(hint string) bool {
@@ -406,11 +474,357 @@ func dqpHintContainsSetVar(hint string) bool {
 	return false
 }
 
-func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) ([]dqpVariant, dqpVariantMetrics) {
-	tables := make([]string, 0, 1+len(query.From.Joins))
-	tables = append(tables, query.From.BaseTable)
+func dqpLogWarnings(stage string, hint string, sqlText string, warnings []string) {
+	if len(warnings) == 0 {
+		return
+	}
+	sample, omitted := dqpWarningSample(warnings, dqpWarningLogMaxItems)
+	warnText := strings.Join(sample, " | ")
+	if omitted > 0 {
+		warnText = fmt.Sprintf("%s | ...(+%d more)", warnText, omitted)
+	}
+	if strings.TrimSpace(hint) == "" {
+		util.Detailf("dqp warnings stage=%s count=%d sql=%s warnings=%s", stage, len(warnings), dqpCompactSQL(sqlText, 600), warnText)
+		return
+	}
+	util.Detailf("dqp warnings stage=%s count=%d hint=%s sql=%s warnings=%s", stage, len(warnings), hint, dqpCompactSQL(sqlText, 600), warnText)
+}
+
+func dqpWarningSample(warnings []string, limit int) ([]string, int) {
+	if limit <= 0 || len(warnings) <= limit {
+		out := make([]string, 0, len(warnings))
+		out = append(out, warnings...)
+		return out, 0
+	}
+	out := make([]string, 0, limit)
+	out = append(out, warnings[:limit]...)
+	return out, len(warnings) - limit
+}
+
+func dqpCompactSQL(sqlText string, maxLen int) string {
+	compact := strings.Join(strings.Fields(strings.TrimSpace(sqlText)), " ")
+	if maxLen <= 0 || len(compact) <= maxLen {
+		return compact
+	}
+	return compact[:maxLen] + "..."
+}
+
+func dqpFormatHintGroups(groups map[string]struct{}) string {
+	if len(groups) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(groups))
+	for group := range groups {
+		if strings.TrimSpace(group) == "" {
+			continue
+		}
+		parts = append(parts, group)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+type dqpHintTableFactor struct {
+	hintName   string
+	tableName  string
+	derived    bool
+	hasIndex   bool
+	indexCount int
+}
+
+func dqpHintTableFactors(query *generator.SelectQuery, state *schema.State) []dqpHintTableFactor {
+	if query == nil {
+		return nil
+	}
+	factors := make([]dqpHintTableFactor, 0, 1+len(query.From.Joins))
+	appendFactor := func(hintName string, tableName string, derived bool) {
+		name := strings.TrimSpace(hintName)
+		if name == "" {
+			return
+		}
+		factor := dqpHintTableFactor{
+			hintName:  name,
+			tableName: strings.TrimSpace(tableName),
+			derived:   derived,
+		}
+		if state != nil && !derived && factor.tableName != "" {
+			if tbl, ok := state.TableByName(factor.tableName); ok {
+				factor.hasIndex = tableHasIndex(tbl)
+				factor.indexCount = dqpTableIndexCount(tbl)
+			}
+		}
+		factors = append(factors, factor)
+	}
+
+	baseHintName := query.From.BaseTable
+	if strings.TrimSpace(query.From.BaseAlias) != "" {
+		baseHintName = query.From.BaseAlias
+	}
+	appendFactor(baseHintName, query.From.BaseTable, query.From.BaseQuery != nil)
 	for _, join := range query.From.Joins {
-		tables = append(tables, join.Table)
+		hintName := join.Table
+		if strings.TrimSpace(join.TableAlias) != "" {
+			hintName = join.TableAlias
+		}
+		appendFactor(hintName, join.Table, join.TableQuery != nil)
+	}
+	return dqpDedupHintTableFactors(factors)
+}
+
+func dqpDedupHintTableFactors(in []dqpHintTableFactor) []dqpHintTableFactor {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dqpHintTableFactor, 0, len(in))
+	seen := make(map[string]int, len(in))
+	for _, factor := range in {
+		key := strings.ToLower(strings.TrimSpace(factor.hintName))
+		if key == "" {
+			continue
+		}
+		if idx, ok := seen[key]; ok {
+			merged := out[idx]
+			merged.hasIndex = merged.hasIndex || factor.hasIndex
+			if factor.indexCount > merged.indexCount {
+				merged.indexCount = factor.indexCount
+			}
+			if merged.tableName == "" {
+				merged.tableName = factor.tableName
+			}
+			merged.derived = merged.derived && factor.derived
+			out[idx] = merged
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, factor)
+	}
+	return out
+}
+
+func dqpHintTableNames(query *generator.SelectQuery, state *schema.State) []string {
+	factors := dqpHintTableFactors(query, state)
+	if len(factors) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(factors))
+	for _, factor := range factors {
+		if strings.TrimSpace(factor.hintName) == "" {
+			continue
+		}
+		names = append(names, factor.hintName)
+	}
+	return names
+}
+
+func dqpTableIndexCount(table schema.Table) int {
+	count := len(table.Indexes)
+	if table.HasPK {
+		count++
+	}
+	for _, col := range table.Columns {
+		if col.HasIndex {
+			count++
+		}
+	}
+	return count
+}
+
+func dqpJoinHintCandidates(query *generator.SelectQuery, state *schema.State, noArgHints map[string]struct{}) []string {
+	if query == nil || len(query.From.Joins) == 0 {
+		return nil
+	}
+	factors := dqpHintTableFactors(query, state)
+	if len(factors) < 2 {
+		return nil
+	}
+	tables := make([]string, 0, len(factors))
+	for _, factor := range factors {
+		tables = append(tables, factor.hintName)
+	}
+
+	candidates := []string{
+		buildHintSQL(HintHashJoin, tables, noArgHints),
+		buildHintSQL(HintNoHashJoin, tables, noArgHints),
+		buildHintSQL(HintStraightJoin, tables, noArgHints),
+	}
+	if !dqpShouldUseStrictJoinHints(query, factors) {
+		return dqpDedupHints(candidates)
+	}
+
+	candidates = append(candidates, buildHintSQL(HintMergeJoin, tables, noArgHints))
+	candidates = append(candidates, fmt.Sprintf(HintLeadingFmt, strings.Join(tables, ", ")))
+	for _, target := range dqpINLJoinHintTargets(factors) {
+		candidates = append(candidates,
+			fmt.Sprintf("%s(%s)", HintInlJoin, target),
+			fmt.Sprintf("%s(%s)", HintInlHashJoin, target),
+		)
+	}
+	if len(tables) == 2 {
+		target := tables[1]
+		candidates = append(candidates,
+			fmt.Sprintf("%s(%s)", HintHashJoinBuild, target),
+			fmt.Sprintf("%s(%s)", HintHashJoinProbe, target),
+		)
+	}
+	return dqpDedupHints(candidates)
+}
+
+func dqpShouldUseStrictJoinHints(query *generator.SelectQuery, factors []dqpHintTableFactor) bool {
+	if query == nil || len(query.From.Joins) == 0 {
+		return false
+	}
+	for _, factor := range factors {
+		if factor.derived {
+			return false
+		}
+	}
+	for _, join := range query.From.Joins {
+		if join.Natural || join.Type != generator.JoinInner {
+			return false
+		}
+	}
+	return true
+}
+
+func dqpINLJoinHintTargets(factors []dqpHintTableFactor) []string {
+	if len(factors) <= 1 {
+		return nil
+	}
+	targets := make([]string, 0, len(factors)-1)
+	seen := make(map[string]struct{}, len(factors)-1)
+	for i := 1; i < len(factors); i++ {
+		factor := factors[i]
+		if factor.derived || !factor.hasIndex {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(factor.hintName))
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, factor.hintName)
+	}
+	return targets
+}
+
+func dqpIndexHintCandidates(query *generator.SelectQuery, state *schema.State) []string {
+	if query == nil || state == nil {
+		return nil
+	}
+	factors := dqpHintTableFactors(query, state)
+	candidates := make([]string, 0, len(factors)*2)
+	for _, factor := range factors {
+		if factor.derived || !factor.hasIndex {
+			continue
+		}
+		candidates = append(candidates, fmt.Sprintf(HintUseIndexFmt, factor.hintName))
+		if dqpShouldUseIndexMergeHint(query, factor) {
+			candidates = append(candidates, fmt.Sprintf(HintUseIndexMergeFmt, factor.hintName))
+		}
+	}
+	return dqpDedupHints(candidates)
+}
+
+func dqpShouldUseIndexMergeHint(query *generator.SelectQuery, factor dqpHintTableFactor) bool {
+	if query == nil || query.Where == nil {
+		return false
+	}
+	if factor.derived || factor.indexCount < 2 {
+		return false
+	}
+	if !dqpExprHasDisjunction(query.Where) {
+		return false
+	}
+	return dqpExprReferencesTable(query.Where, factor.hintName)
+}
+
+func dqpExprHasDisjunction(expr generator.Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case generator.BinaryExpr:
+		if strings.EqualFold(strings.TrimSpace(e.Op), "OR") {
+			return true
+		}
+		return dqpExprHasDisjunction(e.Left) || dqpExprHasDisjunction(e.Right)
+	case generator.UnaryExpr:
+		return dqpExprHasDisjunction(e.Expr)
+	case generator.InExpr:
+		if dqpExprHasDisjunction(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if dqpExprHasDisjunction(item) {
+				return true
+			}
+		}
+		return false
+	case generator.CaseExpr:
+		for _, w := range e.Whens {
+			if dqpExprHasDisjunction(w.When) || dqpExprHasDisjunction(w.Then) {
+				return true
+			}
+		}
+		if e.Else != nil {
+			return dqpExprHasDisjunction(e.Else)
+		}
+		return false
+	case generator.FuncExpr:
+		for _, arg := range e.Args {
+			if dqpExprHasDisjunction(arg) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func dqpExprReferencesTable(expr generator.Expr, table string) bool {
+	name := strings.TrimSpace(table)
+	if expr == nil || name == "" {
+		return false
+	}
+	for _, col := range expr.Columns() {
+		if strings.EqualFold(strings.TrimSpace(col.Table), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func dqpDedupHints(candidates []string) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, hint := range candidates {
+		trimmed := strings.TrimSpace(hint)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, hasSubquery bool, hasCTE bool, hasPartition bool, gen *generator.Generator) ([]dqpVariant, dqpVariantMetrics) {
+	tables := dqpHintTableNames(query, state)
+	if len(tables) == 0 {
+		tables = make([]string, 0, 1+len(query.From.Joins))
+		tables = append(tables, query.From.BaseTable)
+		for _, join := range query.From.Joins {
+			tables = append(tables, join.Table)
+		}
 	}
 	hasJoin := len(query.From.Joins) > 0
 	baseSQL := query.SQLString()
@@ -425,52 +839,93 @@ func buildDQPVariants(query *generator.SelectQuery, state *schema.State, hasSemi
 		HintAggToCop:        {},
 	}
 	externalBaseHints, externalSetVarHints := dqpExternalHintCandidates(gen, tables, noArgHints)
-	baseHints := dqpHintsForQuery(gen, tables, hasJoin, hasSemi, hasCorr, hasAgg, noArgHints, externalBaseHints)
+	baseHints := dqpHintsForBuiltQuery(gen, query, state, hasSemi, hasCorr, hasAgg, noArgHints, externalBaseHints)
 	variants := make([]dqpVariant, 0, len(baseHints)+1)
 
 	for _, hintSQL := range baseHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
-		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
+		variants = append(variants, dqpVariant{
+			sql:          variantSQL,
+			signatureSQL: variantSig,
+			hint:         hintSQL,
+			group:        dqpVariantGroupBaseHint,
+		})
 	}
 
-	setVarHints := dqpSetVarHints(gen, len(tables), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition, externalSetVarHints)
-	for _, hintSQL := range setVarHints {
+	setVarHints := dqpSetVarHints(gen, dqpJoinTableCountWithCTE(query), hasJoin, hasSemi, hasCorr, hasSubquery, hasCTE, hasPartition, externalSetVarHints)
+	nonMPPSetVarHints := dqpFilterSetVarHints(setVarHints, false)
+	mppSetVarHints := dqpFilterSetVarHints(setVarHints, true)
+	for _, hintSQL := range nonMPPSetVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
-		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
+		variants = append(variants, dqpVariant{
+			sql:          variantSQL,
+			signatureSQL: variantSig,
+			hint:         hintSQL,
+			group:        dqpVariantGroupSetVar,
+		})
 	}
-	for _, hintSQL := range buildCombinedHints(setVarHints, baseHints, MaxCombinedHintVariants) {
+	for _, hintSQL := range mppSetVarHints {
 		variantSQL := injectHint(query, hintSQL)
 		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
 		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
-		variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hintSQL})
+		variants = append(variants, dqpVariant{
+			sql:          variantSQL,
+			signatureSQL: variantSig,
+			hint:         hintSQL,
+			group:        dqpVariantGroupMPP,
+		})
 	}
-	if state != nil {
-		for _, tbl := range tables {
-			table, ok := state.TableByName(tbl)
-			if !ok {
-				continue
-			}
-			if !tableHasIndex(table) {
-				continue
-			}
-			hints := []string{
-				fmt.Sprintf(HintUseIndexFmt, table.Name),
-				fmt.Sprintf(HintUseIndexMergeFmt, table.Name),
-			}
-			for _, hint := range pickHintsWithBandit(gen, hints, len(hints)) {
-				variantSQL := injectHint(query, hint)
-				variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
-				metrics.observeVariant(baseSQL, variantSQL, hint)
-				variants = append(variants, dqpVariant{sql: variantSQL, signatureSQL: variantSig, hint: hint})
-			}
-		}
+	combinedSetVarHints := dqpCombinedSetVarHints(nonMPPSetVarHints, mppSetVarHints)
+	for _, hintSQL := range buildCombinedHints(combinedSetVarHints, baseHints, MaxCombinedHintVariants) {
+		variantSQL := injectHint(query, hintSQL)
+		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hintSQL)
+		variants = append(variants, dqpVariant{
+			sql:          variantSQL,
+			signatureSQL: variantSig,
+			hint:         hintSQL,
+			group:        dqpVariantGroupCombined,
+		})
+	}
+	for _, hint := range dqpIndexHintCandidates(query, state) {
+		variantSQL := injectHint(query, hint)
+		variantSig := fmt.Sprintf("SELECT COUNT(*) AS cnt, IFNULL(BIT_XOR(CRC32(CONCAT_WS('#', %s))),0) AS checksum FROM (%s) q", signatureSelectList(query), variantSQL)
+		metrics.observeVariant(baseSQL, variantSQL, hint)
+		variants = append(variants, dqpVariant{
+			sql:          variantSQL,
+			signatureSQL: variantSig,
+			hint:         hint,
+			group:        dqpVariantGroupIndex,
+		})
 	}
 
 	return variants, metrics
+}
+
+func dqpHintsForBuiltQuery(gen *generator.Generator, query *generator.SelectQuery, state *schema.State, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}, externalBaseHints []string) []string {
+	var candidates []string
+	candidates = append(candidates, dqpJoinHintCandidates(query, state, noArgHints)...)
+	if hasAgg {
+		aggHints := []string{HintHashAgg, HintStreamAgg, HintAggToCop}
+		tables := dqpHintTableNames(query, state)
+		for _, hint := range aggHints {
+			candidates = append(candidates, buildHintSQL(hint, tables, noArgHints))
+		}
+	}
+	if hasSemi {
+		tables := dqpHintTableNames(query, state)
+		candidates = append(candidates, buildHintSQL(HintSemiJoinRewrite, tables, noArgHints))
+	}
+	if hasCorr {
+		tables := dqpHintTableNames(query, state)
+		candidates = append(candidates, buildHintSQL(HintNoDecorrelate, tables, noArgHints))
+	}
+	candidates = append(candidates, externalBaseHints...)
+	return pickHintsWithBandit(gen, dqpDedupHints(candidates), dqpBaseHintPickLimit(gen))
 }
 
 func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, hasSemi bool, hasCorr bool, hasAgg bool, noArgHints map[string]struct{}, externalBaseHints []string) []string {
@@ -482,7 +937,6 @@ func dqpHintsForQuery(gen *generator.Generator, tables []string, hasJoin bool, h
 			HintMergeJoin,
 			HintInlJoin,
 			HintInlHashJoin,
-			HintInlMergeJoin,
 			HintHashJoinBuild,
 			HintHashJoinProbe,
 			HintLeading,
@@ -513,17 +967,29 @@ func dqpSetVarHints(gen *generator.Generator, tableCount int, hasJoin bool, hasS
 	if len(candidates) == 0 {
 		return nil
 	}
-	limit := dqpSetVarHintPickMax(gen)
-	if limit > len(candidates) {
-		limit = len(candidates)
+	maxPick := dqpSetVarHintPickMax(gen)
+	if maxPick > len(candidates) {
+		maxPick = len(candidates)
 	}
-	if limit <= 0 {
+	if maxPick <= 0 {
 		return nil
 	}
-	if gen != nil {
-		limit = 1 + gen.Rand.Intn(limit)
+	requireMPP := dqpShouldRequireMPPSetVar(gen, hasJoin)
+	pool := candidates
+	if requireMPP {
+		if mppPool := dqpFilterSetVarHints(candidates, true); len(mppPool) > 0 {
+			pool = mppPool
+		}
 	}
-	return pickHintsWithBandit(gen, candidates, limit)
+	selected := pickHintsWithBandit(gen, pool, 1)
+	if len(selected) == 0 {
+		return nil
+	}
+	// Keep each DQP run focused: mutate one SET_VAR dimension at a time.
+	if maxPick > 2 {
+		maxPick = 2
+	}
+	return dqpEnsureSetVarTogglePairs(selected, candidates, maxPick)
 }
 
 func dqpBaseHintPickLimit(gen *generator.Generator) int {
@@ -540,6 +1006,213 @@ func dqpSetVarHintPickMax(gen *generator.Generator) int {
 	return gen.Config.Oracles.DQPSetVarHintPick
 }
 
+func dqpShouldRequireMPPSetVar(gen *generator.Generator, hasJoin bool) bool {
+	if gen == nil || !hasJoin {
+		return false
+	}
+	return !gen.Config.Oracles.DisableMPP && gen.Config.Oracles.MPPTiFlashReplica > 0
+}
+
+func dqpEnsureSetVarTogglePairs(selected []string, candidates []string, limit int) []string {
+	if len(selected) == 0 || len(candidates) == 0 || limit <= 0 {
+		return selected
+	}
+	if limit < len(selected) {
+		limit = len(selected)
+	}
+	pool := dqpBuildSetVarTogglePool(candidates)
+	if len(pool) == 0 {
+		return selected
+	}
+	out := append([]string(nil), selected...)
+	seen := make(map[string]struct{}, len(out))
+	for _, hint := range out {
+		seen[strings.TrimSpace(hint)] = struct{}{}
+	}
+	for _, hint := range selected {
+		name, value, ok := dqpParseSingleSetVarHint(hint)
+		if !ok {
+			continue
+		}
+		targets := dqpOppositeSetVarTargets(name, value)
+		if len(targets) == 0 {
+			continue
+		}
+		for _, target := range targets {
+			options, ok := pool[target.name]
+			if !ok {
+				continue
+			}
+			oppositeHint, ok := options[target.value]
+			if !ok {
+				continue
+			}
+			trimmed := strings.TrimSpace(oppositeHint)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; exists {
+				continue
+			}
+			if len(out) >= limit {
+				break
+			}
+			out = append(out, trimmed)
+			seen[trimmed] = struct{}{}
+			break
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+type dqpSetVarToggleTarget struct {
+	name  string
+	value string
+}
+
+func dqpOppositeSetVarTargets(name string, value string) []dqpSetVarToggleTarget {
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	toggle := dqpNormalizeToggleValue(value)
+	if normalizedName == "" || toggle == "" {
+		return nil
+	}
+	switch normalizedName {
+	case "tidb_enforce_mpp":
+		if toggle == "ON" {
+			return []dqpSetVarToggleTarget{
+				{name: "tidb_allow_mpp", value: "OFF"},
+				{name: "tidb_enforce_mpp", value: "OFF"},
+			}
+		}
+		return []dqpSetVarToggleTarget{
+			{name: "tidb_allow_mpp", value: "ON"},
+			{name: "tidb_enforce_mpp", value: "ON"},
+		}
+	case "tidb_allow_mpp":
+		if toggle == "OFF" {
+			return []dqpSetVarToggleTarget{
+				{name: "tidb_enforce_mpp", value: "ON"},
+				{name: "tidb_allow_mpp", value: "ON"},
+			}
+		}
+	}
+	pair := dqpOppositeToggleValue(toggle)
+	if pair == "" {
+		return nil
+	}
+	return []dqpSetVarToggleTarget{{name: normalizedName, value: pair}}
+}
+
+func dqpBuildSetVarTogglePool(candidates []string) map[string]map[string]string {
+	pool := make(map[string]map[string]string, len(candidates))
+	for _, hint := range candidates {
+		name, value, ok := dqpParseSingleSetVarHint(hint)
+		if !ok {
+			continue
+		}
+		toggle := dqpNormalizeToggleValue(value)
+		if toggle == "" {
+			continue
+		}
+		byValue, ok := pool[name]
+		if !ok {
+			byValue = make(map[string]string, 2)
+			pool[name] = byValue
+		}
+		trimmed := strings.TrimSpace(hint)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := byValue[toggle]; !exists {
+			byValue[toggle] = trimmed
+		}
+	}
+	return pool
+}
+
+func dqpParseSingleSetVarHint(hint string) (name string, value string, ok bool) {
+	trimmed := strings.TrimSpace(hint)
+	upper := strings.ToUpper(trimmed)
+	if !strings.HasPrefix(upper, "SET_VAR(") || !strings.HasSuffix(trimmed, ")") {
+		return "", "", false
+	}
+	body := strings.TrimSpace(trimmed[len("SET_VAR(") : len(trimmed)-1])
+	if body == "" || strings.Count(body, "=") != 1 {
+		return "", "", false
+	}
+	parts := strings.SplitN(body, "=", 2)
+	name = strings.ToLower(strings.TrimSpace(parts[0]))
+	value = strings.TrimSpace(parts[1])
+	if name == "" || value == "" {
+		return "", "", false
+	}
+	return name, value, true
+}
+
+func dqpNormalizeToggleValue(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.Trim(v, "'")
+	switch strings.ToUpper(v) {
+	case "ON", "TRUE", "1":
+		return "ON"
+	case "OFF", "FALSE", "0":
+		return "OFF"
+	default:
+		return ""
+	}
+}
+
+func dqpOppositeToggleValue(value string) string {
+	switch dqpNormalizeToggleValue(value) {
+	case "ON":
+		return "OFF"
+	case "OFF":
+		return "ON"
+	default:
+		return ""
+	}
+}
+
+func dqpHasSetVarCategory(hints []string, mpp bool) bool {
+	for _, hint := range hints {
+		if isMPPSetVarHint(hint) == mpp {
+			return true
+		}
+	}
+	return false
+}
+
+func dqpFilterSetVarHints(candidates []string, mpp bool) []string {
+	out := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, hint := range candidates {
+		trimmed := strings.TrimSpace(hint)
+		if trimmed == "" || isMPPSetVarHint(trimmed) != mpp {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func dqpCombinedSetVarHints(nonMPPSetVarHints []string, mppSetVarHints []string) []string {
+	if len(nonMPPSetVarHints) == 0 && len(mppSetVarHints) == 0 {
+		return nil
+	}
+	combined := make([]string, 0, len(nonMPPSetVarHints)+len(mppSetVarHints))
+	// Keep MPP hints ahead so combined variants prioritize optimizer+MPP overlays.
+	combined = append(combined, mppSetVarHints...)
+	combined = append(combined, nonMPPSetVarHints...)
+	return dqpDedupHints(combined)
+}
+
 func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin bool, hasSemi bool, hasCorr bool, hasSubquery bool, hasCTE bool, hasPartition bool, externalSetVarHints []string) []string {
 	var candidates []string
 	disableMPP := dqpDisableMPP(gen)
@@ -549,6 +1222,7 @@ func dqpSetVarHintCandidates(gen *generator.Generator, tableCount int, hasJoin b
 		candidates = append(candidates, toggleHints(SetVarEnableInlJoinInnerMultiOn, SetVarEnableInlJoinInnerMultiOff)...)
 		if !disableMPP {
 			candidates = append(candidates, toggleHints(SetVarAllowMPPOn, SetVarAllowMPPOff)...)
+			candidates = append(candidates, SetVarEnforceMPPOn)
 		}
 	}
 	candidates = append(candidates, toggleHints(SetVarPartialOrderedTopNCost, SetVarPartialOrderedTopNDisable)...)
