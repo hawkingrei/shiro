@@ -1,6 +1,11 @@
 package runner
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/go-sql-driver/mysql"
+)
 
 func TestWrapReplayInsertsWithForeignKeyChecks(t *testing.T) {
 	got := wrapReplayInsertsWithForeignKeyChecks([]string{
@@ -34,5 +39,26 @@ func TestWrapReplayInsertsWithForeignKeyChecksEmpty(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("wrapped[%d]=%q want=%q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestErrorMatchesByMySQLErrorCodeOnly(t *testing.T) {
+	expected := &mysql.MySQLError{Number: 1105, Message: "Can't find column Column#123"}
+	got := &mysql.MySQLError{Number: 1105, Message: "Can't find column Column#456"}
+	if !errorMatches(got, expected) {
+		t.Fatalf("expected same mysql error code to match")
+	}
+
+	differentCode := &mysql.MySQLError{Number: 1054, Message: "Unknown column"}
+	if errorMatches(differentCode, expected) {
+		t.Fatalf("expected different mysql error code not to match")
+	}
+}
+
+func TestErrorMatchesNoTextFallbackForNonMySQLErrors(t *testing.T) {
+	expected := errors.New("some runtime failure")
+	got := errors.New("some runtime failure")
+	if errorMatches(got, expected) {
+		t.Fatalf("expected non-mysql errors not to match by text")
 	}
 }

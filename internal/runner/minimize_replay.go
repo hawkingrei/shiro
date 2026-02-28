@@ -609,10 +609,13 @@ func errorMatches(err error, expected error) bool {
 	if err == nil {
 		return false
 	}
-	if isPanicError(expected) {
-		return isPanicError(err)
+	if isPanicError(expected) || isPanicError(err) {
+		return isPanicError(expected) && isPanicError(err)
 	}
-	exp := strings.ToLower(expected.Error())
-	got := strings.ToLower(err.Error())
-	return strings.Contains(got, exp) || strings.Contains(exp, got)
+	expCode, expCodeOK := mysqlErrCode(expected)
+	gotCode, gotCodeOK := mysqlErrCode(err)
+	if expCodeOK || gotCodeOK {
+		return expCodeOK && gotCodeOK && expCode == gotCode
+	}
+	return false
 }
