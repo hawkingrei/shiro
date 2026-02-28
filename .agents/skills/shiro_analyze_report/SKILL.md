@@ -43,4 +43,8 @@ Produce a TiDB bug issue body from a Shiro report, then add a concise **Analysis
 - Issue body must be in English.
 - Keep Analysis short and evidence-backed.
 - If `plan_replayer.zip` exists, mention it in repro steps.
-- For wrong-result bugs, add labels: `sig/planner`, `severity/major`, `AI-Testing`, `fuzz/shiro`, and the affected release labels (`affects-7.5`, `affects-8.1`, `affects-8.5`).
+- Severity labeling rule:
+  - Wrong-result bugs: use `severity/major`.
+  - Query fails to execute (for example internal planner/runtime error on valid SQL): use `severity/major`.
+  - Complex-query planner/compatibility issues that are not confirmed wrong-result and not execution-blocking: use `severity/moderate`.
+- For planner bugs from Shiro cases, default labels should include `type/bug`, `sig/planner`, `AI-Testing`, and `fuzz/shiro`, then apply severity per the rule above.

@@ -20,6 +20,7 @@ Links:
 - After each task completes, review and update `AGENTS.md` and `docs/todo.md`, removing completed items and syncing current progress.
 - Documentation must be written in English.
 - When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
+- When labeling TiDB issues, treat wrong-result and query-fails-to-execute bugs as `severity/major`; use `severity/moderate` for complex-query planner/compatibility issues that are not confirmed wrong-result or execution-blocking failures.
 
 ## Signal policy
 
@@ -29,6 +30,7 @@ Links:
 - For unavoidable skips, keep observability first-class: require stable `skip_reason` taxonomy plus interval/detail diagnostics and counters so skip drift remains measurable in logs/reports.
 
 ## Recent updates
+- Filed TiDB issue #66601 for reproducible DQP missing-column case `case_0005_019ca40a-7ea7-7080-a9a1-4d3f66d7e260` (2026-02-28): reported planner-side `Error 1105` (`Can't find column ... t1.k0 in schema`) with a minimized `RIGHT JOIN` query that orders by an arithmetic expression (`ORDER BY t3.k0 - t4.k0`), and included reproducible SQL plus environment details. Classified with labels `AI-Testing`, `fuzz/shiro`, `sig/planner`, `type/bug`, and `severity/major` (query execution failure).
 - Removed DQP hint-group gating and capped per-SQL hint tokens (2026-02-28): dropped `dqp:insufficient_hint_groups` runtime skip gating so mismatches are no longer blocked by executed hint-group count, and added per-variant hint token capping (`dqpMaxHintsPerSQL=4`) before hint injection so each SQL carries a bounded hint list. Added regression coverage in `internal/oracle/dqp_test.go`; validated with `go test ./internal/oracle`.
 - Raised default query-complexity caps for DQP/EET/subquery/CTE generation (2026-02-28): increased generator fallback `maxSubqDepth` from `2` to `3`, raised `CTECountMax` defaults to `3` (generator constant + `defaultConfig()` + `config.example.yaml`), raised DQP derived complexity default from `3` to `4`, and raised EET join-table complexity default from `4` to `5` (including config/oracle fallbacks and docs/examples). Validated with `go test ./internal/config ./internal/generator ./internal/oracle`.
 - Added warning observability for unknown non-MySQL replay errors (2026-02-28): minimize replay error matching now emits a WARN log when non-MySQL errors cannot be classified by known keywords (or only one side is classified), so potential `base_replay_not_reproducible` skips caused by unknown runtime errors are visible in logs instead of silent mismatch-only behavior. Added helper coverage in `internal/runner/minimize_replay_test.go`; validated with `go test ./internal/runner`.
