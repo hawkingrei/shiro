@@ -440,7 +440,8 @@ func (g *Generator) ensureLimitOrderByTieBreaker(query *SelectQuery, tables []sc
 	}
 	// DISTINCT/GROUP/aggregate paths must keep ORDER BY aligned to the SELECT list.
 	if g.queryRequiresSelectOrder(query) {
-		if len(query.OrderBy) < 2 && len(query.Items) >= 2 {
+		requiredKeys := min(2, len(query.Items))
+		if requiredKeys > 0 && selectOrderByInformativeKeyCount(query.OrderBy, query.Items) < requiredKeys {
 			return g.orderByFromItemsStable(query.Items)
 		}
 		return query.OrderBy
@@ -471,6 +472,25 @@ func orderByHasColumn(orderBy []OrderBy, target ColumnRef) bool {
 		}
 	}
 	return false
+}
+
+func selectOrderByInformativeKeyCount(orderBy []OrderBy, items []SelectItem) int {
+	if len(orderBy) == 0 || len(items) == 0 {
+		return 0
+	}
+	count := 0
+	for _, ob := range orderBy {
+		if ord, ok := OrderByOrdinalIndex(ob.Expr, len(items)); ok {
+			if ord >= 1 && ord <= len(items) && !selectExprLikelyConstant(items[ord-1].Expr) {
+				count++
+			}
+			continue
+		}
+		if !selectExprLikelyConstant(ob.Expr) {
+			count++
+		}
+	}
+	return count
 }
 
 func (g *Generator) queryRequiresSelectOrder(query *SelectQuery) bool {

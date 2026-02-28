@@ -350,6 +350,34 @@ func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
 	}
 }
 
+func TestOrderByFromItemsStableSkipsConstantSelectItems(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	items := []SelectItem{
+		{
+			Expr: WindowExpr{
+				Name:       "ROW_NUMBER",
+				WindowName: "w0",
+			},
+			Alias: "c0",
+		},
+		{Expr: FuncExpr{Name: "ABS", Args: []Expr{LiteralExpr{Value: 96}}}, Alias: "c1"},
+		{Expr: FuncExpr{Name: "DATE_ADD", Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c6", Type: schema.TypeDate}}, LiteralExpr{Value: 1}}}, Alias: "c2"},
+	}
+	orderBy := gen.orderByFromItemsStable(items)
+	if len(orderBy) < 2 {
+		t.Fatalf("expected at least two ordinals, got %v", orderBy)
+	}
+	ord0, ok0 := orderBy[0].Expr.(LiteralExpr)
+	ord1, ok1 := orderBy[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 3 {
+		t.Fatalf("expected ordinals 1,3 to avoid constant c1 tie-breaker, got %v", orderBy)
+	}
+}
+
 func TestEnsureLimitOrderByTieBreakerAppendsDeterministicColumn(t *testing.T) {
 	cfg, err := config.Load("../../config.example.yaml")
 	if err != nil {
@@ -418,6 +446,43 @@ func TestEnsureLimitOrderByTieBreakerKeepsSelectOrderCompatibility(t *testing.T)
 	ord1, ok1 := out[1].Expr.(LiteralExpr)
 	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 2 {
 		t.Fatalf("expected ordinal tie-breakers 1,2, got %v", out)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerReplacesConstantOrdinalTieBreaker(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	limit := 14
+	query := &SelectQuery{
+		Distinct: true,
+		Items: []SelectItem{
+			{
+				Expr: WindowExpr{
+					Name:       "ROW_NUMBER",
+					WindowName: "w2",
+				},
+				Alias: "c0",
+			},
+			{Expr: FuncExpr{Name: "ABS", Args: []Expr{LiteralExpr{Value: 96}}}, Alias: "c1"},
+			{Expr: FuncExpr{Name: "DATE_ADD", Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c6", Type: schema.TypeDate}}, LiteralExpr{Value: 1}}}, Alias: "c2"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: LiteralExpr{Value: 1}},
+			{Expr: LiteralExpr{Value: 2}},
+		},
+		Limit: &limit,
+	}
+	out := gen.ensureLimitOrderByTieBreaker(query, nil)
+	if len(out) < 2 {
+		t.Fatalf("expected two order keys, got %v", out)
+	}
+	ord0, ok0 := out[0].Expr.(LiteralExpr)
+	ord1, ok1 := out[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 3 {
+		t.Fatalf("expected rewritten ordinal tie-breakers 1,3, got %v", out)
 	}
 }
 
