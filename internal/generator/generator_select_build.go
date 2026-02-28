@@ -34,6 +34,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
 				query.OrderBy = g.ensureDeterministicOrderBy(query, baseTables)
 			}
+			if query.Limit != nil && len(query.OrderBy) > 0 {
+				query.OrderBy = g.ensureLimitOrderByTieBreaker(query, baseTables)
+			}
 			if !g.validateQueryScope(query) {
 				return nil
 			}
@@ -131,6 +134,9 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	}
 	if hasCrossOrTrueJoin(query.From) && len(query.OrderBy) == 0 {
 		query.OrderBy = g.ensureDeterministicOrderBy(query, queryTables)
+	}
+	if query.Limit != nil && len(query.OrderBy) > 0 {
+		query.OrderBy = g.ensureLimitOrderByTieBreaker(query, queryTables)
 	}
 	g.maybeAttachSetOperations(query, queryTables)
 	// Current set-operation modeling does not track expression-level ORDER BY/LIMIT.
@@ -426,6 +432,46 @@ func (g *Generator) orderByForQuery(query *SelectQuery, tables []schema.Table) [
 		return g.orderByFromItemsStable(query.Items)
 	}
 	return g.ensureOrderByDistinctColumns(g.GenerateOrderBy(tables), tables)
+}
+
+func (g *Generator) ensureLimitOrderByTieBreaker(query *SelectQuery, tables []schema.Table) []OrderBy {
+	if query == nil || query.Limit == nil || len(query.OrderBy) == 0 {
+		return query.OrderBy
+	}
+	// DISTINCT/GROUP/aggregate paths must keep ORDER BY aligned to the SELECT list.
+	if g.queryRequiresSelectOrder(query) {
+		if len(query.OrderBy) < 2 && len(query.Items) >= 2 {
+			return g.orderByFromItemsStable(query.Items)
+		}
+		return query.OrderBy
+	}
+	orderBy := g.ensureOrderByDistinctColumns(query.OrderBy, tables)
+	for _, ob := range g.deterministicOrderBy(tables) {
+		colExpr, ok := ob.Expr.(ColumnExpr)
+		if !ok {
+			continue
+		}
+		if orderByHasColumn(orderBy, colExpr.Ref) {
+			continue
+		}
+		orderBy = append(orderBy, OrderBy{Expr: ob.Expr, Desc: false})
+		break
+	}
+	return orderBy
+}
+
+func orderByHasColumn(orderBy []OrderBy, target ColumnRef) bool {
+	if target.Table == "" || target.Name == "" {
+		return false
+	}
+	for _, ob := range orderBy {
+		for _, col := range ob.Expr.Columns() {
+			if col.Table == target.Table && col.Name == target.Name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (g *Generator) queryRequiresSelectOrder(query *SelectQuery) bool {

@@ -241,6 +241,9 @@ func (g *Generator) applySubqueryOrderLimit(query *SelectQuery, inner schema.Tab
 	query.Limit = &limit
 	if util.Chance(g.Rand, SubqueryOrderProb) {
 		query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
+		if len(query.OrderBy) > 0 {
+			query.OrderBy = g.ensureLimitOrderByTieBreaker(query, []schema.Table{inner})
+		}
 	}
 }
 

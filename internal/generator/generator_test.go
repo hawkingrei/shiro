@@ -350,6 +350,77 @@ func TestOrderByFromItemsStableUsesOrdinals(t *testing.T) {
 	}
 }
 
+func TestEnsureLimitOrderByTieBreakerAppendsDeterministicColumn(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	state := schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	gen := New(cfg, &state, 1)
+	limit := 8
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}, Alias: "c0"},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c1", Type: schema.TypeInt}}},
+		},
+		Limit: &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, state.Tables)
+	if len(out) != 3 {
+		t.Fatalf("expected one appended tie-breaker, got %v", out)
+	}
+	last, ok := out[2].Expr.(ColumnExpr)
+	if !ok {
+		t.Fatalf("expected appended column tie-breaker, got %T", out[2].Expr)
+	}
+	if last.Ref.Table != "t0" || last.Ref.Name != "id" {
+		t.Fatalf("expected id tie-breaker, got %s.%s", last.Ref.Table, last.Ref.Name)
+	}
+}
+
+func TestEnsureLimitOrderByTieBreakerKeepsSelectOrderCompatibility(t *testing.T) {
+	cfg, err := config.Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	gen := New(cfg, &schema.State{}, 1)
+	limit := 3
+	query := &SelectQuery{
+		Distinct: true,
+		Items: []SelectItem{
+			{Expr: LiteralExpr{Value: 10}, Alias: "c0"},
+			{Expr: LiteralExpr{Value: 20}, Alias: "c1"},
+		},
+		OrderBy: []OrderBy{{Expr: LiteralExpr{Value: 1}}},
+		Limit:   &limit,
+	}
+
+	out := gen.ensureLimitOrderByTieBreaker(query, nil)
+	if len(out) < 2 {
+		t.Fatalf("expected select-order tie-breaker to keep at least two keys, got %v", out)
+	}
+	ord0, ok0 := out[0].Expr.(LiteralExpr)
+	ord1, ok1 := out[1].Expr.(LiteralExpr)
+	if !ok0 || !ok1 || ord0.Value != 1 || ord1.Value != 2 {
+		t.Fatalf("expected ordinal tie-breakers 1,2, got %v", out)
+	}
+}
+
 func assertPanic(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

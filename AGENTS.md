@@ -25,6 +25,8 @@ Links:
 
 - Non-reproducible cases are still valid signals: do not suppress case capture only because current minimize/replay cannot reproduce yet.
 - Inapplicable/invalid optimizer hints are also test signals: keep observing and logging these outcomes instead of filtering them out by default, because behavior changes over time can make previously inapplicable hints become applicable.
+- Prefer generation-time constraints over runtime skip growth: when a skip class is predictable from query/schema context, add guardrails in generator/query-builder/oracle profile constraints first to reduce skip volume at the source.
+- For unavoidable skips, keep observability first-class: require stable `skip_reason` taxonomy plus interval/detail diagnostics and counters so skip drift remains measurable in logs/reports.
 
 ## Recent updates
 - Improved minimize AST reduction for predicate and CTE count simplification (2026-02-28): minimizer now emits recursive boolean-branch reduction candidates for `WHERE`/`HAVING` (nested `AND`/`OR` branches) and supports dropping individual CTE entries from multi-CTE `WITH` clauses (`2 -> 1`) for both `SELECT` and set-operation statements. Added regression tests in `internal/runner/minimize_test.go`; validated with `go test ./internal/runner -run 'Test.*Minimize|TestSelectCandidates.*'`.
