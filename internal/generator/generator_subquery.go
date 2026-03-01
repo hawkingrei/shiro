@@ -208,26 +208,27 @@ func (g *Generator) pickInnerTableForType(outerTables []schema.Table, colType sc
 			continue
 		}
 		candidates = append(candidates, tbl)
-		if _, exists := outerNames[tbl.Name]; !exists {
+		_, isOuter := outerNames[tbl.Name]
+		if !isOuter {
 			nonOuterCandidates = append(nonOuterCandidates, tbl)
 		}
 		for _, outer := range outerTables {
 			if tablesJoinable(outer, tbl) {
 				joinable = append(joinable, tbl)
-				if _, exists := outerNames[tbl.Name]; !exists {
+				if !isOuter {
 					nonOuterJoinable = append(nonOuterJoinable, tbl)
 				}
 				break
 			}
 		}
 	}
-	if len(nonOuterJoinable) > 0 && util.Chance(g.Rand, 85) {
+	if len(nonOuterJoinable) > 0 && util.Chance(g.Rand, SubqueryPreferNonOuterTableProb) {
 		return nonOuterJoinable[g.Rand.Intn(len(nonOuterJoinable))], true
 	}
 	if len(joinable) > 0 {
 		return joinable[g.Rand.Intn(len(joinable))], true
 	}
-	if len(nonOuterCandidates) > 0 && util.Chance(g.Rand, 85) {
+	if len(nonOuterCandidates) > 0 && util.Chance(g.Rand, SubqueryPreferNonOuterTableProb) {
 		return nonOuterCandidates[g.Rand.Intn(len(nonOuterCandidates))], true
 	}
 	if len(candidates) > 0 {

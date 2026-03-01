@@ -177,8 +177,8 @@ func (g *Generator) pickQuantifiedComparison(quantifier string) string {
 	ops := []string{"=", "!=", "<", "<=", ">", ">="}
 	if strings.EqualFold(strings.TrimSpace(quantifier), "ALL") {
 		// Reduce (not ban) low-value patterns like `x = ALL (SELECT x FROM ... WHERE x = const)`.
-		if util.Chance(g.Rand, 85) {
-			ops = []string{"!=", "<", "<=", ">", ">="}
+		if util.Chance(g.Rand, QuantifiedAllReduceEqProb) {
+			ops = ops[1:]
 		}
 	}
 	return ops[g.Rand.Intn(len(ops))]
