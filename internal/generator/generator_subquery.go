@@ -191,22 +191,45 @@ func (g *Generator) pickJoinableInnerTable(outerTables []schema.Table) (schema.T
 }
 
 func (g *Generator) pickInnerTableForType(outerTables []schema.Table, colType schema.ColumnType) (schema.Table, bool) {
+	outerNames := make(map[string]struct{}, len(outerTables))
+	for _, tbl := range outerTables {
+		if tbl.Name == "" {
+			continue
+		}
+		outerNames[tbl.Name] = struct{}{}
+	}
+
 	candidates := make([]schema.Table, 0, len(g.State.Tables))
+	nonOuterCandidates := make([]schema.Table, 0, len(g.State.Tables))
 	joinable := make([]schema.Table, 0, len(g.State.Tables))
+	nonOuterJoinable := make([]schema.Table, 0, len(g.State.Tables))
 	for _, tbl := range g.State.Tables {
 		if _, ok := g.pickCompatibleColumn(tbl, colType); !ok {
 			continue
 		}
 		candidates = append(candidates, tbl)
+		_, isOuter := outerNames[tbl.Name]
+		if !isOuter {
+			nonOuterCandidates = append(nonOuterCandidates, tbl)
+		}
 		for _, outer := range outerTables {
 			if tablesJoinable(outer, tbl) {
 				joinable = append(joinable, tbl)
+				if !isOuter {
+					nonOuterJoinable = append(nonOuterJoinable, tbl)
+				}
 				break
 			}
 		}
 	}
+	if len(nonOuterJoinable) > 0 && util.Chance(g.Rand, SubqueryPreferNonOuterTableProb) {
+		return nonOuterJoinable[g.Rand.Intn(len(nonOuterJoinable))], true
+	}
 	if len(joinable) > 0 {
 		return joinable[g.Rand.Intn(len(joinable))], true
+	}
+	if len(nonOuterCandidates) > 0 && util.Chance(g.Rand, SubqueryPreferNonOuterTableProb) {
+		return nonOuterCandidates[g.Rand.Intn(len(nonOuterCandidates))], true
 	}
 	if len(candidates) > 0 {
 		return candidates[g.Rand.Intn(len(candidates))], true
