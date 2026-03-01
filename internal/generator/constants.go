@@ -58,6 +58,8 @@ const (
 	DerivedTableProb = 30
 	// QuantifiedSubqueryProb is the chance to emit ANY/SOME/ALL subquery predicates.
 	QuantifiedSubqueryProb = 25
+	// QuantifiedAllReduceEqProb is the chance to avoid "=" when quantifier is ALL.
+	QuantifiedAllReduceEqProb = 85
 	// CTELimitMax is the maximum LIMIT value for CTE queries.
 	CTELimitMax = 10
 	// SelectListMax is the maximum number of SELECT items for regular queries.
@@ -96,6 +98,8 @@ const (
 	SubqueryLimitProb = 25
 	// SubqueryOrderProb is the chance to add ORDER BY when LIMIT is used in a subquery.
 	SubqueryOrderProb = 70
+	// SubqueryPreferNonOuterTableProb is the chance to prefer non-outer tables for inner subqueries.
+	SubqueryPreferNonOuterTableProb = 85
 	// JoinCountToTwoProb is the chance to increase join count from 2 to 3.
 	JoinCountToTwoProb = 60
 	// JoinCountToThreeProb is the chance to increase join count from 3 to 4.

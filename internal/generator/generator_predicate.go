@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"strings"
+
 	"shiro/internal/schema"
 	"shiro/internal/util"
 )
@@ -43,10 +45,11 @@ func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSub
 				return expr
 			}
 			if g.Config.Features.QuantifiedSubqueries && util.Chance(g.Rand, QuantifiedSubqueryProb) {
+				quantifier := g.pickSubqueryQuantifier()
 				return CompareSubqueryExpr{
 					Left:       leftExpr,
-					Op:         g.pickQuantifiedComparison(),
-					Quantifier: g.pickSubqueryQuantifier(),
+					Op:         g.pickQuantifiedComparison(quantifier),
+					Quantifier: quantifier,
 					Query:      typedSub,
 				}
 			}
@@ -170,8 +173,14 @@ func (g *Generator) falseExpr() Expr {
 	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 0}}
 }
 
-func (g *Generator) pickQuantifiedComparison() string {
+func (g *Generator) pickQuantifiedComparison(quantifier string) string {
 	ops := []string{"=", "!=", "<", "<=", ">", ">="}
+	if strings.EqualFold(strings.TrimSpace(quantifier), "ALL") {
+		// Reduce (not ban) low-value patterns like `x = ALL (SELECT x FROM ... WHERE x = const)`.
+		if util.Chance(g.Rand, QuantifiedAllReduceEqProb) {
+			ops = ops[1:]
+		}
+	}
 	return ops[g.Rand.Intn(len(ops))]
 }
 
