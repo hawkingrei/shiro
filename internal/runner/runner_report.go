@@ -304,8 +304,6 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			minimizeReason = reason
 		}
 	}
-	errorReason = effectiveResultErrorReason(result)
-	errorSignature = detailString(details, "error_signature")
 	replayLogSuffix := formatBaseReplayLogSuffix(details)
 	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason)
 	if result.Err != nil {

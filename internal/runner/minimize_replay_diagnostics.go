@@ -29,19 +29,7 @@ type replayFailureDiagnostic struct {
 }
 
 func (d replayFailureDiagnostic) isZero() bool {
-	return d.replayKind == "" &&
-		d.outcome == "" &&
-		d.failureStage == "" &&
-		d.lastOp == "" &&
-		d.lastSQL == "" &&
-		d.expectedError == "" &&
-		d.expectedErrorReason == "" &&
-		d.expectedErrorSignature == "" &&
-		d.expectedErrorCode == 0 &&
-		d.actualError == "" &&
-		d.actualErrorReason == "" &&
-		d.actualErrorSignature == "" &&
-		d.actualErrorCode == 0
+	return d == (replayFailureDiagnostic{})
 }
 
 func failReplayAttempt(result oracle.Result, spec replaySpec, trace *replayTrace, stage, outcome string, actualErr error) replayAttemptResult {
