@@ -247,6 +247,12 @@ func reduceCaseErrorCandidate(
 }
 
 func replayConsensus(run func() bool, attempts int, required int) bool {
+	if required <= 0 {
+		return true
+	}
+	if run == nil {
+		return false
+	}
 	return replayConsensusDetailed(func() replayAttemptResult {
 		return replayAttemptResult{matched: run()}
 	}, attempts, required).ok
