@@ -162,6 +162,67 @@ func TestMinimizeBaseReplayGate(t *testing.T) {
 	}
 }
 
+func TestMinimizeBaseReplayGateDetailedKeepsFailureDiagnostics(t *testing.T) {
+	attempts := []replayAttemptResult{
+		{
+			diag: replayFailureDiagnostic{
+				replayKind:           "case_error",
+				outcome:              "error_mismatch",
+				failureStage:         "exec_case_sql",
+				expectedErrorReason:  "eet:missing_column",
+				actualErrorReason:    "eet:sql_error_1054",
+				actualErrorSignature: "eet:sql_error_1054|unknown_column",
+			},
+		},
+		{
+			diag: replayFailureDiagnostic{
+				replayKind:          "case_error",
+				outcome:             "error_mismatch",
+				failureStage:        "exec_case_sql",
+				expectedErrorReason: "eet:missing_column",
+				actualErrorReason:   "eet:sql_error_1054",
+			},
+		},
+		{
+			matched: true,
+		},
+		{
+			diag: replayFailureDiagnostic{
+				replayKind:        "case_error",
+				outcome:           "error_mismatch",
+				failureStage:      "exec_case_sql",
+				actualErrorReason: "eet:sql_error_1105",
+			},
+		},
+		{
+			diag: replayFailureDiagnostic{
+				replayKind:        "case_error",
+				outcome:           "error_mismatch",
+				failureStage:      "exec_case_sql",
+				actualErrorReason: "eet:sql_error_1105",
+			},
+		},
+		{
+			matched: true,
+		},
+	}
+	idx := 0
+	outcome := minimizeBaseReplayGateDetailed(func() replayAttemptResult {
+		current := attempts[idx]
+		idx++
+		return current
+	}, "case_error")
+	if !outcome.ok || !outcome.flaky {
+		t.Fatalf("expected fallback pass with flaky=true, got ok=%v flaky=%v", outcome.ok, outcome.flaky)
+	}
+	if outcome.diag.expectedErrorReason != "eet:missing_column" {
+		t.Fatalf("expectedErrorReason=%q want eet:missing_column", outcome.diag.expectedErrorReason)
+	}
+	if outcome.diag.actualErrorReason != "eet:sql_error_1054" {
+		t.Fatalf("actualErrorReason=%q want strict-gate failure diag", outcome.diag.actualErrorReason)
+	}
+}
+
 func TestBuildReproSQLErrorSQLKind(t *testing.T) {
 	schemaSQL := []string{"CREATE TABLE t(id INT)"}
 	inserts := []string{"INSERT INTO t VALUES (1)"}

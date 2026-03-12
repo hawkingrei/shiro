@@ -126,16 +126,12 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	}
 	result.Details = details
 	annotateResultForReporting(&result)
+	annotateEffectiveErrorMetadata(&result)
 	details = result.Details
 	flaky := isFlakyExplain(details, result.Err)
-	errorReason := ""
-	if reason, ok := details["error_reason"].(string); ok {
-		errorReason = reason
-	}
-	bugHint := ""
-	if hint, ok := details["bug_hint"].(string); ok {
-		bugHint = hint
-	}
+	errorReason := effectiveResultErrorReason(result)
+	errorSignature := detailString(details, "error_signature")
+	bugHint := detailString(details, "bug_hint")
 	groundTruthDSGMismatchReason := groundTruthDSGMismatchReasonFromDetails(details)
 
 	summary := report.Summary{
@@ -144,6 +140,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		Expected:                     result.Expected,
 		Actual:                       result.Actual,
 		ErrorReason:                  errorReason,
+		ErrorSignature:               errorSignature,
 		BugHint:                      bugHint,
 		GroundTruthDSGMismatchReason: groundTruthDSGMismatchReason,
 		ReplaySQL:                    replaySQL,
@@ -307,53 +304,62 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 			minimizeReason = reason
 		}
 	}
+	replayLogSuffix := formatBaseReplayLogSuffix(details)
 	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason)
 	if result.Err != nil {
 		util.Errorf(
-			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s err=%v",
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s error_signature=%s minimize_status=%s minimize_reason=%s err=%v%s",
 			result.Oracle,
 			caseData.ID,
 			caseData.Dir,
 			errorReason,
+			errorSignature,
 			summary.MinimizeStatus,
 			minimizeReason,
 			result.Err,
+			replayLogSuffix,
 		)
 	} else if result.Expected != "" || result.Actual != "" {
 		if flaky {
 			util.Warnf(
-				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s flaky=true",
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s error_signature=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s flaky=true%s",
 				result.Oracle,
 				caseData.ID,
 				caseData.Dir,
 				errorReason,
+				errorSignature,
 				summary.MinimizeStatus,
 				minimizeReason,
 				result.Expected,
 				result.Actual,
+				replayLogSuffix,
 			)
 		} else {
 			util.Warnf(
-				"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s",
+				"case captured oracle=%s case_id=%s dir=%s error_reason=%s error_signature=%s minimize_status=%s minimize_reason=%s expected=%s actual=%s%s",
 				result.Oracle,
 				caseData.ID,
 				caseData.Dir,
 				errorReason,
+				errorSignature,
 				summary.MinimizeStatus,
 				minimizeReason,
 				result.Expected,
 				result.Actual,
+				replayLogSuffix,
 			)
 		}
 	} else {
 		util.Warnf(
-			"case captured oracle=%s case_id=%s dir=%s error_reason=%s minimize_status=%s minimize_reason=%s",
+			"case captured oracle=%s case_id=%s dir=%s error_reason=%s error_signature=%s minimize_status=%s minimize_reason=%s%s",
 			result.Oracle,
 			caseData.ID,
 			caseData.Dir,
 			errorReason,
+			errorSignature,
 			summary.MinimizeStatus,
 			minimizeReason,
+			replayLogSuffix,
 		)
 	}
 	if err := r.rotateDatabaseWithRetry(ctx); err != nil {
@@ -496,6 +502,11 @@ func groundTruthDSGMismatchReasonFromDetails(details map[string]any) string {
 func applyMinimizeOutcome(summary *report.Summary, details map[string]any, output minimizeOutput, err error) {
 	if summary == nil {
 		return
+	}
+	if details != nil {
+		for key, value := range output.details {
+			details[key] = value
+		}
 	}
 	status := strings.TrimSpace(output.status)
 	if status == "" {

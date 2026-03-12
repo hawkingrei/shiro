@@ -742,6 +742,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	_ = downgradeGroundTruthLowConfidenceFalsePositive(&result)
 	_ = downgradeDQPTimeoutFalsePositive(&result)
 	annotateResultForReporting(&result)
+	annotateEffectiveErrorMetadata(&result)
 	captureSkippedForMinimize := shouldCaptureSkipForMinimize(result)
 	skipReason := oracleSkipReason(result)
 	isPanic := isPanicError(result.Err)
