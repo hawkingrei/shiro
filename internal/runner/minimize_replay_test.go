@@ -122,3 +122,48 @@ func TestBuildReplaySpecFallsBackToCaseErrorWithoutReplayKind(t *testing.T) {
 		t.Fatalf("expected case_error fallback, got %q", spec.kind)
 	}
 }
+
+func TestNewReplayFailureDiagnosticKeepsExpectedSignatureWithoutExpectedText(t *testing.T) {
+	diag := newReplayFailureDiagnostic(
+		oracle.Result{
+			Oracle: "GroundTruth",
+			Details: map[string]any{
+				"skip_error_reason": "groundtruth:count_mismatch",
+			},
+		},
+		replaySpec{kind: "count"},
+		nil,
+		"compare_count",
+		"comparison_not_reproduced",
+		nil,
+	)
+	if diag.expectedErrorReason != "groundtruth:count_mismatch" {
+		t.Fatalf("expectedErrorReason=%q want groundtruth:count_mismatch", diag.expectedErrorReason)
+	}
+	if diag.expectedErrorSignature != "groundtruth:count_mismatch" {
+		t.Fatalf("expectedErrorSignature=%q want groundtruth:count_mismatch", diag.expectedErrorSignature)
+	}
+}
+
+func TestNewReplayFailureDiagnosticMarksNoErrorMismatch(t *testing.T) {
+	diag := newReplayFailureDiagnostic(
+		oracle.Result{
+			Oracle: "EET",
+			Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+		},
+		replaySpec{kind: "case_error"},
+		nil,
+		"exec_case_sql",
+		"error_mismatch",
+		nil,
+	)
+	if diag.actualError != replayNoErrorText {
+		t.Fatalf("actualError=%q want %q", diag.actualError, replayNoErrorText)
+	}
+	if diag.actualErrorReason != replayNoErrorReason {
+		t.Fatalf("actualErrorReason=%q want %q", diag.actualErrorReason, replayNoErrorReason)
+	}
+	if diag.actualErrorSignature != replayNoErrorReason {
+		t.Fatalf("actualErrorSignature=%q want %q", diag.actualErrorSignature, replayNoErrorReason)
+	}
+}

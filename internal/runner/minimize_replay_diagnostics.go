@@ -2,6 +2,11 @@ package runner
 
 import "shiro/internal/oracle"
 
+const (
+	replayNoErrorReason = "replay:no_error"
+	replayNoErrorText   = "no error"
+)
+
 type replayAttemptResult struct {
 	matched bool
 	diag    replayFailureDiagnostic
@@ -67,9 +72,12 @@ func newReplayFailureDiagnostic(
 		diag.expectedErrorReason = expectedReason
 	}
 	expectedText := effectiveResultErrorText(result)
+	expectedSignature := buildErrorSignature(expectedReason, result.Err, expectedText)
 	if expectedText != "" {
 		diag.expectedError = abbrevText(expectedText, replayErrorMessageMax)
-		diag.expectedErrorSignature = buildErrorSignature(expectedReason, result.Err, expectedText)
+	}
+	if expectedSignature != "" {
+		diag.expectedErrorSignature = expectedSignature
 	}
 	if result.Err != nil {
 		if code, ok := mysqlErrCode(result.Err); ok {
@@ -85,6 +93,10 @@ func newReplayFailureDiagnostic(
 		if code, ok := mysqlErrCode(actualErr); ok {
 			diag.actualErrorCode = code
 		}
+	} else if outcome == "error_mismatch" {
+		diag.actualError = replayNoErrorText
+		diag.actualErrorReason = replayNoErrorReason
+		diag.actualErrorSignature = buildErrorSignature(replayNoErrorReason, nil, replayNoErrorText)
 	}
 	return diag
 }
