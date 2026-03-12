@@ -417,12 +417,12 @@ nextIteration:
 			continue
 		}
 		if err := r.validator.Validate(pq.SQL); err != nil {
-			r.observeSQL(pq.SQL, err)
+			r.observeSQL(pq.SQL, err, nil)
 			invalid++
 			closePlanCacheConn(conn)
 			continue
 		}
-		r.observeSQL(pq.SQL, nil)
+		r.observeSQL(pq.SQL, nil, nil)
 		concreteSQL := materializeSQL(pq.SQL, pq.Args)
 
 		concreteSig, sigErr2 := r.signatureForSQLOnConn(ctx, conn, concreteSQL, r.planCacheRoundScale())

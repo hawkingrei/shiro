@@ -70,6 +70,12 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 		buildFrom(query),
 		orderLimit,
 	)
+	features := sqlSubqueryFeaturesFromQuery(query)
+	var observed map[string]db.SQLSubqueryFeatures
+	recordObservedExecSQL(exec, optimizedCount, features)
+	recordObservedExecSQL(exec, unoptimizedCount, features)
+	observed = recordObservedResultSQL(observed, optimized, features)
+	observed = recordObservedResultSQL(observed, unoptimized, features)
 
 	optCount, err := exec.QueryCount(ctx, optimizedCount)
 	if err != nil {
@@ -78,7 +84,7 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, SQLFeatures: observed, Err: err, Details: details}
 	}
 	unoptCount, err := exec.QueryCount(ctx, unoptimizedCount)
 	if err != nil {
@@ -87,17 +93,18 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{optimizedCount, unoptimizedCount}, SQLFeatures: observed, Err: err, Details: details}
 	}
 	if optCount != unoptCount {
 		unoptimizedExplain, _ := explainSQL(ctx, exec, unoptimizedCount)
 		optimizedExplain, _ := explainSQL(ctx, exec, optimizedCount)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{optimized, unoptimized},
-			Expected: fmt.Sprintf("optimized count=%d", optCount),
-			Actual:   fmt.Sprintf("unoptimized count=%d", unoptCount),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{optimized, unoptimized},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("optimized count=%d", optCount),
+			Actual:      fmt.Sprintf("unoptimized count=%d", unoptCount),
 			Details: map[string]any{
 				"replay_kind":           "count",
 				"replay_expected_sql":   optimizedCount,
@@ -110,7 +117,7 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{optimized, unoptimized}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{optimized, unoptimized}, SQLFeatures: observed}
 }
 
 func buildNoRECQuery(query *generator.SelectQuery) string {

@@ -403,6 +403,109 @@ func TestGroundTruthShouldFallbackDSG(t *testing.T) {
 	}
 }
 
+func TestGroundTruthHeuristicPredictableSkipReasonRowcount(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{Name: "t0", NextID: 80},
+			{Name: "t1", NextID: 20},
+		},
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+			}},
+		},
+	}
+	edges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKeys:   []string{"id"},
+		RightKeys:  []string{"id"},
+	}}
+	if got := groundTruthHeuristicPredictableSkipReason(query, edges, state, 50); got != "groundtruth:rowcount_predicted" {
+		t.Fatalf("rowcount predictive skip=%q want=%q", got, "groundtruth:rowcount_predicted")
+	}
+}
+
+func TestGroundTruthHeuristicPredictableSkipReasonJoinRows(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name:   "t0",
+				NextID: 11,
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name:   "t1",
+				NextID: 13,
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+			}},
+		},
+	}
+	edges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKeys:   []string{"k0"},
+		RightKeys:  []string{"k0"},
+	}}
+	if got := groundTruthHeuristicPredictableSkipReason(query, edges, state, 50); got != "groundtruth:join_rows_predicted" {
+		t.Fatalf("join predictive skip=%q want=%q", got, "groundtruth:join_rows_predicted")
+	}
+}
+
+func TestGroundTruthHeuristicPredictableSkipReasonKeepsUniqueIDJoin(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name:    "t0",
+				NextID:  41,
+				HasPK:   true,
+				Columns: []schema.Column{{Name: "id", Type: schema.TypeInt}},
+			},
+			{
+				Name:    "t1",
+				NextID:  41,
+				HasPK:   true,
+				Columns: []schema.Column{{Name: "id", Type: schema.TypeInt}},
+			},
+		},
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+			}},
+		},
+	}
+	edges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKeys:   []string{"id"},
+		RightKeys:  []string{"id"},
+	}}
+	if got := groundTruthHeuristicPredictableSkipReason(query, edges, state, 50); got != "" {
+		t.Fatalf("expected unique id join to stay eligible, got %q", got)
+	}
+}
+
 func TestGroundTruthConfidence(t *testing.T) {
 	if got := groundTruthConfidence(false, true, ""); got != "" {
 		t.Fatalf("non-DSG confidence=%q want empty", got)

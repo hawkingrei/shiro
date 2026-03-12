@@ -80,16 +80,22 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	base := query.Clone()
 	base.Where = nil
 	ensureTLPOrderBy(base)
-	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
+	baseSQL := base.SQLString()
+	baseSignatureSQL := base.SignatureSQL()
+	baseFeatures := sqlSubqueryFeaturesFromQuery(base)
+	recordObservedExecSQL(exec, baseSignatureSQL, baseFeatures)
+	var observed map[string]db.SQLSubqueryFeatures
+	observed = recordObservedResultSQL(observed, baseSQL, baseFeatures)
+	origSig, err := exec.QuerySignature(ctx, baseSignatureSQL)
 	if err != nil {
 		if code, ok := isWhitelistedSQLError(err); ok {
-			return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Details: map[string]any{"skip_reason": fmt.Sprintf("tlp:sql_error_%d", code)}}
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Details: map[string]any{"skip_reason": fmt.Sprintf("tlp:sql_error_%d", code)}}
 		}
 		details := map[string]any{"error_reason": "tlp:base_signature_error"}
 		if code, ok := mysqlErrCode(err); ok {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Err: err, Details: details}
 	}
 
 	q1 := base.Clone()
@@ -107,30 +113,38 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	q3.Where = generator.BinaryExpr{Left: query.Where, Op: "IS", Right: generator.LiteralExpr{Value: nil}}
 
 	unionSQL := fmt.Sprintf("%sSELECT %s FROM (%s UNION ALL %s UNION ALL %s) u", buildWith(query), signatureColumns(query), q1.SQLString(), q2.SQLString(), q3.SQLString())
+	unionFeatures := mergeSQLSubqueryFeatures(
+		sqlSubqueryFeaturesFromQuery(q1),
+		sqlSubqueryFeaturesFromQuery(q2),
+		sqlSubqueryFeaturesFromQuery(q3),
+	)
+	recordObservedExecSQL(exec, unionSQL, unionFeatures)
+	observed = recordObservedResultSQL(observed, unionSQL, unionFeatures)
 	unionSig, err := exec.QuerySignature(ctx, unionSQL)
 	if err != nil {
 		if code, ok := isWhitelistedSQLError(err); ok {
-			return Result{OK: true, Oracle: o.Name(), SQL: []string{unionSQL}, Details: map[string]any{"skip_reason": fmt.Sprintf("tlp:sql_error_%d", code)}}
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{unionSQL}, SQLFeatures: observed, Details: map[string]any{"skip_reason": fmt.Sprintf("tlp:sql_error_%d", code)}}
 		}
 		details := map[string]any{"error_reason": "tlp:union_signature_error"}
 		if code, ok := mysqlErrCode(err); ok {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{unionSQL}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{unionSQL}, SQLFeatures: observed, Err: err, Details: details}
 	}
 
 	if origSig != unionSig {
 		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SignatureSQL())
 		actualExplain, actualExplainErr := explainSQL(ctx, exec, unionSQL)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{base.SQLString(), unionSQL},
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
-			Actual:   fmt.Sprintf("cnt=%d checksum=%d", unionSig.Count, unionSig.Checksum),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{baseSQL, unionSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
+			Actual:      fmt.Sprintf("cnt=%d checksum=%d", unionSig.Count, unionSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  base.SignatureSQL(),
+				"replay_expected_sql":  baseSignatureSQL,
 				"replay_actual_sql":    unionSQL,
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
@@ -139,7 +153,7 @@ func (o TLP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), unionSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, unionSQL}, SQLFeatures: observed}
 }
 
 func signatureColumns(query *generator.SelectQuery) string {

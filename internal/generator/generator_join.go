@@ -779,11 +779,10 @@ func (g *Generator) maybeEmulateFullJoin(query *SelectQuery) {
 	if query == nil || len(query.SetOps) > 0 || len(query.From.Joins) != 1 {
 		return
 	}
-	g.fullJoinEmulationAttempted = true
 	if !util.Chance(g.Rand, FullJoinEmulationProb) {
-		g.fullJoinEmulationReject = "probability_gate"
 		return
 	}
+	g.fullJoinEmulationAttempted = true
 	if ok, reason := g.applyFullJoinEmulationWithReason(query); !ok {
 		g.fullJoinEmulationReject = reason
 		return

@@ -33,6 +33,9 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	confidence := groundTruthConfidence(dsgEnabled, enforceDSG, dsgReason)
 	if skipReason != "" {
 		details := map[string]any{"skip_reason": skipReason}
+		if predicted := groundTruthPredictedSkipKind(skipReason); predicted != "" {
+			details["groundtruth_skip"] = predicted
+		}
 		if keyReason != "" {
 			details["groundtruth_key_missing_reason"] = keyReason
 		}
@@ -127,12 +130,16 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	truthCount := len(rows)
 	sqlText := query.SQLString()
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", sqlText)
+	queryFeatures := sqlSubqueryFeaturesFromQuery(query)
+	recordObservedExecSQL(exec, countSQL, queryFeatures)
+	observed := recordObservedResultSQL(nil, sqlText, queryFeatures)
+	observed = recordObservedResultSQL(observed, countSQL, queryFeatures)
 	actual, err := exec.QueryCount(ctx, countSQL)
 	if err != nil {
 		if IsSchemaColumnMissingErr(err) {
-			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
+			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, SQLFeatures: observed, Err: err}
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, SQLFeatures: observed, Err: err}
 	}
 	truth := &GroundTruthMetrics{
 		Enabled:  true,
@@ -142,12 +149,13 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 	}
 	if truth.Mismatch {
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{sqlText, countSQL},
-			Expected: fmt.Sprintf("truth count=%d", truthCount),
-			Actual:   fmt.Sprintf("db count=%d", actual),
-			Truth:    truth,
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{sqlText, countSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("truth count=%d", truthCount),
+			Actual:      fmt.Sprintf("db count=%d", actual),
+			Truth:       truth,
 			Details: appendGroundTruthConfidence(map[string]any{
 				"replay_kind":         "count",
 				"replay_expected_sql": countSQL,
@@ -155,7 +163,7 @@ func (o GroundTruth) Run(ctx context.Context, exec *db.DB, gen *generator.Genera
 			}, confidence),
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truth}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, SQLFeatures: observed, Truth: truth}
 }
 
 func (o GroundTruth) runWithTruth(ctx context.Context, exec *db.DB, truth *groundtruth.SchemaTruth, query *generator.SelectQuery, state *schema.State, dsgEnabled bool, maxRows int, confidence string) Result {
@@ -229,11 +237,13 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 	}
 	lastKeyReason := ""
 	lastDSGReason := ""
+	lastPredictableSkip := ""
 	sawEmptyQuery := false
 	sawGuardrail := false
 	sawEdgeMismatch := false
 	sawJoinType := false
 	dsgEnabled := gen.Config.Features.DSG
+	maxRows := groundTruthEffectiveMaxRows(gen)
 	tryPick := func(maxTries int, enforceDSG bool) (*generator.SelectQuery, []groundtruth.JoinEdge, bool) {
 		for attempt := 0; attempt < maxTries; attempt++ {
 			query := gen.GenerateSelectQuery()
@@ -282,6 +292,11 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 					continue
 				}
 			}
+			if predictableSkip := groundTruthPredictableSkipReason(query, edges, gen, state, maxRows); predictableSkip != "" {
+				lastPredictableSkip = predictableSkip
+				sawGuardrail = true
+				continue
+			}
 			return query, edges, true
 		}
 		return nil, nil, false
@@ -296,6 +311,9 @@ func pickGroundTruthQuery(gen *generator.Generator, state *schema.State) (query 
 	}
 	if lastDSGReason != "" {
 		return nil, nil, "groundtruth:dsg_key_mismatch_" + lastDSGReason, "", lastDSGReason, true
+	}
+	if lastPredictableSkip != "" {
+		return nil, nil, lastPredictableSkip, "", "", true
 	}
 	if lastKeyReason != "" {
 		return nil, nil, "groundtruth:key_missing", lastKeyReason, "", true
@@ -523,12 +541,16 @@ func groundTruthDSGRightKeysAvailable(state *schema.State, edges []groundtruth.J
 func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *generator.SelectQuery, truthCount int, confidence string) Result {
 	sqlText := query.SQLString()
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM (%s) q", sqlText)
+	queryFeatures := sqlSubqueryFeaturesFromQuery(query)
+	recordObservedExecSQL(exec, countSQL, queryFeatures)
+	observed := recordObservedResultSQL(nil, sqlText, queryFeatures)
+	observed = recordObservedResultSQL(observed, countSQL, queryFeatures)
 	actual, err := exec.QueryCount(ctx, countSQL)
 	if err != nil {
 		if IsSchemaColumnMissingErr(err) {
-			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
+			return Result{OK: false, Oracle: o.Name(), SQL: []string{countSQL}, SQLFeatures: observed, Err: err}
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{countSQL}, SQLFeatures: observed, Err: err}
 	}
 	truthMeta := &GroundTruthMetrics{
 		Enabled:  true,
@@ -538,12 +560,13 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 	}
 	if truthMeta.Mismatch {
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{sqlText, countSQL},
-			Expected: fmt.Sprintf("truth count=%d", truthCount),
-			Actual:   fmt.Sprintf("db count=%d", actual),
-			Truth:    truthMeta,
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{sqlText, countSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("truth count=%d", truthCount),
+			Actual:      fmt.Sprintf("db count=%d", actual),
+			Truth:       truthMeta,
 			Details: appendGroundTruthConfidence(map[string]any{
 				"replay_kind":         "count",
 				"replay_expected_sql": countSQL,
@@ -551,7 +574,7 @@ func (o GroundTruth) compareTruthCount(ctx context.Context, exec *db.DB, query *
 			}, confidence),
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, Truth: truthMeta}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{sqlText, countSQL}, SQLFeatures: observed, Truth: truthMeta}
 }
 
 func groundTruthConfidence(dsgEnabled bool, enforceDSG bool, dsgReason string) string {
@@ -601,6 +624,151 @@ func groundTruthEffectiveMaxRows(gen *generator.Generator) int {
 		maxRows = gen.Config.TQS.WideRows
 	}
 	return maxRows
+}
+
+func groundTruthPredictableSkipReason(query *generator.SelectQuery, edges []groundtruth.JoinEdge, gen *generator.Generator, state *schema.State, maxRows int) string {
+	if query == nil || maxRows <= 0 {
+		return ""
+	}
+	if truth, ok := groundTruthSchemaTruth(gen); ok {
+		if skip := groundTruthExactPredictableSkipReason(truth, query, edges, maxRows); skip != "" {
+			return skip
+		}
+	}
+	return groundTruthHeuristicPredictableSkipReason(query, edges, state, maxRows)
+}
+
+func groundTruthSchemaTruth(gen *generator.Generator) (*groundtruth.SchemaTruth, bool) {
+	if gen == nil || gen.Truth == nil {
+		return nil, false
+	}
+	truth, ok := gen.Truth.(*groundtruth.SchemaTruth)
+	return truth, ok
+}
+
+func groundTruthExactPredictableSkipReason(truth *groundtruth.SchemaTruth, query *generator.SelectQuery, edges []groundtruth.JoinEdge, maxRows int) string {
+	if truth == nil || query == nil || len(edges) == 0 {
+		return ""
+	}
+	executor := groundtruth.JoinTruthExecutor{Truth: *truth}
+	_, ok, reason := executor.EvalJoinChainExact(query.From.BaseTable, edges, maxRows, maxRows)
+	if ok {
+		return ""
+	}
+	switch reason {
+	case "join_rows_exceeded":
+		return "groundtruth:join_rows_predicted"
+	case "table_rows_exceeded":
+		return "groundtruth:rowcount_predicted"
+	default:
+		return ""
+	}
+}
+
+func groundTruthHeuristicPredictableSkipReason(query *generator.SelectQuery, edges []groundtruth.JoinEdge, state *schema.State, maxRows int) string {
+	if query == nil || state == nil || maxRows <= 0 {
+		return ""
+	}
+	rowUpper := make(map[string]int, 1+len(query.From.Joins))
+	recordTable := func(name string) bool {
+		if name == "" {
+			return false
+		}
+		if _, ok := rowUpper[name]; ok {
+			return true
+		}
+		tbl, ok := state.TableByName(name)
+		if !ok {
+			return false
+		}
+		rowUpper[name] = groundTruthTableRowUpperBound(tbl)
+		return true
+	}
+	if !recordTable(query.From.BaseTable) {
+		return ""
+	}
+	for _, join := range query.From.Joins {
+		if !recordTable(join.Table) {
+			return ""
+		}
+	}
+	for _, count := range rowUpper {
+		if count > maxRows {
+			return "groundtruth:rowcount_predicted"
+		}
+	}
+	estimate := rowUpper[query.From.BaseTable]
+	if estimate <= 0 {
+		return ""
+	}
+	for _, edge := range edges {
+		rightRows := rowUpper[edge.RightTable]
+		if rightRows <= 0 {
+			continue
+		}
+		multiplier := groundTruthEstimatedFanoutMultiplier(state, edge, rightRows)
+		if multiplier <= 1 {
+			continue
+		}
+		if estimate > maxRows/multiplier {
+			return "groundtruth:join_rows_predicted"
+		}
+		estimate *= multiplier
+		if estimate > maxRows {
+			return "groundtruth:join_rows_predicted"
+		}
+	}
+	return ""
+}
+
+func groundTruthTableRowUpperBound(tbl schema.Table) int {
+	if tbl.NextID <= 1 {
+		return 0
+	}
+	return int(tbl.NextID - 1)
+}
+
+func groundTruthEstimatedFanoutMultiplier(state *schema.State, edge groundtruth.JoinEdge, rightRows int) int {
+	if rightRows <= 1 {
+		return 1
+	}
+	if groundTruthUniqueLikeKeys(state, edge.LeftTable, edge.LeftKeyList()) || groundTruthUniqueLikeKeys(state, edge.RightTable, edge.RightKeyList()) {
+		return 1
+	}
+	if len(edge.LeftKeyList()) > 1 || len(edge.RightKeyList()) > 1 {
+		return min(rightRows, 4)
+	}
+	return max(2, min(rightRows, max(2, rightRows/2)))
+}
+
+func groundTruthUniqueLikeKeys(state *schema.State, table string, keys []string) bool {
+	if len(keys) != 1 || state == nil {
+		return false
+	}
+	key := strings.TrimSpace(keys[0])
+	if !strings.EqualFold(key, "id") {
+		return false
+	}
+	tbl, ok := state.TableByName(table)
+	if !ok {
+		return false
+	}
+	if tbl.HasPK {
+		return true
+	}
+	_, ok = tbl.ColumnByName(key)
+	return ok
+}
+
+func groundTruthPredictedSkipKind(skipReason string) string {
+	switch skipReason {
+	case "groundtruth:rowcount_predicted":
+		return "rowcount_exceeded"
+	case "groundtruth:join_rows_predicted":
+		return "join_rows_exceeded"
+	default:
+		return ""
+	}
 }
 
 func exactSkipReason(reason string) string {

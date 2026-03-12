@@ -124,6 +124,10 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 
 	baseSQL := query.SQLString()
 	baseSignatureSQL := query.SignatureSQL()
+	baseFeatures := sqlSubqueryFeaturesFromQuery(query)
+	recordObservedExecSQL(exec, baseSignatureSQL, baseFeatures)
+	var observed map[string]db.SQLSubqueryFeatures
+	observed = recordObservedResultSQL(observed, baseSQL, baseFeatures)
 	baseSig, baseWarnings, err := exec.QuerySignatureWithWarnings(ctx, baseSignatureSQL)
 	if err != nil {
 		reason, code := sqlErrorReason("dqp", err)
@@ -135,7 +139,7 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		if code != 0 {
 			details["error_code"] = int(code)
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Err: err, Details: details}
 	}
 	dqpLogWarnings("base", "", baseSQL, baseWarnings)
 
@@ -143,6 +147,8 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	hasPartition := queryHasPartitionedTable(query, state)
 	variants, variantMetrics := buildDQPVariants(query, state, hasSemi, hasCorr, hasAgg, hasSubquery, hasCTE, hasPartition, gen)
 	for _, variant := range variants {
+		recordObservedExecSQL(exec, variant.signatureSQL, baseFeatures)
+		observed = recordObservedResultSQL(observed, variant.sql, baseFeatures)
 		variantSig, warnings, err := exec.QuerySignatureWithWarnings(ctx, variant.signatureSQL)
 		if err != nil {
 			continue
@@ -167,17 +173,18 @@ func (o DQP) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 				details["replay_set_var"] = setVarAssignment
 			}
 			return Result{
-				OK:       false,
-				Oracle:   o.Name(),
-				SQL:      []string{baseSQL, variant.sql},
-				Expected: fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
-				Actual:   fmt.Sprintf("cnt=%d checksum=%d", variantSig.Count, variantSig.Checksum),
-				Details:  details,
-				Metrics:  variantMetrics.resultMetrics(),
+				OK:          false,
+				Oracle:      o.Name(),
+				SQL:         []string{baseSQL, variant.sql},
+				SQLFeatures: observed,
+				Expected:    fmt.Sprintf("cnt=%d checksum=%d", baseSig.Count, baseSig.Checksum),
+				Actual:      fmt.Sprintf("cnt=%d checksum=%d", variantSig.Count, variantSig.Checksum),
+				Details:     details,
+				Metrics:     variantMetrics.resultMetrics(),
 			}
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Metrics: variantMetrics.resultMetrics()}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Metrics: variantMetrics.resultMetrics()}
 }
 
 type dqpComplexityStats struct {

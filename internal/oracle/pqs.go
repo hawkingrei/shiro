@@ -132,6 +132,11 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 	matchExpr := pqsMatchExpr(pivot, aliases)
 	matchSQL := buildExpr(matchExpr)
 	containSQL := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
+	queryFeatures := sqlSubqueryFeaturesFromQuery(query)
+	recordObservedExecSQL(exec, containSQL, queryFeatures)
+	var observed map[string]db.SQLSubqueryFeatures
+	observed = recordObservedResultSQL(observed, querySQL, queryFeatures)
+	observed = recordObservedResultSQL(observed, containSQL, queryFeatures)
 	row := exec.QueryRowContext(ctx, containSQL)
 	var marker int
 	err = row.Scan(&marker)
@@ -156,18 +161,19 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			details["error_code"] = int(code)
 		}
 		updateBandit(true, err, false)
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, Err: err, Details: attachBandit(details)}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, SQLFeatures: observed, Err: err, Details: attachBandit(details)}
 	}
 	if !present {
 		replayExpected := fmt.Sprintf("SELECT 1 FROM (%s) pqs WHERE %s LIMIT 1", querySQL, matchSQL)
 		tableNames := pqsPivotTableNames(pivot)
 		updateBandit(false, nil, false)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{querySQL, containSQL},
-			Expected: "pivot_row_present",
-			Actual:   "pivot_row_missing",
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{querySQL, containSQL},
+			SQLFeatures: observed,
+			Expected:    "pivot_row_present",
+			Actual:      "pivot_row_missing",
 			Details: attachBandit(pqsAttachMeta(map[string]any{
 				"pqs_table":               pqsSingleTableName(tableNames),
 				"pqs_tables":              tableNames,
@@ -188,7 +194,7 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		}
 	}
 	updateBandit(true, nil, false)
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{querySQL, containSQL}, SQLFeatures: observed}
 }
 
 func pickPQSPivotRow(ctx context.Context, exec *db.DB, gen *generator.Generator, state *schema.State) (*pqsPivotRow, map[string]any, error) {

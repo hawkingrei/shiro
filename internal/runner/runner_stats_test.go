@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/oracle"
 	"shiro/internal/tqs"
@@ -241,6 +242,49 @@ func TestObserveJoinSignatureFullJoinAttemptEmitted(t *testing.T) {
 	}
 	if len(r.genSQLFullJoinRejected) != 0 {
 		t.Fatalf("expected no reject reason for emitted full join, got %v", r.genSQLFullJoinRejected)
+	}
+}
+
+func TestObserveSQLUsesPrecomputedFeatures(t *testing.T) {
+	r := &Runner{}
+	r.observeSQL("SELECT * FROM t0 WHERE EXISTS (SELECT 1)", nil, &db.SQLSubqueryFeatures{
+		HasExistsSubquery: true,
+		HasInSubquery:     true,
+	})
+	if r.sqlTotal != 1 {
+		t.Fatalf("sqlTotal=%d want=1", r.sqlTotal)
+	}
+	if r.sqlValid != 1 {
+		t.Fatalf("sqlValid=%d want=1", r.sqlValid)
+	}
+	if r.sqlExists != 1 {
+		t.Fatalf("sqlExists=%d want=1", r.sqlExists)
+	}
+	if r.sqlIn != 1 {
+		t.Fatalf("sqlIn=%d want=1", r.sqlIn)
+	}
+	if r.sqlInSubquery != 1 {
+		t.Fatalf("sqlInSubquery=%d want=1", r.sqlInSubquery)
+	}
+	if r.sqlParseCalls != 0 {
+		t.Fatalf("sqlParseCalls=%d want=0", r.sqlParseCalls)
+	}
+}
+
+func TestObserveVariantSubqueryCountsUsesPrecomputedFeatures(t *testing.T) {
+	r := &Runner{}
+	sqlText := "SELECT * FROM t0 WHERE id IN (SELECT id FROM t1)"
+	r.observeVariantSubqueryCounts([]string{sqlText}, map[string]db.SQLSubqueryFeatures{
+		sqlText: {HasInSubquery: true},
+	})
+	if r.sqlInSubqueryVariant != 1 {
+		t.Fatalf("sqlInSubqueryVariant=%d want=1", r.sqlInSubqueryVariant)
+	}
+	if r.sqlNotInSubqueryVariant != 0 {
+		t.Fatalf("sqlNotInSubqueryVariant=%d want=0", r.sqlNotInSubqueryVariant)
+	}
+	if r.sqlParseVariantCalls != 0 {
+		t.Fatalf("sqlParseVariantCalls=%d want=0", r.sqlParseVariantCalls)
 	}
 }
 

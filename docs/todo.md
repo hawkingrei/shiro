@@ -26,8 +26,9 @@ Each completed task should contribute at least one new improvement item here whe
 
 ## Fuzz Efficiency Refactor Plan
 
-1. Finish `observeSQL` precomputed-analysis fast path so parser work is skipped whenever generator/oracle can provide reusable analysis.
+1. Extend precomputed SQL feature registration and add fast-path hit metrics for remaining string-built paths (for example plan-cache wrappers and Impo helpers) so parser savings are measurable.
 2. Run validation for builder/spec equivalence and oracle semantics via targeted oracle/generator test suites and skip-rate checks.
+3. Add `throughput_guard` activation context (oracle mode, parser pressure, low-QPS window summary) so low-throughput intervals can be attributed without manual log reconstruction.
 
 ## Continuous Improvement
 
