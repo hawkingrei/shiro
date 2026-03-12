@@ -42,3 +42,7 @@ Last sync: 2026-02-22.
 1. Extend precomputed SQL feature registration and add fast-path hit metrics for remaining string-built paths (for example plan-cache wrappers and Impo helpers) so parser savings are measurable.
 2. Validation: update tests for builder/spec equivalence and ensure oracle semantics remain unchanged; run targeted oracle/generator tests to confirm skip reduction and coverage stability.
 3. Add `throughput_guard` activation context (oracle mode, parser pressure, low-QPS window summary) so low-throughput intervals can be attributed without manual log reconstruction.
+
+## Continuous Improvement
+
+1. Add an issue filing helper/template for `gh issue create` so agents can file detailed issues directly without keeping local `docs/issues` drafts.

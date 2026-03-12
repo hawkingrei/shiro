@@ -20,6 +20,7 @@ Links:
 
 - Documentation must be written in English.
 - Do not use `web/public/cases` as a report source for bug triage; only use local `reports/` case artifacts.
+- Do not keep local issue draft records under `docs/issues/`; file qualified GitHub issues directly without adding a repository-side issue log.
 - When updating TiDB issues, collapse large SQL blocks (apply schema/load data) in `<details>` and format the "Run the query" SQL for readability.
 - When labeling TiDB issues, treat wrong-result and query-fails-to-execute bugs as `severity/major`; use `severity/moderate` for complex-query planner/compatibility issues that are not confirmed wrong-result or execution-blocking failures.
 
@@ -33,7 +34,7 @@ Links:
 5. Implement code changes and required tests.
 6. Run checks and linters relevant to the touched scope.
 7. Re-review the diff for correctness, scope alignment, and unintended behavior changes.
-8. If `reports/` exists, triage for potential TiDB bugs and file TiDB issues for qualified reproducible cases.
+8. If `reports/` exists, triage for potential TiDB bugs and file TiDB issues for qualified reproducible cases without adding repository-side issue draft records.
 9. After completing the task, write a journal entry in `docs/journal/<YYYY-MM-DD>-<topic>.md`.
 10. Add new actionable follow-up improvements to `docs/todo.md`.
 11. Keep `docs/todo.md` open-items-only; move completed details to `docs/journal/*`.
