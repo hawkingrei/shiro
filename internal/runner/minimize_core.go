@@ -32,6 +32,7 @@ type minimizeOutput struct {
 	status    string
 	reason    string
 	flaky     bool
+	details   map[string]any
 }
 
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
@@ -75,14 +76,19 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	origCase := append([]string{}, result.SQL...)
 
 	origInserts = expandInsertStatements(origInserts)
-	baseReproducible, baseFlaky := minimizeBaseReplayGate(func() bool {
-		return test(origInserts, origCase)
+	baseReplay := minimizeBaseReplayGateDetailed(func() replayAttemptResult {
+		return r.replayCaseDetailed(minCtx, schemaSQL, origInserts, origCase, result, spec)
 	}, spec.kind)
-	if !baseReproducible {
+	if !baseReplay.ok {
 		return minimizeOutput{
 			status: "skipped",
 			reason: minimizeReasonBaseReplayNotReproducible,
 			flaky:  true,
+			details: baseReplay.diag.toDetails(
+				baseReplay.attempts,
+				baseReplay.successes,
+				baseReplay.required,
+			),
 		}
 	}
 	dedupedInserts := dedupeStatements(origInserts)
@@ -125,19 +131,53 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 		reproSQL:  reproSQL,
 		minimized: true,
 		status:    "success",
-		flaky:     baseFlaky,
+		flaky:     baseReplay.flaky,
 	}
 }
 
 func minimizeBaseReplayGate(run func() bool, specKind string) (ok bool, flaky bool) {
-	if replayConsensus(run, minimizeBaseReplayAttempts, minimizeBaseReplayRequired) {
-		return true, false
+	outcome := minimizeBaseReplayGateDetailed(func() replayAttemptResult {
+		return replayAttemptResult{matched: run()}
+	}, specKind)
+	return outcome.ok, outcome.flaky
+}
+
+type minimizeBaseReplayGateResult struct {
+	ok        bool
+	flaky     bool
+	attempts  int
+	successes int
+	required  int
+	diag      replayFailureDiagnostic
+}
+
+func minimizeBaseReplayGateDetailed(run func() replayAttemptResult, specKind string) minimizeBaseReplayGateResult {
+	outcome := minimizeBaseReplayGateResult{
+		attempts: minimizeBaseReplayAttempts,
+		required: minimizeBaseReplayRequired,
 	}
-	if strings.EqualFold(strings.TrimSpace(specKind), "case_error") &&
-		replayConsensus(run, minimizeBaseReplayAttempts, 1) {
-		return true, true
+	primary := replayConsensusDetailed(run, minimizeBaseReplayAttempts, minimizeBaseReplayRequired)
+	outcome.ok = primary.ok
+	outcome.successes = primary.successes
+	outcome.diag = primary.diag
+	if outcome.ok {
+		return outcome
 	}
-	return false, true
+	outcome.flaky = true
+	if strings.EqualFold(strings.TrimSpace(specKind), "case_error") {
+		fallback := replayConsensusDetailed(run, minimizeBaseReplayAttempts, 1)
+		if fallback.ok {
+			outcome.ok = true
+			return outcome
+		}
+		if !fallback.diag.isZero() {
+			outcome.diag = fallback.diag
+		}
+		if fallback.successes > outcome.successes {
+			outcome.successes = fallback.successes
+		}
+	}
+	return outcome
 }
 
 func reduceCaseErrorCandidate(
@@ -207,33 +247,54 @@ func reduceCaseErrorCandidate(
 }
 
 func replayConsensus(run func() bool, attempts int, required int) bool {
+	return replayConsensusDetailed(func() replayAttemptResult {
+		return replayAttemptResult{matched: run()}
+	}, attempts, required).ok
+}
+
+type replayConsensusResult struct {
+	ok        bool
+	successes int
+	diag      replayFailureDiagnostic
+}
+
+func replayConsensusDetailed(run func() replayAttemptResult, attempts int, required int) replayConsensusResult {
+	var result replayConsensusResult
 	if required <= 0 {
-		return true
+		result.ok = true
+		return result
 	}
 	if run == nil {
-		return false
+		return result
 	}
 	if attempts <= 0 {
-		return false
+		return result
 	}
 	if attempts < required {
-		return false
+		return result
 	}
 	success := 0
 	remaining := attempts
 	for i := 0; i < attempts; i++ {
-		if run() {
+		attempt := run()
+		if attempt.matched {
 			success++
+		} else if !attempt.diag.isZero() {
+			result.diag = attempt.diag
 		}
 		remaining--
 		if success >= required {
-			return true
+			result.ok = true
+			result.successes = success
+			return result
 		}
 		if success+remaining < required {
-			return false
+			result.successes = success
+			return result
 		}
 	}
-	return false
+	result.successes = success
+	return result
 }
 
 func reduceReplaySpecCandidate(

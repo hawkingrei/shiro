@@ -2,6 +2,7 @@ package runner
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"shiro/internal/oracle"
@@ -166,6 +167,63 @@ func TestAnnotateResultForReportingKeepsSkipClassificationWhenMinimizeCaptureEna
 	}
 	if _, ok := result.Details["bug_hint"]; ok {
 		t.Fatalf("unexpected bug_hint for skip-classified result")
+	}
+}
+
+func TestEffectiveResultErrorReasonFallsBackToSkipErrorReason(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+		Details: map[string]any{
+			"skip_reason":              "eet:missing_column",
+			"skip_error_reason":        "eet:missing_column",
+			skipAllowMinimizeDetailKey: true,
+		},
+	}
+	if got := effectiveResultErrorReason(result); got != "eet:missing_column" {
+		t.Fatalf("effectiveResultErrorReason()=%q want eet:missing_column", got)
+	}
+}
+
+func TestAnnotateEffectiveErrorMetadataSetsStableSignatureForSkippedMissingColumn(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		OK:     true,
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+		Details: map[string]any{
+			"skip_reason":              "eet:missing_column",
+			"skip_error_reason":        "eet:missing_column",
+			skipAllowMinimizeDetailKey: true,
+		},
+	}
+	annotateResultForReporting(&result)
+	annotateEffectiveErrorMetadata(&result)
+	signature, _ := result.Details["error_signature"].(string)
+	if signature != "eet:missing_column|cant_find_column_in_schema" {
+		t.Fatalf("unexpected error_signature: %q", signature)
+	}
+}
+
+func TestFormatBaseReplayLogSuffix(t *testing.T) {
+	suffix := formatBaseReplayLogSuffix(map[string]any{
+		"minimize_reason":                            minimizeReasonBaseReplayNotReproducible,
+		"minimize_base_replay_kind":                  "case_error",
+		"minimize_base_replay_outcome":               "error_mismatch",
+		"minimize_base_replay_failure_stage":         "exec_case_sql",
+		"minimize_base_replay_last_op":               "exec",
+		"minimize_base_replay_expected_error_reason": "eet:missing_column",
+		"minimize_base_replay_actual_error_reason":   "eet:sql_error_1054",
+	})
+	for _, fragment := range []string{
+		"base_replay_kind=case_error",
+		"base_replay_outcome=error_mismatch",
+		"base_replay_stage=exec_case_sql",
+		"base_replay_expected_reason=eet:missing_column",
+		"base_replay_actual_reason=eet:sql_error_1054",
+	} {
+		if !strings.Contains(suffix, fragment) {
+			t.Fatalf("log suffix %q missing fragment %q", suffix, fragment)
+		}
 	}
 }
 

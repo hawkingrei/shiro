@@ -91,38 +91,42 @@ func (r *Runner) execReplayInserts(ctx context.Context, conn *sql.Conn, inserts 
 }
 
 func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []string, result oracle.Result, spec replaySpec) bool {
+	return r.replayCaseDetailed(ctx, schemaSQL, inserts, caseSQL, result, spec).matched
+}
+
+func (r *Runner) replayCaseDetailed(ctx context.Context, schemaSQL, inserts, caseSQL []string, result oracle.Result, spec replaySpec) replayAttemptResult {
 	if err := ctx.Err(); err != nil {
-		return false
+		return failReplayAttempt(result, spec, nil, "context", "context_error", err)
 	}
 	conn, err := r.exec.Conn(ctx)
 	if err != nil {
-		return false
+		return failReplayAttempt(result, spec, nil, "connect", "setup_error", err)
 	}
 	trace := &replayTrace{}
 	defer closeReplayConn(conn, trace)
 	minDB := r.baseDB + "_min"
 	if err := r.resetDatabaseOnConn(ctx, conn, minDB, trace); err != nil {
-		return false
+		return failReplayAttempt(result, spec, trace, "reset_database", "setup_error", err)
 	}
 	if err := r.prepareConnWithTrace(ctx, conn, minDB, trace); err != nil {
-		return false
+		return failReplayAttempt(result, spec, trace, "use_database", "setup_error", err)
 	}
 	if err := execStatements(ctx, conn, schemaSQL, r.validator, trace); err != nil {
-		return false
+		return failReplayAttempt(result, spec, trace, "apply_schema", "setup_error", err)
 	}
 	if err := r.execReplayInserts(ctx, conn, inserts, trace); err != nil {
-		return false
+		return failReplayAttempt(result, spec, trace, "load_data", "setup_error", err)
 	}
 
 	switch spec.kind {
 	case "signature":
 		base, err := querySignatureConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_expected_signature", "execution_error", err)
 		}
 		if spec.setVar != "" {
 			if err := r.execOnConnWithTrace(ctx, conn, "SET SESSION "+spec.setVar, trace); err != nil {
-				return false
+				return failReplayAttempt(result, spec, trace, "set_session_var", "setup_error", err)
 			}
 		}
 		other, err := querySignatureConn(ctx, conn, spec.actualSQL, r.validator, trace)
@@ -130,70 +134,100 @@ func (r *Runner) replayCase(ctx context.Context, schemaSQL, inserts, caseSQL []s
 			resetVarOnConn(ctx, conn, spec.setVar, trace)
 		}
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_actual_signature", "execution_error", err)
 		}
-		return base != other
+		if base != other {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "compare_signature", "comparison_not_reproduced", nil)
 	case "count":
 		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_expected_count", "execution_error", err)
 		}
 		other, err := queryCountConn(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_actual_count", "execution_error", err)
 		}
-		return base != other
+		if base != other {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "compare_count", "comparison_not_reproduced", nil)
 	case "plan_rows":
 		base, err := queryPlanRowsConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_expected_plan_rows", "execution_error", err)
 		}
 		other, err := queryPlanRowsConn(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_actual_plan_rows", "execution_error", err)
 		}
-		return other > base*(1.0+spec.tolerance)
+		if other > base*(1.0+spec.tolerance) {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "compare_plan_rows", "comparison_not_reproduced", nil)
 	case "rows_affected":
 		base, err := queryCountConn(ctx, conn, spec.expectedSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "query_expected_rows_affected", "execution_error", err)
 		}
 		affected, err := execRowsAffected(ctx, conn, spec.actualSQL, r.validator, trace)
 		if err != nil {
-			return false
+			return failReplayAttempt(result, spec, trace, "exec_actual_rows_affected", "execution_error", err)
 		}
-		return affected != base
+		if affected != base {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "compare_rows_affected", "comparison_not_reproduced", nil)
 	case "impo_contains":
 		baseRows, baseTrunc, err := queryRowSetConn(ctx, conn, spec.expectedSQL, r.validator, spec.maxRows, trace)
 		if err != nil || baseTrunc {
-			return false
+			if err != nil {
+				return failReplayAttempt(result, spec, trace, "query_expected_row_set", "execution_error", err)
+			}
+			return failReplayAttempt(result, spec, trace, "query_expected_row_set", "comparison_not_reproduced", nil)
 		}
 		mutRows, mutTrunc, err := queryRowSetConn(ctx, conn, spec.actualSQL, r.validator, spec.maxRows, trace)
 		if err != nil || mutTrunc {
-			return false
+			if err != nil {
+				return failReplayAttempt(result, spec, trace, "query_actual_row_set", "execution_error", err)
+			}
+			return failReplayAttempt(result, spec, trace, "query_actual_row_set", "comparison_not_reproduced", nil)
 		}
 		cmp := compareRowSets(baseRows, mutRows)
-		return !implicationOK(spec.impoIsUpper, cmp)
+		if !implicationOK(spec.impoIsUpper, cmp) {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "compare_impo_contains", "comparison_not_reproduced", nil)
 	case "error_sql":
 		if strings.TrimSpace(spec.expectedSQL) == "" {
-			return false
+			return failReplayAttempt(result, spec, trace, "spec_expected_sql", "spec_invalid", nil)
 		}
 		if spec.setVar != "" {
 			if err := r.execOnConnWithTrace(ctx, conn, "SET SESSION "+spec.setVar, trace); err != nil {
-				return false
+				return failReplayAttempt(result, spec, trace, "set_session_var", "setup_error", err)
 			}
 		}
 		err := execStatements(ctx, conn, []string{spec.expectedSQL}, r.validator, trace)
 		if spec.setVar != "" {
 			resetVarOnConn(ctx, conn, spec.setVar, trace)
 		}
-		return errorMatches(err, result.Err)
+		if errorMatches(err, result.Err) {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "exec_expected_sql", "error_mismatch", err)
 	case "case_error":
 		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
-		return errorMatches(err, result.Err)
+		if errorMatches(err, result.Err) {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "exec_case_sql", "error_mismatch", err)
 	default:
 		err := execStatements(ctx, conn, caseSQL, r.validator, trace)
-		return errorMatches(err, result.Err)
+		if errorMatches(err, result.Err) {
+			return replayAttemptResult{matched: true}
+		}
+		return failReplayAttempt(result, spec, trace, "exec_case_sql", "error_mismatch", err)
 	}
 }
 

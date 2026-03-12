@@ -7,6 +7,7 @@ Each completed task should contribute at least one new improvement item here whe
 ## Generator / Oracles
 
 1. DQP: continue expanding plan-hint coverage and evaluate additional optimizer session variables when signal quality justifies the runtime cost.
+2. Push predictable `groundtruth:rowcount_exceeded` skips into generation-time/query-builder guardrails so high-fanout cases are filtered before oracle execution.
 
 ## Reporting / Aggregation
 
@@ -15,6 +16,8 @@ Each completed task should contribute at least one new improvement item here whe
 3. Cloudflare metadata plane: add explicit audit trail (who/when/what) for metadata PATCH and sync operations.
 4. AI search: add embedding-based retrieval/rerank on top of current similar-case lookup after case text fields are normalized.
 5. Frontend CI: add end-to-end smoke checks against a fixture `reports.json` payload.
+6. Cluster repeated planner error signatures (for example `Can't find column ... in schema`) across report directories and generate one aggregated TiDB issue draft with representative artifacts instead of one draft per case.
+7. Add interval-level summaries keyed by normalized `error_signature` so repeated planner/runtime failures are visible in logs without opening report artifacts.
 
 ## Architecture / Refactor
 

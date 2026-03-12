@@ -46,6 +46,7 @@ type Summary struct {
 	Actual                       string             `json:"actual"`
 	Error                        string             `json:"error"`
 	ErrorReason                  string             `json:"error_reason"`
+	ErrorSignature               string             `json:"error_signature"`
 	BugHint                      string             `json:"bug_hint"`
 	GroundTruthDSGMismatchReason string             `json:"groundtruth_dsg_mismatch_reason"`
 	ErrorSQL                     string             `json:"error_sql"`

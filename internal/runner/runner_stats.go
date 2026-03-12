@@ -339,15 +339,13 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	}
 	if result.Err != nil {
 		stat.Errors++
-		if result.Details != nil {
-			if reason, ok := result.Details["error_reason"].(string); ok && reason != "" {
-				stat.ErrorReasons[reason]++
-				if result.Oracle == "CERT" {
-					r.certLastErrReason = reason
-				}
-				if result.Oracle == "TLP" {
-					r.tlpLastErrReason = reason
-				}
+		if reason := effectiveResultErrorReason(result); reason != "" {
+			stat.ErrorReasons[reason]++
+			if result.Oracle == "CERT" {
+				r.certLastErrReason = reason
+			}
+			if result.Oracle == "TLP" {
+				r.tlpLastErrReason = reason
 			}
 		}
 		if result.Oracle == "CERT" {

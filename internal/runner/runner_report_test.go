@@ -125,6 +125,31 @@ func TestApplyMinimizeOutcomeFlakyBaseReplay(t *testing.T) {
 	}
 }
 
+func TestApplyMinimizeOutcomeMergesBaseReplayDetails(t *testing.T) {
+	summary := report.Summary{
+		MinimizeStatus: "in_progress",
+	}
+	details := map[string]any{}
+	applyMinimizeOutcome(&summary, details, minimizeOutput{
+		status: "skipped",
+		reason: minimizeReasonBaseReplayNotReproducible,
+		details: map[string]any{
+			"minimize_base_replay_kind":          "case_error",
+			"minimize_base_replay_outcome":       "error_mismatch",
+			"minimize_base_replay_failure_stage": "exec_case_sql",
+		},
+	}, nil)
+	if got := details["minimize_base_replay_kind"]; got != "case_error" {
+		t.Fatalf("minimize_base_replay_kind=%v want case_error", got)
+	}
+	if got := details["minimize_base_replay_outcome"]; got != "error_mismatch" {
+		t.Fatalf("minimize_base_replay_outcome=%v want error_mismatch", got)
+	}
+	if got := details["minimize_base_replay_failure_stage"]; got != "exec_case_sql" {
+		t.Fatalf("minimize_base_replay_failure_stage=%v want exec_case_sql", got)
+	}
+}
+
 func TestApplyMinimizeOutcomeSuccess(t *testing.T) {
 	summary := report.Summary{
 		MinimizeStatus: "in_progress",
