@@ -506,6 +506,43 @@ func TestGroundTruthHeuristicPredictableSkipReasonKeepsUniqueIDJoin(t *testing.T
 	}
 }
 
+func TestGroundTruthExactPredictableSkipReasonUsesGroundTruthCaps(t *testing.T) {
+	truth := groundtruth.NewSchemaTruth(0)
+	truth.AddTable("t0")
+	truth.AddTable("t1")
+	for i := 0; i < 2; i++ {
+		truth.AddRowData("t0", map[string]groundtruth.TypedValue{
+			"k0": {Type: "string", Value: "A"},
+		})
+	}
+	for i := 0; i < 3; i++ {
+		truth.AddRowData("t1", map[string]groundtruth.TypedValue{
+			"k0": {Type: "string", Value: "A"},
+		})
+	}
+
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+			}},
+		},
+	}
+	edges := []groundtruth.JoinEdge{{
+		LeftTable:  "t0",
+		RightTable: "t1",
+		LeftKey:    "k0",
+		RightKey:   "k0",
+		JoinType:   groundtruth.JoinInner,
+	}}
+
+	if got := groundTruthExactPredictableSkipReason(&truth, query, edges, 3); got != "" {
+		t.Fatalf("unexpected predictive skip reason with widened join cap: %q", got)
+	}
+}
+
 func TestGroundTruthConfidence(t *testing.T) {
 	if got := groundTruthConfidence(false, true, ""); got != "" {
 		t.Fatalf("non-DSG confidence=%q want empty", got)

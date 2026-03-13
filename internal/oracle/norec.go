@@ -72,10 +72,8 @@ func (o NoREC) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, _
 	)
 	features := sqlSubqueryFeaturesFromQuery(query)
 	var observed map[string]db.SQLSubqueryFeatures
-	recordObservedExecSQL(exec, optimizedCount, features)
-	recordObservedExecSQL(exec, unoptimizedCount, features)
-	observed = recordObservedResultSQL(observed, optimized, features)
-	observed = recordObservedResultSQL(observed, unoptimized, features)
+	recordObservedExecSQLs(exec, features, optimizedCount, unoptimizedCount)
+	observed = recordObservedResultSQLs(observed, features, optimized, optimizedCount, unoptimized, unoptimizedCount)
 
 	optCount, err := exec.QueryCount(ctx, optimizedCount)
 	if err != nil {

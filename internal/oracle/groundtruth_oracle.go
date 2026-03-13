@@ -651,7 +651,8 @@ func groundTruthExactPredictableSkipReason(truth *groundtruth.SchemaTruth, query
 		return ""
 	}
 	executor := groundtruth.JoinTruthExecutor{Truth: *truth}
-	_, ok, reason := executor.EvalJoinChainExact(query.From.BaseTable, edges, maxRows, maxRows)
+	tableCap, joinCap := groundTruthCaps(maxRows)
+	_, ok, reason := executor.EvalJoinChainExact(query.From.BaseTable, edges, tableCap, joinCap)
 	if ok {
 		return ""
 	}

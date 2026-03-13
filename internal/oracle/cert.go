@@ -133,7 +133,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		baseExplain := "EXPLAIN " + base.SQLString()
 		baseFeatures = sqlSubqueryFeaturesFromQuery(base)
 		recordObservedExecSQL(exec, baseExplain, baseFeatures)
-		observed = recordObservedResultSQL(observed, base.SQLString(), baseFeatures)
+		observed = recordObservedResultSQLs(observed, baseFeatures, base.SQLString(), baseExplain)
 		rows, err := exec.QueryPlanRows(ctx, baseExplain)
 		if err != nil {
 			return Result{
@@ -158,7 +158,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 			baseNoWhereExplain := "EXPLAIN " + baseNoWhere.SQLString()
 			noWhereFeatures := sqlSubqueryFeaturesFromQuery(baseNoWhere)
 			recordObservedExecSQL(exec, baseNoWhereExplain, noWhereFeatures)
-			observed = recordObservedResultSQL(observed, baseNoWhere.SQLString(), noWhereFeatures)
+			observed = recordObservedResultSQLs(observed, noWhereFeatures, baseNoWhere.SQLString(), baseNoWhereExplain)
 			rows, err := exec.QueryPlanRows(ctx, baseNoWhereExplain)
 			if err != nil {
 				return Result{
@@ -209,7 +209,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	restrictedExplain := "EXPLAIN " + restricted.SQLString()
 	restrictedFeatures := sqlSubqueryFeaturesFromQuery(restricted)
 	recordObservedExecSQL(exec, restrictedExplain, restrictedFeatures)
-	observed = recordObservedResultSQL(observed, restricted.SQLString(), restrictedFeatures)
+	observed = recordObservedResultSQLs(observed, restrictedFeatures, restricted.SQLString(), restrictedExplain)
 	restrictedRows, err := exec.QueryPlanRows(ctx, restrictedExplain)
 	if err != nil {
 		return Result{

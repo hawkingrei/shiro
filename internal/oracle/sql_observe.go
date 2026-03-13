@@ -49,6 +49,12 @@ func recordObservedExecSQL(exec *db.DB, sql string, features db.SQLSubqueryFeatu
 	exec.RegisterObservedSQLFeatures(trimmed, features)
 }
 
+func recordObservedExecSQLs(exec *db.DB, features db.SQLSubqueryFeatures, sqls ...string) {
+	for _, sql := range sqls {
+		recordObservedExecSQL(exec, sql, features)
+	}
+}
+
 func recordObservedResultSQL(observed map[string]db.SQLSubqueryFeatures, sql string, features db.SQLSubqueryFeatures) map[string]db.SQLSubqueryFeatures {
 	trimmed := strings.TrimSpace(sql)
 	if trimmed == "" {
@@ -58,5 +64,12 @@ func recordObservedResultSQL(observed map[string]db.SQLSubqueryFeatures, sql str
 		observed = make(map[string]db.SQLSubqueryFeatures)
 	}
 	observed[trimmed] = features
+	return observed
+}
+
+func recordObservedResultSQLs(observed map[string]db.SQLSubqueryFeatures, features db.SQLSubqueryFeatures, sqls ...string) map[string]db.SQLSubqueryFeatures {
+	for _, sql := range sqls {
+		observed = recordObservedResultSQL(observed, sql, features)
+	}
 	return observed
 }

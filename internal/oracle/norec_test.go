@@ -2,9 +2,11 @@ package oracle
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"shiro/internal/config"
+	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/schema"
 )
@@ -49,5 +51,28 @@ func TestNoRECQueryGuardReasonRejectsSetOps(t *testing.T) {
 	}
 	if reason != "constraint:set_ops" {
 		t.Fatalf("expected constraint:set_ops, got %s", reason)
+	}
+}
+
+func TestNoRECErrorReturnsSQLFeaturesForCountQueries(t *testing.T) {
+	gen := newProfileTestGenerator(t)
+	expectedErr := errors.New("observe failure")
+	exec := &db.DB{
+		Validate: func(string) error {
+			return expectedErr
+		},
+	}
+
+	res := (NoREC{}).Run(context.Background(), exec, gen, gen.State)
+	if res.Err == nil {
+		t.Fatalf("expected validation error result")
+	}
+	if len(res.SQL) != 2 {
+		t.Fatalf("expected count SQL pair, got %v", res.SQL)
+	}
+	for _, sqlText := range res.SQL {
+		if _, ok := res.SQLFeatures[sqlText]; !ok {
+			t.Fatalf("missing SQL features for returned SQL %q", sqlText)
+		}
 	}
 }

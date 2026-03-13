@@ -29,6 +29,7 @@ Each completed task should contribute at least one new improvement item here whe
 1. Extend precomputed SQL feature registration and add fast-path hit metrics for remaining string-built paths (for example plan-cache wrappers and Impo helpers) so parser savings are measurable.
 2. Run validation for builder/spec equivalence and oracle semantics via targeted oracle/generator test suites and skip-rate checks.
 3. Add `throughput_guard` activation context (oracle mode, parser pressure, low-QPS window summary) so low-throughput intervals can be attributed without manual log reconstruction.
+4. Add expression-level SQL feature observation for helper SQL (for example CODDTest `SELECT <phi>`) so aux/result SQL can use the fast path without over-approximating query-level features.
 
 ## Continuous Improvement
 
