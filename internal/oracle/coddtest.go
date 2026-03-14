@@ -208,28 +208,37 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, _ *generator.
 	base.Where = phi
 	folded := base.Clone()
 	folded.Where = mapped
+	baseFeatures := sqlSubqueryFeaturesFromQuery(base)
+	foldedFeatures := sqlSubqueryFeaturesFromQuery(folded)
+	baseSignatureSQL := base.SignatureSQL()
+	foldedSignatureSQL := folded.SignatureSQL()
+	recordObservedExecSQL(exec, baseSignatureSQL, baseFeatures)
+	recordObservedExecSQL(exec, foldedSignatureSQL, foldedFeatures)
+	observed := recordObservedResultSQL(nil, base.SQLString(), baseFeatures)
+	observed = recordObservedResultSQL(observed, folded.SQLString(), foldedFeatures)
 
-	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
+	origSig, err := exec.QuerySignature(ctx, baseSignatureSQL)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, SQLFeatures: observed, Err: err}
 	}
-	foldSig, err := exec.QuerySignature(ctx, folded.SignatureSQL())
+	foldSig, err := exec.QuerySignature(ctx, foldedSignatureSQL)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, SQLFeatures: observed, Err: err}
 	}
 	if origSig != foldSig {
-		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SignatureSQL())
-		actualExplain, actualExplainErr := explainSQL(ctx, exec, folded.SignatureSQL())
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, baseSignatureSQL)
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, foldedSignatureSQL)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{base.SQLString(), folded.SQLString(), auxSQL},
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
-			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{base.SQLString(), folded.SQLString(), auxSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
+			Actual:      fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  base.SignatureSQL(),
-				"replay_actual_sql":    folded.SignatureSQL(),
+				"replay_expected_sql":  baseSignatureSQL,
+				"replay_actual_sql":    foldedSignatureSQL,
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
@@ -237,7 +246,7 @@ func (o CODDTest) runIndependent(ctx context.Context, exec *db.DB, _ *generator.
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}, SQLFeatures: observed}
 }
 
 func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.Generator, query *generator.SelectQuery, phi generator.Expr, cols []generator.ColumnRef) Result {
@@ -310,28 +319,37 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 	base.Where = phi
 	folded := base.Clone()
 	folded.Where = caseExpr
+	baseFeatures := sqlSubqueryFeaturesFromQuery(base)
+	foldedFeatures := sqlSubqueryFeaturesFromQuery(folded)
+	baseSignatureSQL := base.SignatureSQL()
+	foldedSignatureSQL := folded.SignatureSQL()
+	recordObservedExecSQL(exec, baseSignatureSQL, baseFeatures)
+	recordObservedExecSQL(exec, foldedSignatureSQL, foldedFeatures)
+	observed := recordObservedResultSQL(nil, base.SQLString(), baseFeatures)
+	observed = recordObservedResultSQL(observed, folded.SQLString(), foldedFeatures)
 
-	origSig, err := exec.QuerySignature(ctx, base.SignatureSQL())
+	origSig, err := exec.QuerySignature(ctx, baseSignatureSQL)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString()}, SQLFeatures: observed, Err: err}
 	}
-	foldSig, err := exec.QuerySignature(ctx, folded.SignatureSQL())
+	foldSig, err := exec.QuerySignature(ctx, foldedSignatureSQL)
 	if err != nil {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, Err: err}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{folded.SQLString()}, SQLFeatures: observed, Err: err}
 	}
 	if origSig != foldSig {
-		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SignatureSQL())
-		actualExplain, actualExplainErr := explainSQL(ctx, exec, folded.SignatureSQL())
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, baseSignatureSQL)
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, foldedSignatureSQL)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{base.SQLString(), folded.SQLString(), auxSQL},
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
-			Actual:   fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{base.SQLString(), folded.SQLString(), auxSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
+			Actual:      fmt.Sprintf("cnt=%d checksum=%d", foldSig.Count, foldSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  base.SignatureSQL(),
-				"replay_actual_sql":    folded.SignatureSQL(),
+				"replay_expected_sql":  baseSignatureSQL,
+				"replay_actual_sql":    foldedSignatureSQL,
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
@@ -339,7 +357,7 @@ func (o CODDTest) runDependent(ctx context.Context, exec *db.DB, gen *generator.
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), folded.SQLString(), auxSQL}, SQLFeatures: observed}
 }
 
 func coddtestCaseWhenMax(gen *generator.Generator) int {

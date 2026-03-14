@@ -10,15 +10,16 @@ import (
 
 // Result captures an oracle execution outcome.
 type Result struct {
-	OK       bool
-	Oracle   string
-	SQL      []string
-	Expected string
-	Actual   string
-	Details  map[string]any
-	Metrics  map[string]int64
-	Truth    *GroundTruthMetrics
-	Err      error
+	OK          bool
+	Oracle      string
+	SQL         []string
+	SQLFeatures map[string]db.SQLSubqueryFeatures
+	Expected    string
+	Actual      string
+	Details     map[string]any
+	Metrics     map[string]int64
+	Truth       *GroundTruthMetrics
+	Err         error
 }
 
 // GroundTruthMetrics carries optional truth-check signals for reporting.

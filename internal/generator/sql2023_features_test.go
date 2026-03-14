@@ -294,6 +294,31 @@ func TestApplyFullJoinEmulationWithReason(t *testing.T) {
 	}
 }
 
+func TestMaybeEmulateFullJoinSkipsProbabilityWithoutAttempt(t *testing.T) {
+	gen := &Generator{Rand: rand.New(rand.NewSource(1))}
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id"}}, Alias: "id"}},
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{{
+				Type:  JoinInner,
+				Table: "t1",
+				Using: []string{"id"},
+			}},
+		},
+	}
+	gen.maybeEmulateFullJoin(query)
+	if gen.fullJoinEmulationAttempted {
+		t.Fatalf("probability gate should not count as attempted")
+	}
+	if gen.fullJoinEmulationReject != "" {
+		t.Fatalf("probability gate should stay silent, got %q", gen.fullJoinEmulationReject)
+	}
+	if query.FullJoinEmulation {
+		t.Fatalf("query should remain unchanged when probability gate skips")
+	}
+}
+
 func TestPickBaseJoinKeyFromAndTree(t *testing.T) {
 	on := BinaryExpr{
 		Left: BinaryExpr{

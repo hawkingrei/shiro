@@ -140,47 +140,56 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		break
 	}
 
-	origSig, err := exec.QuerySignature(ctx, query.SignatureSQL())
+	baseFeatures := sqlSubqueryFeaturesFromQuery(query)
+	baseSignatureSQL := query.SignatureSQL()
+	transformedSigSQL := signatureSQLFor(transformedSQL, query.ColumnAliases())
+	recordObservedExecSQL(exec, baseSignatureSQL, baseFeatures)
+	recordObservedExecSQL(exec, transformedSigSQL, baseFeatures)
+	var observed map[string]db.SQLSubqueryFeatures
+	observed = recordObservedResultSQL(observed, baseSQL, baseFeatures)
+	observed = recordObservedResultSQL(observed, transformedSQL, baseFeatures)
+
+	origSig, err := exec.QuerySignature(ctx, baseSignatureSQL)
 	if err != nil {
 		if eetIsDistinctOrderByErr(err) {
 			details["skip_reason"] = "eet:distinct_order_by_runtime"
-			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Details: details}
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Details: details}
 		}
 		reason, bugHint := eetSignatureErrorDetails(err, "base")
 		details["error_reason"] = reason
 		if bugHint != "" {
 			details["bug_hint"] = bugHint
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL}, SQLFeatures: observed, Err: err, Details: details}
 	}
-	transformedSig, err := exec.QuerySignature(ctx, signatureSQLFor(transformedSQL, query.ColumnAliases()))
+	transformedSig, err := exec.QuerySignature(ctx, transformedSigSQL)
 	if err != nil {
 		if eetIsDistinctOrderByErr(err) {
 			details["skip_reason"] = "eet:distinct_order_by_runtime"
-			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+			return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, SQLFeatures: observed, Details: details}
 		}
 		reason, bugHint := eetSignatureErrorDetails(err, "transform")
 		details["error_reason"] = reason
 		if bugHint != "" {
 			details["bug_hint"] = bugHint
 		}
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, Err: err, Details: details}
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{transformedSQL}, SQLFeatures: observed, Err: err, Details: details}
 	}
 
 	if origSig != transformedSig {
-		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, query.SignatureSQL())
-		actualSigSQL := signatureSQLFor(transformedSQL, query.ColumnAliases())
-		actualExplain, actualExplainErr := explainSQL(ctx, exec, actualSigSQL)
+		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, baseSignatureSQL)
+		actualExplain, actualExplainErr := explainSQL(ctx, exec, transformedSigSQL)
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{baseSQL, transformedSQL},
-			Expected: fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
-			Actual:   fmt.Sprintf("cnt=%d checksum=%d", transformedSig.Count, transformedSig.Checksum),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{baseSQL, transformedSQL},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("cnt=%d checksum=%d", origSig.Count, origSig.Checksum),
+			Actual:      fmt.Sprintf("cnt=%d checksum=%d", transformedSig.Count, transformedSig.Checksum),
 			Details: map[string]any{
 				"replay_kind":          "signature",
-				"replay_expected_sql":  query.SignatureSQL(),
-				"replay_actual_sql":    actualSigSQL,
+				"replay_expected_sql":  baseSignatureSQL,
+				"replay_actual_sql":    transformedSigSQL,
 				"expected_explain":     expectedExplain,
 				"actual_explain":       actualExplain,
 				"expected_explain_err": errString(expectedExplainErr),
@@ -189,7 +198,7 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, Details: details}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{baseSQL, transformedSQL}, SQLFeatures: observed, Details: details}
 }
 
 func eetComplexityJoinTableThreshold(gen *generator.Generator) int {

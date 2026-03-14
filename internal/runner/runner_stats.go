@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"shiro/internal/db"
 	"shiro/internal/generator"
 	"shiro/internal/oracle"
 	"shiro/internal/tqs"
@@ -58,7 +59,7 @@ type builderAttemptStats struct {
 	FailureReasons map[string]int64
 }
 
-func (r *Runner) observeSQL(sql string, err error) {
+func (r *Runner) observeSQL(sql string, err error, features *db.SQLSubqueryFeatures) {
 	if strings.TrimSpace(sql) == "" {
 		return
 	}
@@ -67,30 +68,49 @@ func (r *Runner) observeSQL(sql string, err error) {
 	r.sqlTotal++
 	if err == nil {
 		r.sqlValid++
+		if features != nil {
+			r.observeSQLSubqueryFeaturesLocked(*features)
+			return
+		}
 		if !oracle.ShouldDetectSubqueryFeaturesSQL(sql) {
 			return
 		}
-		features := oracle.DetectSubqueryFeaturesSQL(sql)
+		detected := oracle.DetectSubqueryFeaturesSQL(sql)
 		r.sqlParseCalls++
-		if features.HasNotExists {
-			r.sqlNotEx++
-		}
-		if features.HasExistsSubquery {
-			r.sqlExists++
-		}
-		if features.HasInList || features.HasInSubquery {
-			r.sqlIn++
-		}
-		if features.HasNotInList || features.HasNotInSubquery {
-			r.sqlNotIn++
-		}
-		if features.HasInSubquery {
-			r.sqlInSubquery++
-		}
-		if features.HasNotInSubquery {
-			r.sqlNotInSubquery++
-		}
+		r.observeDetectedSubqueryFeaturesLocked(detected)
 	}
+}
+
+func (r *Runner) observeSQLSubqueryFeaturesLocked(features db.SQLSubqueryFeatures) {
+	if features.HasNotExists {
+		r.sqlNotEx++
+	}
+	if features.HasExistsSubquery {
+		r.sqlExists++
+	}
+	if features.HasInList || features.HasInSubquery {
+		r.sqlIn++
+	}
+	if features.HasNotInList || features.HasNotInSubquery {
+		r.sqlNotIn++
+	}
+	if features.HasInSubquery {
+		r.sqlInSubquery++
+	}
+	if features.HasNotInSubquery {
+		r.sqlNotInSubquery++
+	}
+}
+
+func (r *Runner) observeDetectedSubqueryFeaturesLocked(features oracle.SQLSubqueryFeatures) {
+	r.observeSQLSubqueryFeaturesLocked(db.SQLSubqueryFeatures{
+		HasInSubquery:     features.HasInSubquery,
+		HasNotInSubquery:  features.HasNotInSubquery,
+		HasInList:         features.HasInList,
+		HasNotInList:      features.HasNotInList,
+		HasExistsSubquery: features.HasExistsSubquery,
+		HasNotExists:      features.HasNotExists,
+	})
 }
 
 func (r *Runner) observeJoinCountValue(joinCount int) {
@@ -238,7 +258,7 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 	}
 }
 
-func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
+func (r *Runner) observeVariantSubqueryCounts(sqls []string, precomputed map[string]db.SQLSubqueryFeatures) {
 	if len(sqls) == 0 {
 		return
 	}
@@ -246,6 +266,17 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 	var notInCount int64
 	var parseCalls int64
 	for _, sqlText := range sqls {
+		if precomputed != nil {
+			if features, ok := precomputed[strings.TrimSpace(sqlText)]; ok {
+				if features.HasInSubquery {
+					inCount++
+				}
+				if features.HasNotInSubquery {
+					notInCount++
+				}
+				continue
+			}
+		}
 		if !oracle.ShouldDetectSubqueryFeaturesSQL(sqlText) {
 			continue
 		}
@@ -258,7 +289,7 @@ func (r *Runner) observeVariantSubqueryCounts(sqls []string) {
 			notInCount++
 		}
 	}
-	if parseCalls == 0 {
+	if parseCalls == 0 && inCount == 0 && notInCount == 0 {
 		return
 	}
 	r.statsMu.Lock()

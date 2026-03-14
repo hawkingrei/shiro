@@ -55,6 +55,8 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 	lastAttempts := 0
 	var base *generator.SelectQuery
 	var baseRows float64
+	var baseFeatures db.SQLSubqueryFeatures
+	var observed map[string]db.SQLSubqueryFeatures
 	for i := 0; i < 5; i++ {
 		query, lastReason, lastAttempts = builder.BuildWithReason()
 		if query == nil || query.Where == nil {
@@ -129,13 +131,17 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		}
 
 		baseExplain := "EXPLAIN " + base.SQLString()
+		baseFeatures = sqlSubqueryFeaturesFromQuery(base)
+		recordObservedExecSQL(exec, baseExplain, baseFeatures)
+		observed = recordObservedResultSQLs(observed, baseFeatures, base.SQLString(), baseExplain)
 		rows, err := exec.QueryPlanRows(ctx, baseExplain)
 		if err != nil {
 			return Result{
-				OK:     true,
-				Oracle: o.Name(),
-				SQL:    []string{baseExplain},
-				Err:    err,
+				OK:          true,
+				Oracle:      o.Name(),
+				SQL:         []string{baseExplain},
+				SQLFeatures: observed,
+				Err:         err,
 				Details: map[string]any{
 					"error_reason": "cert:base_explain_error",
 				},
@@ -150,13 +156,17 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 				continue
 			}
 			baseNoWhereExplain := "EXPLAIN " + baseNoWhere.SQLString()
+			noWhereFeatures := sqlSubqueryFeaturesFromQuery(baseNoWhere)
+			recordObservedExecSQL(exec, baseNoWhereExplain, noWhereFeatures)
+			observed = recordObservedResultSQLs(observed, noWhereFeatures, baseNoWhere.SQLString(), baseNoWhereExplain)
 			rows, err := exec.QueryPlanRows(ctx, baseNoWhereExplain)
 			if err != nil {
 				return Result{
-					OK:     true,
-					Oracle: o.Name(),
-					SQL:    []string{baseNoWhereExplain},
-					Err:    err,
+					OK:          true,
+					Oracle:      o.Name(),
+					SQL:         []string{baseNoWhereExplain},
+					SQLFeatures: observed,
+					Err:         err,
 					Details: map[string]any{
 						"error_reason": "cert:base_explain_error",
 					},
@@ -193,16 +203,21 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "cert:restricted_scope"}}
 	}
 	if o.MinBaseRows > 0 && baseRows < o.MinBaseRows {
-		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
+		observed = recordObservedResultSQL(observed, restricted.SQLString(), sqlSubqueryFeaturesFromQuery(restricted))
+		return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, SQLFeatures: observed, Details: map[string]any{"skip_reason": "cert:base_rows_low"}}
 	}
 	restrictedExplain := "EXPLAIN " + restricted.SQLString()
+	restrictedFeatures := sqlSubqueryFeaturesFromQuery(restricted)
+	recordObservedExecSQL(exec, restrictedExplain, restrictedFeatures)
+	observed = recordObservedResultSQLs(observed, restrictedFeatures, restricted.SQLString(), restrictedExplain)
 	restrictedRows, err := exec.QueryPlanRows(ctx, restrictedExplain)
 	if err != nil {
 		return Result{
-			OK:     true,
-			Oracle: o.Name(),
-			SQL:    []string{restrictedExplain},
-			Err:    err,
+			OK:          true,
+			Oracle:      o.Name(),
+			SQL:         []string{restrictedExplain},
+			SQLFeatures: observed,
+			Err:         err,
 			Details: map[string]any{
 				"error_reason": "cert:restricted_explain_error",
 			},
@@ -213,11 +228,12 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 		expectedExplain, expectedExplainErr := explainSQL(ctx, exec, base.SQLString())
 		actualExplain, actualExplainErr := explainSQL(ctx, exec, restricted.SQLString())
 		return Result{
-			OK:       false,
-			Oracle:   o.Name(),
-			SQL:      []string{base.SQLString(), restricted.SQLString()},
-			Expected: fmt.Sprintf("restricted estRows <= %.2f", baseRows),
-			Actual:   fmt.Sprintf("restricted estRows %.2f", restrictedRows),
+			OK:          false,
+			Oracle:      o.Name(),
+			SQL:         []string{base.SQLString(), restricted.SQLString()},
+			SQLFeatures: observed,
+			Expected:    fmt.Sprintf("restricted estRows <= %.2f", baseRows),
+			Actual:      fmt.Sprintf("restricted estRows %.2f", restrictedRows),
 			Details: map[string]any{
 				"base_est_rows":        baseRows,
 				"restricted_est_rows":  restrictedRows,
@@ -232,7 +248,7 @@ func (o CERT) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, st
 			},
 		}
 	}
-	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}}
+	return Result{OK: true, Oracle: o.Name(), SQL: []string{base.SQLString(), restricted.SQLString()}, SQLFeatures: observed}
 }
 
 func certSelectConstraints() generator.SelectQueryConstraints {

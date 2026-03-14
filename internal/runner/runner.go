@@ -748,7 +748,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 	isPanic := isPanicError(result.Err)
 	reported := captureSkippedForMinimize || !result.OK || isPanic
 	r.observeOracleResult(oracleName, result, skipReason, reported, isPanic)
-	r.observeVariantSubqueryCounts(result.SQL)
+	r.observeVariantSubqueryCounts(result.SQL, result.SQLFeatures)
 	if r.gen.LastFeatures != nil {
 		r.observeJoinCountValue(r.gen.LastFeatures.JoinCount)
 		r.observeJoinSignature(r.gen.LastFeatures, oracleName)

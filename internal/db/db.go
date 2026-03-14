@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"sync"
 
 	"shiro/internal/util"
 
@@ -14,13 +16,26 @@ import (
 type DB struct {
 	*sql.DB
 	Validate func(string) error
-	Observe  func(string, error)
+	Observe  func(string, error, *SQLSubqueryFeatures)
+
+	observeMu       sync.Mutex
+	observeFeatures map[string][]SQLSubqueryFeatures
 }
 
 // Signature stores row count and checksum.
 type Signature struct {
 	Count    int64
 	Checksum int64
+}
+
+// SQLSubqueryFeatures captures IN/EXISTS usage for one SQL statement.
+type SQLSubqueryFeatures struct {
+	HasInSubquery     bool
+	HasNotInSubquery  bool
+	HasInList         bool
+	HasNotInList      bool
+	HasExistsSubquery bool
+	HasNotExists      bool
 }
 
 // Open creates a DB connection from a DSN.
@@ -188,11 +203,60 @@ func (d *DB) QueryPlanRows(ctx context.Context, query string) (float64, error) {
 
 func (d *DB) validate(query string) error {
 	if d.Validate == nil {
+		if d.Observe != nil {
+			features := d.consumeObservedSQLFeatures(query)
+			d.Observe(query, nil, features)
+		}
 		return nil
 	}
 	err := d.Validate(query)
 	if d.Observe != nil {
-		d.Observe(query, err)
+		features := d.consumeObservedSQLFeatures(query)
+		d.Observe(query, err, features)
 	}
 	return err
+}
+
+// RegisterObservedSQLFeatures records precomputed subquery features for the next
+// validation/observe cycle of the given SQL text.
+func (d *DB) RegisterObservedSQLFeatures(query string, features SQLSubqueryFeatures) {
+	if d == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return
+	}
+	d.observeMu.Lock()
+	defer d.observeMu.Unlock()
+	if d.observeFeatures == nil {
+		d.observeFeatures = make(map[string][]SQLSubqueryFeatures)
+	}
+	d.observeFeatures[trimmed] = append(d.observeFeatures[trimmed], features)
+}
+
+func (d *DB) consumeObservedSQLFeatures(query string) *SQLSubqueryFeatures {
+	if d == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil
+	}
+	d.observeMu.Lock()
+	defer d.observeMu.Unlock()
+	if len(d.observeFeatures) == 0 {
+		return nil
+	}
+	queue := d.observeFeatures[trimmed]
+	if len(queue) == 0 {
+		return nil
+	}
+	features := queue[0]
+	if len(queue) == 1 {
+		delete(d.observeFeatures, trimmed)
+	} else {
+		d.observeFeatures[trimmed] = queue[1:]
+	}
+	return &features
 }
