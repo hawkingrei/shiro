@@ -17,7 +17,11 @@ func TestSelectQueryBuilderRequireWhere(t *testing.T) {
 		RequireDeterministic().
 		MaxTries(20).
 		Build()
-	if query == nil || query.Where == nil {
+	if query == nil {
+		t.Fatalf("expected query with where")
+		return
+	}
+	if query.Where == nil {
 		t.Fatalf("expected query with where")
 	}
 	if !QueryDeterministic(query) {
@@ -33,7 +37,11 @@ func TestSelectQueryBuilderPredicateGuard(t *testing.T) {
 		PredicateGuard(isSimplePredicateForTest).
 		MaxTries(20).
 		Build()
-	if query == nil || query.Where == nil {
+	if query == nil {
+		t.Fatalf("expected query with where")
+		return
+	}
+	if query.Where == nil {
 		t.Fatalf("expected query with where")
 	}
 	if !isSimplePredicateForTest(query.Where) {
@@ -50,6 +58,7 @@ func TestSelectQueryBuilderDisallowSubquery(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	if AnalyzeQueryFeatures(query).HasSubquery {
 		t.Fatalf("unexpected subquery")
@@ -67,6 +76,7 @@ func TestSelectQueryBuilderDisallowAggregate(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	features := AnalyzeQueryFeatures(query)
 	if features.HasAggregate || len(query.GroupBy) > 0 || query.Having != nil {
@@ -99,6 +109,7 @@ func TestSelectQueryBuilderDisallowWindow(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	if AnalyzeQueryFeatures(query).HasWindow {
 		t.Fatalf("unexpected window")
@@ -162,11 +173,16 @@ func TestSelectQueryBuilderRefreshesAnalysisAfterAttachPredicate(t *testing.T) {
 		RequireWhere().
 		MaxTries(50).
 		Build()
-	if query == nil || query.Where == nil {
+	if query == nil {
+		t.Fatalf("expected query with attached predicate")
+		return
+	}
+	if query.Where == nil {
 		t.Fatalf("expected query with attached predicate")
 	}
 	if query.Analysis == nil {
 		t.Fatalf("expected query analysis")
+		return
 	}
 	cached := *query.Analysis
 	query.Analysis = nil

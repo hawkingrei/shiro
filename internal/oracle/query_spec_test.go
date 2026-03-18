@@ -74,14 +74,22 @@ func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 
 func TestPredicateModeProfilesForDQPAndTLP(t *testing.T) {
 	dqp := ProfileByName("DQP")
-	if dqp == nil || dqp.PredicateMode == nil {
+	if dqp == nil {
+		t.Fatalf("expected DQP profile predicate mode")
+		return
+	}
+	if dqp.PredicateMode == nil {
 		t.Fatalf("expected DQP profile predicate mode")
 	}
 	if *dqp.PredicateMode != generator.PredicateModeSimpleColumns {
 		t.Fatalf("unexpected DQP predicate mode: %v", *dqp.PredicateMode)
 	}
 	tlp := ProfileByName("TLP")
-	if tlp == nil || tlp.PredicateMode == nil {
+	if tlp == nil {
+		t.Fatalf("expected TLP profile predicate mode")
+		return
+	}
+	if tlp.PredicateMode == nil {
 		t.Fatalf("expected TLP profile predicate mode")
 	}
 	if *tlp.PredicateMode != generator.PredicateModeSimpleColumns {

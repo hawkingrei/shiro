@@ -146,6 +146,7 @@ func TestPQSPredicateForPivotRange(t *testing.T) {
 	single := pqsPredicateForPivotWithRange(gen, pivot, 1, 1)
 	if single == nil {
 		t.Fatalf("expected single-column predicate")
+		return
 	}
 	if got := countColumnExpr(single); got != 1 {
 		t.Fatalf("expected 1 column expr, got %d", got)
@@ -153,6 +154,7 @@ func TestPQSPredicateForPivotRange(t *testing.T) {
 	multi := pqsPredicateForPivotWithRange(gen, pivot, 2, 3)
 	if multi == nil {
 		t.Fatalf("expected multi-column predicate")
+		return
 	}
 	if got := countColumnExpr(multi); got < 2 {
 		t.Fatalf("expected at least 2 column exprs, got %d", got)
@@ -482,6 +484,7 @@ func TestPQSSubqueryPredicateExists(t *testing.T) {
 	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "exists")
 	if expr == nil {
 		t.Fatalf("expected subquery predicate")
+		return
 	}
 	if meta.Kind != "exists" {
 		t.Fatalf("expected exists subquery, got %s", meta.Kind)
@@ -511,6 +514,7 @@ func TestPQSSubqueryPredicateIn(t *testing.T) {
 	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "in")
 	if expr == nil {
 		t.Fatalf("expected subquery predicate")
+		return
 	}
 	if meta.Kind != "in" {
 		t.Fatalf("expected in subquery, got %s", meta.Kind)
@@ -541,6 +545,7 @@ func TestPQSSubqueryPredicateAnyAll(t *testing.T) {
 	anyExpr, anyMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "any")
 	if anyExpr == nil {
 		t.Fatalf("expected any subquery predicate")
+		return
 	}
 	if anyMeta.Kind != "any" {
 		t.Fatalf("expected any subquery, got %s", anyMeta.Kind)
@@ -552,6 +557,7 @@ func TestPQSSubqueryPredicateAnyAll(t *testing.T) {
 	allExpr, allMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "all")
 	if allExpr == nil {
 		t.Fatalf("expected all subquery predicate")
+		return
 	}
 	if allMeta.Kind != "all" {
 		t.Fatalf("expected all subquery, got %s", allMeta.Kind)
@@ -581,6 +587,7 @@ func TestPQSDerivedTableQuery(t *testing.T) {
 	query := pqsDerivedTableQuery(gen, pivot, tbl)
 	if query == nil {
 		t.Fatalf("expected derived table query")
+		return
 	}
 	expected := "SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7)"
 	if got := query.SQLString(); got != expected {
@@ -593,6 +600,7 @@ func TestPQSLiteralValueBool(t *testing.T) {
 	value := pqsLiteralValue(col, "1")
 	if value == nil {
 		t.Fatalf("expected literal value")
+		return
 	}
 	boolVal, ok := value.(bool)
 	if !ok {
