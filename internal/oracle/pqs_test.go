@@ -304,8 +304,13 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 		},
 	}
 	query, aliases := buildPQSQuery(pivot)
-	if query == nil || len(aliases) != 2 {
+	if query == nil {
+		t.Fatalf("expected query for join containment")
+		return
+	}
+	if len(aliases) != 2 {
 		t.Fatalf("expected aliases for join containment")
+		return
 	}
 	aliases = pqsCompactUsingIDColumns(query, aliases)
 	query.Where = pqsPredicateExprForValue(

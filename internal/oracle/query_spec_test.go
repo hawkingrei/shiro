@@ -59,6 +59,7 @@ func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil {
 		t.Fatalf("expected query, details=%v", details)
+		return
 	}
 	if len(query.SetOps) > 0 {
 		t.Fatalf("unexpected set operations")

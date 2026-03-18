@@ -228,6 +228,7 @@ func TestGenerateRecursiveCTEQuery(t *testing.T) {
 	query := gen.GenerateRecursiveCTEQuery(tbl, "cte_0")
 	if query == nil {
 		t.Fatalf("expected recursive cte query")
+		return
 	}
 	if len(query.SetOps) != 1 || !query.SetOps[0].All || query.SetOps[0].Type != SetOperationUnion {
 		t.Fatalf("expected UNION ALL recursive body")
