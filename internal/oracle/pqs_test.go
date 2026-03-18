@@ -366,6 +366,61 @@ func TestPQSCompactUsingIDColumns(t *testing.T) {
 	}
 }
 
+func TestPQSNormalizeUsingIDPredicateUnqualifiesMergedID(t *testing.T) {
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+				Using: []string{"id"},
+			}},
+		},
+	}
+	expr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: int64(1)},
+	}
+	if got := buildExpr(pqsNormalizeUsingIDPredicate(query, expr)); got != "(id = 1)" {
+		t.Fatalf("unexpected normalized expr: %s", got)
+	}
+}
+
+func TestPQSNormalizeUsingIDPredicateKeepsSubqueryInnerQualifiedID(t *testing.T) {
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+				Using: []string{"id"},
+			}},
+		},
+	}
+	subquery := &generator.SelectQuery{
+		Items: []generator.SelectItem{{
+			Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+			Alias: "c0",
+		}},
+		From: generator.FromClause{BaseTable: "t1"},
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: int64(1)},
+		},
+	}
+	expr := generator.InExpr{
+		Left: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+		List: []generator.Expr{generator.SubqueryExpr{Query: subquery}},
+	}
+	got := buildExpr(pqsNormalizeUsingIDPredicate(query, expr))
+	want := "(id IN ((SELECT t1.id AS c0 FROM t1 WHERE (t1.id = 1))))"
+	if got != want {
+		t.Fatalf("unexpected normalized subquery expr: %s", got)
+	}
+}
+
 func TestPQSJoinOnPredicate(t *testing.T) {
 	left := schema.Table{
 		Name: "t0",

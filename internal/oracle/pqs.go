@@ -95,7 +95,19 @@ func (o PQS) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		aliases = pqsCompactUsingIDColumns(query, aliases)
 	}
 	basePredicate, predMeta := pqsBuildPredicate(gen, pivot)
+	if !joinOn {
+		basePredicate = pqsNormalizeUsingIDPredicate(query, basePredicate)
+		if basePredicate != nil {
+			predMeta.Rectified = buildExpr(basePredicate)
+		}
+	}
 	subqueryPredicate, subqueryMeta := pqsMaybeBuildSubqueryPredicate(gen, pivot)
+	if !joinOn {
+		subqueryPredicate = pqsNormalizeUsingIDPredicate(query, subqueryPredicate)
+		if subqueryPredicate != nil {
+			subqueryMeta.Predicate = buildExpr(subqueryPredicate)
+		}
+	}
 	predicate := pqsCombinePredicates(basePredicate, subqueryPredicate)
 	hasBasePredicate := basePredicate != nil
 	updateBandit := func(ok bool, err error, skipped bool) {
@@ -921,6 +933,53 @@ func pqsHasUsingIDJoin(query *generator.SelectQuery) bool {
 		}
 	}
 	return false
+}
+
+func pqsNormalizeUsingIDPredicate(query *generator.SelectQuery, expr generator.Expr) generator.Expr {
+	if expr == nil || !pqsHasUsingIDJoin(query) {
+		return expr
+	}
+	return pqsRewriteUsingIDExpr(expr)
+}
+
+func pqsRewriteUsingIDExpr(expr generator.Expr) generator.Expr {
+	switch e := expr.(type) {
+	case generator.ColumnExpr:
+		if strings.EqualFold(e.Ref.Name, pqsPivotIDColumn) {
+			e.Ref.Table = ""
+		}
+		return e
+	case generator.UnaryExpr:
+		e.Expr = pqsRewriteUsingIDExpr(e.Expr)
+		return e
+	case generator.BinaryExpr:
+		e.Left = pqsRewriteUsingIDExpr(e.Left)
+		e.Right = pqsRewriteUsingIDExpr(e.Right)
+		return e
+	case generator.FuncExpr:
+		for i := range e.Args {
+			e.Args[i] = pqsRewriteUsingIDExpr(e.Args[i])
+		}
+		return e
+	case generator.CaseExpr:
+		for i := range e.Whens {
+			e.Whens[i].When = pqsRewriteUsingIDExpr(e.Whens[i].When)
+			e.Whens[i].Then = pqsRewriteUsingIDExpr(e.Whens[i].Then)
+		}
+		e.Else = pqsRewriteUsingIDExpr(e.Else)
+		return e
+	case generator.InExpr:
+		e.Left = pqsRewriteUsingIDExpr(e.Left)
+		for i := range e.List {
+			e.List[i] = pqsRewriteUsingIDExpr(e.List[i])
+		}
+		return e
+	case generator.CompareSubqueryExpr:
+		e.Left = pqsRewriteUsingIDExpr(e.Left)
+		return e
+	default:
+		return expr
+	}
 }
 
 type pqsErrorContext struct {
