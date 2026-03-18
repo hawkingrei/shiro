@@ -41,3 +41,4 @@ Each completed task should contribute at least one new improvement item here whe
 3. Add a helper command/script to create `docs/journal/<YYYY-MM-DD>-*.md` entries and append candidate improvement items into TODO.
 4. Add a doc lint check that ensures `AGENTS.md` does not contain a `## Recent updates` section and keeps workflow guidance centralized.
 5. Add an issue filing helper/template for `gh issue create` so agents can file detailed issues directly without keeping local `docs/issues` drafts.
+6. Add a repo-pinned lint entrypoint (for example `make lint` or `scripts/lint.sh`) so local lint reproduces the CI `golangci-lint` version and arguments instead of relying on host-installed binaries.

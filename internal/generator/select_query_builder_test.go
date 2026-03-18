@@ -83,6 +83,7 @@ func TestSelectQueryBuilderDisallowLimit(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	if query.Limit != nil {
 		t.Fatalf("unexpected limit")
@@ -112,6 +113,7 @@ func TestSelectQueryBuilderMinJoinTables(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	if len(query.From.Joins)+1 < 2 {
 		t.Fatalf("expected at least 2 tables, got %d", len(query.From.Joins)+1)
@@ -146,6 +148,7 @@ func TestSelectQueryBuilderDisallowSetOps(t *testing.T) {
 		Build()
 	if query == nil {
 		t.Fatalf("expected query")
+		return
 	}
 	if len(query.SetOps) > 0 {
 		t.Fatalf("unexpected set operations")
