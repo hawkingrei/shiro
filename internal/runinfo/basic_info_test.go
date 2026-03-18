@@ -20,6 +20,7 @@ func TestFromEnvGitHubActions(t *testing.T) {
 	info := FromEnv()
 	if info == nil {
 		t.Fatalf("expected run info")
+		return
 	}
 	if !info.CI {
 		t.Fatalf("expected ci=true")
@@ -53,6 +54,7 @@ func TestFromEnvShiroOverrides(t *testing.T) {
 	info := FromEnv()
 	if info == nil {
 		t.Fatalf("expected run info")
+		return
 	}
 	if !info.CI {
 		t.Fatalf("expected ci=true when shiro overrides are set")
@@ -85,6 +87,7 @@ func TestFromEnvShiroCIOnly(t *testing.T) {
 	info := FromEnv()
 	if info == nil {
 		t.Fatalf("expected run info")
+		return
 	}
 	if !info.CI {
 		t.Fatalf("expected ci=true")
@@ -103,6 +106,7 @@ func TestFromEnvShiroCIExplicitFalse(t *testing.T) {
 	info := FromEnv()
 	if info == nil {
 		t.Fatalf("expected run info")
+		return
 	}
 	if info.CI {
 		t.Fatalf("expected ci=false when SHIRO_CI=false is explicitly set")
