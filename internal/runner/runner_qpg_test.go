@@ -62,6 +62,7 @@ func TestApplyQPGWeightsTriggersOverrideOnNoJoinThreshold(t *testing.T) {
 	adaptive := r.adaptiveSnapshot()
 	if adaptive == nil {
 		t.Fatalf("expected adaptive weights snapshot")
+		return
 	}
 	if adaptive.JoinCount != 3 {
 		t.Fatalf("unexpected adaptive join count: %d", adaptive.JoinCount)

@@ -146,6 +146,7 @@ func TestPQSPredicateForPivotRange(t *testing.T) {
 	single := pqsPredicateForPivotWithRange(gen, pivot, 1, 1)
 	if single == nil {
 		t.Fatalf("expected single-column predicate")
+		return
 	}
 	if got := countColumnExpr(single); got != 1 {
 		t.Fatalf("expected 1 column expr, got %d", got)
@@ -153,6 +154,7 @@ func TestPQSPredicateForPivotRange(t *testing.T) {
 	multi := pqsPredicateForPivotWithRange(gen, pivot, 2, 3)
 	if multi == nil {
 		t.Fatalf("expected multi-column predicate")
+		return
 	}
 	if got := countColumnExpr(multi); got < 2 {
 		t.Fatalf("expected at least 2 column exprs, got %d", got)
@@ -304,8 +306,13 @@ func TestPQSJoinContainmentSQL(t *testing.T) {
 		},
 	}
 	query, aliases := buildPQSQuery(pivot)
-	if query == nil || len(aliases) != 2 {
+	if query == nil {
+		t.Fatalf("expected query for join containment")
+		return
+	}
+	if len(aliases) != 2 {
 		t.Fatalf("expected aliases for join containment")
+		return
 	}
 	aliases = pqsCompactUsingIDColumns(query, aliases)
 	query.Where = pqsPredicateExprForValue(
@@ -366,6 +373,61 @@ func TestPQSCompactUsingIDColumns(t *testing.T) {
 	}
 }
 
+func TestPQSNormalizeUsingIDPredicateUnqualifiesMergedID(t *testing.T) {
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+				Using: []string{"id"},
+			}},
+		},
+	}
+	expr := generator.BinaryExpr{
+		Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+		Op:    "=",
+		Right: generator.LiteralExpr{Value: int64(1)},
+	}
+	if got := buildExpr(pqsNormalizeUsingIDPredicate(query, expr)); got != "(id = 1)" {
+		t.Fatalf("unexpected normalized expr: %s", got)
+	}
+}
+
+func TestPQSNormalizeUsingIDPredicateKeepsSubqueryInnerQualifiedID(t *testing.T) {
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{{
+				Type:  generator.JoinInner,
+				Table: "t1",
+				Using: []string{"id"},
+			}},
+		},
+	}
+	subquery := &generator.SelectQuery{
+		Items: []generator.SelectItem{{
+			Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+			Alias: "c0",
+		}},
+		From: generator.FromClause{BaseTable: "t1"},
+		Where: generator.BinaryExpr{
+			Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+			Op:    "=",
+			Right: generator.LiteralExpr{Value: int64(1)},
+		},
+	}
+	expr := generator.InExpr{
+		Left: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id", Type: schema.TypeBigInt}},
+		List: []generator.Expr{generator.SubqueryExpr{Query: subquery}},
+	}
+	got := buildExpr(pqsNormalizeUsingIDPredicate(query, expr))
+	want := "(id IN ((SELECT t1.id AS c0 FROM t1 WHERE (t1.id = 1))))"
+	if got != want {
+		t.Fatalf("unexpected normalized subquery expr: %s", got)
+	}
+}
+
 func TestPQSJoinOnPredicate(t *testing.T) {
 	left := schema.Table{
 		Name: "t0",
@@ -422,6 +484,7 @@ func TestPQSSubqueryPredicateExists(t *testing.T) {
 	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "exists")
 	if expr == nil {
 		t.Fatalf("expected subquery predicate")
+		return
 	}
 	if meta.Kind != "exists" {
 		t.Fatalf("expected exists subquery, got %s", meta.Kind)
@@ -451,6 +514,7 @@ func TestPQSSubqueryPredicateIn(t *testing.T) {
 	expr, meta := pqsBuildSubqueryPredicateForKind(gen, pivot, "in")
 	if expr == nil {
 		t.Fatalf("expected subquery predicate")
+		return
 	}
 	if meta.Kind != "in" {
 		t.Fatalf("expected in subquery, got %s", meta.Kind)
@@ -481,6 +545,7 @@ func TestPQSSubqueryPredicateAnyAll(t *testing.T) {
 	anyExpr, anyMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "any")
 	if anyExpr == nil {
 		t.Fatalf("expected any subquery predicate")
+		return
 	}
 	if anyMeta.Kind != "any" {
 		t.Fatalf("expected any subquery, got %s", anyMeta.Kind)
@@ -492,6 +557,7 @@ func TestPQSSubqueryPredicateAnyAll(t *testing.T) {
 	allExpr, allMeta := pqsBuildSubqueryPredicateForKind(gen, pivot, "all")
 	if allExpr == nil {
 		t.Fatalf("expected all subquery predicate")
+		return
 	}
 	if allMeta.Kind != "all" {
 		t.Fatalf("expected all subquery, got %s", allMeta.Kind)
@@ -521,6 +587,7 @@ func TestPQSDerivedTableQuery(t *testing.T) {
 	query := pqsDerivedTableQuery(gen, pivot, tbl)
 	if query == nil {
 		t.Fatalf("expected derived table query")
+		return
 	}
 	expected := "SELECT t0.c0 AS c0 FROM t0 WHERE (t0.c0 = 7)"
 	if got := query.SQLString(); got != expected {
@@ -533,6 +600,7 @@ func TestPQSLiteralValueBool(t *testing.T) {
 	value := pqsLiteralValue(col, "1")
 	if value == nil {
 		t.Fatalf("expected literal value")
+		return
 	}
 	boolVal, ok := value.(bool)
 	if !ok {

@@ -59,6 +59,7 @@ func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 	query, details := buildQueryWithSpec(gen, spec)
 	if query == nil {
 		t.Fatalf("expected query, details=%v", details)
+		return
 	}
 	if len(query.SetOps) > 0 {
 		t.Fatalf("unexpected set operations")
@@ -73,15 +74,25 @@ func TestBuildQueryWithSpecAppliesProfileConstraints(t *testing.T) {
 
 func TestPredicateModeProfilesForDQPAndTLP(t *testing.T) {
 	dqp := ProfileByName("DQP")
-	if dqp == nil || dqp.PredicateMode == nil {
+	if dqp == nil {
 		t.Fatalf("expected DQP profile predicate mode")
+		return
+	}
+	if dqp.PredicateMode == nil {
+		t.Fatalf("expected DQP profile predicate mode")
+		return
 	}
 	if *dqp.PredicateMode != generator.PredicateModeSimpleColumns {
 		t.Fatalf("unexpected DQP predicate mode: %v", *dqp.PredicateMode)
 	}
 	tlp := ProfileByName("TLP")
-	if tlp == nil || tlp.PredicateMode == nil {
+	if tlp == nil {
 		t.Fatalf("expected TLP profile predicate mode")
+		return
+	}
+	if tlp.PredicateMode == nil {
+		t.Fatalf("expected TLP profile predicate mode")
+		return
 	}
 	if *tlp.PredicateMode != generator.PredicateModeSimpleColumns {
 		t.Fatalf("unexpected TLP predicate mode: %v", *tlp.PredicateMode)
