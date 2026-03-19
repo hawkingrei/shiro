@@ -17,11 +17,7 @@ func TestFromEnvGitHubActions(t *testing.T) {
 	t.Setenv("GITHUB_EVENT_NAME", "pull_request")
 	t.Setenv("GITHUB_ACTOR", "hawkingrei")
 
-	info := FromEnv()
-	if info == nil {
-		t.Fatalf("expected run info")
-		return
-	}
+	info := mustFromEnv(t)
 	if !info.CI {
 		t.Fatalf("expected ci=true")
 	}
@@ -51,11 +47,7 @@ func TestFromEnvShiroOverrides(t *testing.T) {
 	t.Setenv("SHIRO_CI_WORKFLOW", "nightly-run")
 	t.Setenv("SHIRO_CI_RUN_ID", "run-77")
 
-	info := FromEnv()
-	if info == nil {
-		t.Fatalf("expected run info")
-		return
-	}
+	info := mustFromEnv(t)
 	if !info.CI {
 		t.Fatalf("expected ci=true when shiro overrides are set")
 	}
@@ -84,11 +76,7 @@ func TestFromEnvShiroCIOnly(t *testing.T) {
 	clearKnownEnv(t)
 	t.Setenv("SHIRO_CI", "true")
 
-	info := FromEnv()
-	if info == nil {
-		t.Fatalf("expected run info")
-		return
-	}
+	info := mustFromEnv(t)
 	if !info.CI {
 		t.Fatalf("expected ci=true")
 	}
@@ -103,17 +91,23 @@ func TestFromEnvShiroCIExplicitFalse(t *testing.T) {
 	t.Setenv("SHIRO_CI_PROVIDER", "manual")
 	t.Setenv("SHIRO_CI_REPOSITORY", "hawkingrei/shiro")
 
-	info := FromEnv()
-	if info == nil {
-		t.Fatalf("expected run info")
-		return
-	}
+	info := mustFromEnv(t)
 	if info.CI {
 		t.Fatalf("expected ci=false when SHIRO_CI=false is explicitly set")
 	}
 	if info.Provider != "manual" {
 		t.Fatalf("provider=%q", info.Provider)
 	}
+}
+
+func mustFromEnv(t *testing.T) BasicInfo {
+	t.Helper()
+	info := FromEnv()
+	if info == nil {
+		t.Fatalf("expected run info")
+		return BasicInfo{}
+	}
+	return *info
 }
 
 func clearKnownEnv(t *testing.T) {
