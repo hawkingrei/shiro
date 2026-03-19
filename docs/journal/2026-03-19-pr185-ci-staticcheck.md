@@ -2,7 +2,7 @@
 
 ## What changed
 
-- Updated `internal/generator/select_query_builder_test.go` to add explicit `return` statements after three `query == nil` guards before later field access.
+- Updated `internal/generator/select_query_builder_test.go` to add explicit `return` statements after the `query == nil` guards that still fell through to later field access, and after the `Analysis == nil` guard in `TestSelectQueryBuilderRefreshesAnalysisAfterAttachPredicate`.
 - Updated `internal/generator/sql2023_features_test.go`, `internal/oracle/pqs_test.go`, and `internal/oracle/query_spec_test.go` with the same explicit post-guard returns after the next CI rerun surfaced additional `SA5011` reports.
 - Updated `internal/runinfo/basic_info_test.go` to use a `mustFromEnv` helper that returns a `BasicInfo` value instead of reusing nullable pointers across assertions.
 - Left the test behavior unchanged while making the control flow explicit for `staticcheck`.

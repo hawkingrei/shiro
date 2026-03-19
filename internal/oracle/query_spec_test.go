@@ -80,6 +80,7 @@ func TestPredicateModeProfilesForDQPAndTLP(t *testing.T) {
 	}
 	if dqp.PredicateMode == nil {
 		t.Fatalf("expected DQP profile predicate mode")
+		return
 	}
 	if *dqp.PredicateMode != generator.PredicateModeSimpleColumns {
 		t.Fatalf("unexpected DQP predicate mode: %v", *dqp.PredicateMode)
@@ -91,6 +92,7 @@ func TestPredicateModeProfilesForDQPAndTLP(t *testing.T) {
 	}
 	if tlp.PredicateMode == nil {
 		t.Fatalf("expected TLP profile predicate mode")
+		return
 	}
 	if *tlp.PredicateMode != generator.PredicateModeSimpleColumns {
 		t.Fatalf("unexpected TLP predicate mode: %v", *tlp.PredicateMode)
