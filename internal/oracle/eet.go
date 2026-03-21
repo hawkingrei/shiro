@@ -427,14 +427,13 @@ func eetHasNullExtendedLimitOrder(query *generator.SelectQuery) bool {
 		if expr == nil {
 			continue
 		}
-		cols := expr.Columns()
-		if len(cols) == 0 {
-			continue
-		}
-		if !eetExprReferencesTables(expr, nullExtended) {
+		exprTainted, ok := eetExprDependsOnlyOnNullExtended(expr, nullExtended)
+		if !ok {
 			return false
 		}
-		tainted = true
+		if exprTainted {
+			tainted = true
+		}
 	}
 	return tainted
 }
@@ -451,8 +450,11 @@ func eetNullExtendedTablesFromFalseOuterJoin(query *generator.SelectQuery) map[s
 		}
 		visible[name] = struct{}{}
 	}
-	addName(query.From.BaseAlias)
-	addName(query.From.BaseTable)
+	baseName := strings.TrimSpace(query.From.BaseAlias)
+	if baseName == "" {
+		baseName = strings.TrimSpace(query.From.BaseTable)
+	}
+	addName(baseName)
 	nullExtended := map[string]struct{}{}
 	addNullExtended := func(name string) {
 		name = strings.ToLower(strings.TrimSpace(name))
@@ -512,20 +514,106 @@ func eetResolvedOrderByExprs(query *generator.SelectQuery) []generator.Expr {
 	return out
 }
 
-func eetExprReferencesTables(expr generator.Expr, tables map[string]struct{}) bool {
+func eetExprDependsOnlyOnNullExtended(expr generator.Expr, tables map[string]struct{}) (bool, bool) {
 	if expr == nil || len(tables) == 0 {
-		return false
+		return false, true
 	}
-	for _, col := range expr.Columns() {
+	switch e := expr.(type) {
+	case generator.ColumnExpr:
+		table := strings.ToLower(strings.TrimSpace(e.Ref.Table))
+		if table == "" {
+			return false, true
+		}
+		_, ok := tables[table]
+		return ok, ok
+	case generator.LiteralExpr, generator.ParamExpr, generator.IntervalExpr, generator.SubqueryExpr, generator.ExistsExpr:
+		return false, true
+	case generator.GroupByOrdinalExpr:
+		return eetExprDependsOnlyOnNullExtended(e.Expr, tables)
+	case generator.UnaryExpr:
+		return eetExprDependsOnlyOnNullExtended(e.Expr, tables)
+	case generator.BinaryExpr:
+		return eetCombineNullExtendedExprs([]generator.Expr{e.Left, e.Right}, tables)
+	case generator.FuncExpr:
+		return eetCombineNullExtendedExprs(e.Args, tables)
+	case generator.CaseExpr:
+		tainted := false
+		for _, when := range e.Whens {
+			whenTainted, ok := eetExprDependsOnlyOnNullExtended(when.When, tables)
+			if !ok {
+				return false, false
+			}
+			thenTainted, ok := eetExprDependsOnlyOnNullExtended(when.Then, tables)
+			if !ok {
+				return false, false
+			}
+			tainted = tainted || whenTainted || thenTainted
+		}
+		elseTainted, ok := eetExprDependsOnlyOnNullExtended(e.Else, tables)
+		if !ok {
+			return false, false
+		}
+		return tainted || elseTainted, true
+	case generator.InExpr:
+		exprs := make([]generator.Expr, 0, len(e.List)+1)
+		exprs = append(exprs, e.Left)
+		exprs = append(exprs, e.List...)
+		return eetCombineNullExtendedExprs(exprs, tables)
+	case generator.CompareSubqueryExpr:
+		return eetExprDependsOnlyOnNullExtended(e.Left, tables)
+	case generator.WindowExpr:
+		exprs := make([]generator.Expr, 0, len(e.Args)+len(e.PartitionBy))
+		exprs = append(exprs, e.Args...)
+		exprs = append(exprs, e.PartitionBy...)
+		tainted, ok := eetCombineNullExtendedExprs(exprs, tables)
+		if !ok {
+			return false, false
+		}
+		if tainted {
+			return true, true
+		}
+		for _, ob := range e.OrderBy {
+			orderTainted, ok := eetExprDependsOnlyOnNullExtended(ob.Expr, tables)
+			if !ok {
+				return false, false
+			}
+			if orderTainted {
+				tainted = true
+			}
+		}
+		return tainted, true
+	default:
+		return eetColumnsDependOnlyOnNullExtended(expr.Columns(), tables)
+	}
+}
+
+func eetCombineNullExtendedExprs(exprs []generator.Expr, tables map[string]struct{}) (bool, bool) {
+	tainted := false
+	for _, expr := range exprs {
+		exprTainted, ok := eetExprDependsOnlyOnNullExtended(expr, tables)
+		if !ok {
+			return false, false
+		}
+		if exprTainted {
+			tainted = true
+		}
+	}
+	return tainted, true
+}
+
+func eetColumnsDependOnlyOnNullExtended(cols []generator.ColumnRef, tables map[string]struct{}) (bool, bool) {
+	tainted := false
+	for _, col := range cols {
 		table := strings.ToLower(strings.TrimSpace(col.Table))
 		if table == "" {
 			continue
 		}
-		if _, ok := tables[table]; ok {
-			return true
+		if _, ok := tables[table]; !ok {
+			return false, false
 		}
+		tainted = true
 	}
-	return false
+	return tainted, true
 }
 
 func eetHasUnstableWindowBy(query *generator.SelectQuery, unstable func(generator.WindowExpr, map[string]generator.WindowDef) bool) bool {

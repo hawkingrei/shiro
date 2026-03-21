@@ -614,6 +614,46 @@ func TestEETHasNullExtendedLimitOrderIgnoresPreservedTieBreaker(t *testing.T) {
 	}
 }
 
+func TestEETHasNullExtendedLimitOrderIgnoresMixedPreservedExpr(t *testing.T) {
+	limit := 16
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.FuncExpr{
+					Name: "COALESCE",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "l", Name: "id"}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "l",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinLeft,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 0},
+					},
+				},
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.LiteralExpr{Value: 1}},
+		},
+		Limit: &limit,
+	}
+	if eetHasNullExtendedLimitOrder(query) {
+		t.Fatalf("expected mixed preserved/null-extended ORDER BY expression to remain allowed")
+	}
+}
+
 func TestEETHasNullExtendedLimitOrderWithFalseRightJoin(t *testing.T) {
 	limit := 8
 	query := &generator.SelectQuery{
