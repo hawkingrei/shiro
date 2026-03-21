@@ -8,6 +8,9 @@ Each completed task should contribute at least one new improvement item here whe
 
 1. DQP: continue expanding plan-hint coverage and evaluate additional optimizer session variables when signal quality justifies the runtime cost.
 2. Push predictable `groundtruth:rowcount_exceeded` skips into generation-time/query-builder guardrails so high-fanout cases are filtered before oracle execution.
+3. Extend Impo column guardrails from set-operation operands into derived-table alias/projection validation so fresh `missing_column` cases can be classified as Shiro-side invalid seeds vs TiDB planner bugs earlier.
+4. Replace GroundTruth's retry-heavy generic query sampling with a DSG-compatible join builder or query-builder constraint so `groundtruth:dsg_key_mismatch_right_key` stops dominating fresh search-range loss.
+5. Generalize false outer-join null-extension analysis into a shared helper so `EET`, `DQP`, and future oracle guards can reuse the same `ON FALSE` / null-extended-side reasoning instead of duplicating heuristics.
 
 ## Reporting / Aggregation
 
@@ -18,6 +21,9 @@ Each completed task should contribute at least one new improvement item here whe
 5. Frontend CI: add end-to-end smoke checks against a fixture `reports.json` payload.
 6. Cluster repeated planner error signatures (for example `Can't find column ... in schema`) across report directories and generate one aggregated TiDB issue draft with representative artifacts instead of one draft per case.
 7. Add interval-level summaries keyed by normalized `error_signature` so repeated planner/runtime failures are visible in logs without opening report artifacts.
+8. Add a fresh-batch triage summary that separates newly captured reports from historical artifacts so workers do not keep chasing stale PQS clusters after new logs arrive.
+9. Add interval-level summaries for `minimize_base_replay_failure_stage` plus normalized replay setup errors (especially `sql_error_1824`) so flaky replay drift is visible without opening per-case summaries.
+10. Add a compact wrong-result triage summary that separates likely engine-facing mismatches from likely determinism/noise cases inside the fresh batch.
 
 ## Architecture / Refactor
 

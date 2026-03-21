@@ -44,6 +44,28 @@ func TestWrapReplayInsertsWithForeignKeyChecksEmpty(t *testing.T) {
 	}
 }
 
+func TestWrapReplaySchemaWithForeignKeyChecks(t *testing.T) {
+	got := wrapReplaySchemaWithForeignKeyChecks([]string{
+		" CREATE TABLE t0 (id INT PRIMARY KEY) ",
+		"",
+		"\tCREATE TABLE t1 (id INT, CONSTRAINT fk_0 FOREIGN KEY (id) REFERENCES t0(id))\n",
+	})
+	want := []string{
+		replayForeignKeyChecksOffSQL,
+		"CREATE TABLE t0 (id INT PRIMARY KEY)",
+		"CREATE TABLE t1 (id INT, CONSTRAINT fk_0 FOREIGN KEY (id) REFERENCES t0(id))",
+		replayForeignKeyChecksOnSQL,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("wrapped len=%d want=%d got=%v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("wrapped[%d]=%q want=%q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestErrorMatchesByMySQLErrorCodeOnly(t *testing.T) {
 	expected := &mysql.MySQLError{Number: 1105, Message: "Can't find column Column#123"}
 	got := &mysql.MySQLError{Number: 1105, Message: "Can't find column Column#456"}

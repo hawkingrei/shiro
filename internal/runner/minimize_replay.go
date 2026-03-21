@@ -68,8 +68,19 @@ func closeReplayConn(conn *sql.Conn, trace *replayTrace) {
 }
 
 func wrapReplayInsertsWithForeignKeyChecks(inserts []string) []string {
-	normalized := make([]string, 0, len(inserts))
-	for _, stmt := range inserts {
+	return wrapReplayStatementsWithForeignKeyChecks(inserts)
+}
+
+func wrapReplaySchemaWithForeignKeyChecks(schemaSQL []string) []string {
+	return wrapReplayStatementsWithForeignKeyChecks(schemaSQL)
+}
+
+// Replay reuses SHOW CREATE output, which can preserve FK edges to tables that
+// appear later in the statement list. Disable checks during setup to keep
+// minimization focused on the target bug instead of DDL ordering noise.
+func wrapReplayStatementsWithForeignKeyChecks(stmts []string) []string {
+	normalized := make([]string, 0, len(stmts))
+	for _, stmt := range stmts {
 		trimmed := strings.TrimSpace(stmt)
 		if trimmed == "" {
 			continue
@@ -111,7 +122,7 @@ func (r *Runner) replayCaseDetailed(ctx context.Context, schemaSQL, inserts, cas
 	if err := r.prepareConnWithTrace(ctx, conn, minDB, trace); err != nil {
 		return failReplayAttempt(result, spec, trace, "use_database", "setup_error", err)
 	}
-	if err := execStatements(ctx, conn, schemaSQL, r.validator, trace); err != nil {
+	if err := execStatements(ctx, conn, wrapReplaySchemaWithForeignKeyChecks(schemaSQL), r.validator, trace); err != nil {
 		return failReplayAttempt(result, spec, trace, "apply_schema", "setup_error", err)
 	}
 	if err := r.execReplayInserts(ctx, conn, inserts, trace); err != nil {

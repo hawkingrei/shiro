@@ -114,6 +114,9 @@ func (o EET) Run(ctx context.Context, exec *db.DB, gen *generator.Generator, sta
 		if eetHasUnstableWindowAggregate(query) {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:window_agg_unstable_order"}}
 		}
+		if eetHasNullExtendedLimitOrder(query) {
+			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{"skip_reason": "eet:null_extended_order_limit"}}
+		}
 		if skipReason, reason := signaturePrecheck(query, state, "eet"); skipReason != "" {
 			return Result{OK: true, Oracle: o.Name(), Details: map[string]any{
 				"skip_reason":     skipReason,
@@ -409,6 +412,120 @@ func eetHasUnstableWindowRank(query *generator.SelectQuery) bool {
 
 func eetHasUnstableWindowAggregate(query *generator.SelectQuery) bool {
 	return eetHasUnstableWindowBy(query, eetWindowAggregateUnstable)
+}
+
+func eetHasNullExtendedLimitOrder(query *generator.SelectQuery) bool {
+	if query == nil || query.Limit == nil || len(query.OrderBy) == 0 {
+		return false
+	}
+	nullExtended := eetNullExtendedTablesFromFalseOuterJoin(query)
+	if len(nullExtended) == 0 {
+		return false
+	}
+	tainted := false
+	for _, expr := range eetResolvedOrderByExprs(query) {
+		if expr == nil {
+			continue
+		}
+		cols := expr.Columns()
+		if len(cols) == 0 {
+			continue
+		}
+		if !eetExprReferencesTables(expr, nullExtended) {
+			return false
+		}
+		tainted = true
+	}
+	return tainted
+}
+
+func eetNullExtendedTablesFromFalseOuterJoin(query *generator.SelectQuery) map[string]struct{} {
+	if query == nil {
+		return nil
+	}
+	visible := map[string]struct{}{}
+	addName := func(name string) {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			return
+		}
+		visible[name] = struct{}{}
+	}
+	addName(query.From.BaseAlias)
+	addName(query.From.BaseTable)
+	nullExtended := map[string]struct{}{}
+	addNullExtended := func(name string) {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			return
+		}
+		nullExtended[name] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		joinName := strings.TrimSpace(join.TableAlias)
+		if joinName == "" {
+			joinName = strings.TrimSpace(join.Table)
+		}
+		if (join.Type == generator.JoinLeft || join.Type == generator.JoinRight) && dqpExprAlwaysFalse(join.On) {
+			if join.Type == generator.JoinLeft {
+				addNullExtended(joinName)
+			} else {
+				for name := range visible {
+					nullExtended[name] = struct{}{}
+				}
+			}
+		}
+		addName(joinName)
+	}
+	if len(nullExtended) == 0 {
+		return nil
+	}
+	return nullExtended
+}
+
+func eetResolvedOrderByExprs(query *generator.SelectQuery) []generator.Expr {
+	if query == nil || len(query.OrderBy) == 0 {
+		return nil
+	}
+	aliases := make(map[string]generator.Expr, len(query.Items))
+	for _, item := range query.Items {
+		alias := strings.ToLower(strings.TrimSpace(item.Alias))
+		if alias == "" {
+			continue
+		}
+		aliases[alias] = item.Expr
+	}
+	out := make([]generator.Expr, 0, len(query.OrderBy))
+	for _, ob := range query.OrderBy {
+		if ordinal, ok := orderByLiteralInt(ob.Expr); ok && ordinal >= 1 && ordinal <= len(query.Items) {
+			out = append(out, query.Items[ordinal-1].Expr)
+			continue
+		}
+		if col, ok := ob.Expr.(generator.ColumnExpr); ok && strings.TrimSpace(col.Ref.Table) == "" {
+			if expr, ok := aliases[strings.ToLower(strings.TrimSpace(col.Ref.Name))]; ok {
+				out = append(out, expr)
+				continue
+			}
+		}
+		out = append(out, ob.Expr)
+	}
+	return out
+}
+
+func eetExprReferencesTables(expr generator.Expr, tables map[string]struct{}) bool {
+	if expr == nil || len(tables) == 0 {
+		return false
+	}
+	for _, col := range expr.Columns() {
+		table := strings.ToLower(strings.TrimSpace(col.Table))
+		if table == "" {
+			continue
+		}
+		if _, ok := tables[table]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func eetHasUnstableWindowBy(query *generator.SelectQuery, unstable func(generator.WindowExpr, map[string]generator.WindowDef) bool) bool {
