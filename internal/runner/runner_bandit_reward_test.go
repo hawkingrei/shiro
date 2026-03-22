@@ -34,6 +34,18 @@ func TestOracleBanditImmediateReward(t *testing.T) {
 	if got := oracleBanditImmediateReward(oracle.Result{OK: false, Err: errors.New("Error 1105 (HY000): missing column")}, ""); got != 0.15 {
 		t.Fatalf("expected reduced reward for execution error bug, got %v", got)
 	}
+	if got := oracleBanditImmediateReward(
+		oracle.Result{OK: true, Err: errors.New("Error 1105 (HY000): missing column")},
+		"eet:missing_column",
+	); got != 0.05 {
+		t.Fatalf("expected skip reward for downgraded missing-column false positive, got %v", got)
+	}
+	if got := oracleBanditImmediateReward(
+		oracle.Result{OK: true, Err: context.DeadlineExceeded},
+		"dqp:timeout",
+	); got != 0 {
+		t.Fatalf("expected zero reward for downgraded timeout skip, got %v", got)
+	}
 	if got := oracleBanditImmediateReward(oracle.Result{OK: false, Err: context.DeadlineExceeded}, ""); got != 0 {
 		t.Fatalf("expected zero reward for timeout bug case, got %v", got)
 	}

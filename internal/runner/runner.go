@@ -794,6 +794,12 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 		}
 		return 1.0
 	}
+	if result.OK && skipReason != "" {
+		if strings.Contains(skipReason, ":timeout") || isInfraReason(skipReason) {
+			return 0.0
+		}
+		return 0.05
+	}
 	if result.Err != nil {
 		if isTimeoutError(result.Err) {
 			return 0.0
@@ -802,12 +808,6 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 			return 0.0
 		}
 		return 0.15
-	}
-	if skipReason != "" {
-		if strings.Contains(skipReason, ":timeout") || isInfraReason(skipReason) {
-			return 0.0
-		}
-		return 0.05
 	}
 	// Keep a small positive reward for successful non-skip runs so the
 	// oracle-level bandit can still observe execution effectiveness without
