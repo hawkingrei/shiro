@@ -514,7 +514,7 @@ func eetResolvedOrderByExprs(query *generator.SelectQuery) []generator.Expr {
 	return out
 }
 
-func eetExprDependsOnlyOnNullExtended(expr generator.Expr, tables map[string]struct{}) (bool, bool) {
+func eetExprDependsOnlyOnNullExtended(expr generator.Expr, tables map[string]struct{}) (tainted bool, ok bool) {
 	if expr == nil || len(tables) == 0 {
 		return false, true
 	}
@@ -587,8 +587,8 @@ func eetExprDependsOnlyOnNullExtended(expr generator.Expr, tables map[string]str
 	}
 }
 
-func eetCombineNullExtendedExprs(exprs []generator.Expr, tables map[string]struct{}) (bool, bool) {
-	tainted := false
+func eetCombineNullExtendedExprs(exprs []generator.Expr, tables map[string]struct{}) (tainted bool, ok bool) {
+	tainted = false
 	for _, expr := range exprs {
 		exprTainted, ok := eetExprDependsOnlyOnNullExtended(expr, tables)
 		if !ok {
@@ -601,8 +601,8 @@ func eetCombineNullExtendedExprs(exprs []generator.Expr, tables map[string]struc
 	return tainted, true
 }
 
-func eetColumnsDependOnlyOnNullExtended(cols []generator.ColumnRef, tables map[string]struct{}) (bool, bool) {
-	tainted := false
+func eetColumnsDependOnlyOnNullExtended(cols []generator.ColumnRef, tables map[string]struct{}) (tainted bool, ok bool) {
+	tainted = false
 	for _, col := range cols {
 		table := strings.ToLower(strings.TrimSpace(col.Table))
 		if table == "" {
