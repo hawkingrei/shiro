@@ -305,7 +305,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		}
 	}
 	replayLogSuffix := formatBaseReplayLogSuffix(details)
-	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason)
+	r.observeReproducibilitySummary(summary.MinimizeStatus, minimizeReason, errorSignature)
 	if result.Err != nil {
 		util.Errorf(
 			"case captured oracle=%s case_id=%s dir=%s error_reason=%s error_signature=%s minimize_status=%s minimize_reason=%s err=%v%s",

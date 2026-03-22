@@ -197,22 +197,39 @@ func (r *Runner) updateOracleBanditFromFunnel(delta map[string]oracleFunnel) {
 		if !ok {
 			continue
 		}
-		reward := float64(stat.Mismatches + stat.Panics)
-		if stat.Errors > 0 {
-			reward += 0.5 * float64(stat.Errors)
-		}
-		skipRatio := float64(stat.Skips) / float64(stat.Runs)
-		reward -= 0.2 * skipRatio
-		timeoutRatio := timeoutReasonRatio(stat)
-		infraRatio := infraReasonRatio(stat)
-		reward -= 0.4 * timeoutRatio
-		reward -= 0.6 * infraRatio
-		if reward < 0 {
-			reward = 0
-		}
-		rewardPerRun := reward / float64(stat.Runs)
+		rewardPerRun := oracleBanditFunnelReward(stat)
 		r.oracleBandit.UpdateBatch(banditIdx, rewardPerRun, int(stat.Runs))
 	}
+}
+
+func oracleBanditFunnelReward(stat oracleFunnel) float64 {
+	if stat.Runs <= 0 {
+		return 0
+	}
+	stableMismatches := stat.Mismatches - stat.ExplainSame
+	if stableMismatches < 0 {
+		stableMismatches = 0
+	}
+	reward := float64(stableMismatches)
+	if stat.ExplainSame > 0 {
+		reward += 0.25 * float64(stat.ExplainSame)
+	}
+	if stat.Errors > 0 {
+		reward += 0.15 * float64(stat.Errors)
+	}
+	if stat.Panics > 0 {
+		reward += 0.4 * float64(stat.Panics)
+	}
+	skipRatio := float64(stat.Skips) / float64(stat.Runs)
+	reward -= 0.2 * skipRatio
+	timeoutRatio := timeoutReasonRatio(stat)
+	infraRatio := infraReasonRatio(stat)
+	reward -= 0.4 * timeoutRatio
+	reward -= 0.6 * infraRatio
+	if reward < 0 {
+		reward = 0
+	}
+	return reward / float64(stat.Runs)
 }
 
 func timeoutReasonRatio(stat oracleFunnel) float64 {

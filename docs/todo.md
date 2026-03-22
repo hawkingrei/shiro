@@ -20,10 +20,11 @@ Each completed task should contribute at least one new improvement item here whe
 4. AI search: add embedding-based retrieval/rerank on top of current similar-case lookup after case text fields are normalized.
 5. Frontend CI: add end-to-end smoke checks against a fixture `reports.json` payload.
 6. Cluster repeated planner error signatures (for example `Can't find column ... in schema`) across report directories and generate one aggregated TiDB issue draft with representative artifacts instead of one draft per case.
-7. Add interval-level summaries keyed by normalized `error_signature` so repeated planner/runtime failures are visible in logs without opening report artifacts.
-8. Add a fresh-batch triage summary that separates newly captured reports from historical artifacts so workers do not keep chasing stale PQS clusters after new logs arrive.
-9. Add interval-level summaries for `minimize_base_replay_failure_stage` plus normalized replay setup errors (especially `sql_error_1824`) so flaky replay drift is visible without opening per-case summaries.
-10. Add a compact wrong-result triage summary that separates likely engine-facing mismatches from likely determinism/noise cases inside the fresh batch.
+7. Add a fresh-batch triage summary that separates newly captured reports from historical artifacts so workers do not keep chasing stale PQS clusters after new logs arrive.
+8. Add interval-level summaries for `minimize_base_replay_failure_stage` plus normalized replay setup errors (especially `sql_error_1824`) so flaky replay drift is visible without opening per-case summaries.
+9. Add a compact wrong-result triage summary that separates likely engine-facing mismatches from likely determinism/noise cases inside the fresh batch.
+10. Expose per-oracle stable-vs-explain-same mismatch counts in interval summaries and bandit dumps so wrong-result-oriented reward tuning can be validated directly from fresh rerun logs.
+11. Split captured `error_signature` interval summaries into planner/runtime/infra classes and annotate pre-crash vs post-crash recency so duplicate timeout/no-throughput clusters can be downweighted automatically.
 
 ## Architecture / Refactor
 
@@ -39,6 +40,7 @@ Each completed task should contribute at least one new improvement item here whe
 2. Run validation for builder/spec equivalence and oracle semantics via targeted oracle/generator test suites and skip-rate checks.
 3. Add `throughput_guard` activation context (oracle mode, parser pressure, low-QPS window summary) so low-throughput intervals can be attributed without manual log reconstruction.
 4. Add expression-level SQL feature observation for helper SQL (for example CODDTest `SELECT <phi>`) so aux/result SQL can use the fast path without over-approximating query-level features.
+5. Downgrade the first timeout case that immediately precedes sustained `infra_unhealthy` / low-throughput collapse so post-crash trigger cases (for example trivial `PQS` pivot range timeouts) do not stay in the bug-candidate pool by default.
 
 ## Continuous Improvement
 

@@ -63,6 +63,20 @@ func TestNormalizeMinimizeStatus(t *testing.T) {
 	}
 }
 
+func TestNormalizeErrorSignature(t *testing.T) {
+	cases := map[string]string{
+		"":   "",
+		"  ": "",
+		"Impo:Missing_Column|Cant_Find_Column_In_Schema":      "impo:missing_column|cant_find_column_in_schema",
+		"  EET:missing_column | cant_find_column_in_schema  ": "eet:missing_column|cant_find_column_in_schema",
+	}
+	for input, expect := range cases {
+		if got := normalizeErrorSignature(input); got != expect {
+			t.Fatalf("normalizeErrorSignature(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
 func TestDiffCountMap(t *testing.T) {
 	current := map[string]int64{
 		"skipped":     5,
@@ -127,10 +141,11 @@ func TestObserveReproducibilitySummary(t *testing.T) {
 	r := &Runner{
 		capturedMinimizeStatus:  make(map[string]int64),
 		capturedMinimizeReasons: make(map[string]int64),
+		capturedErrorSignatures: make(map[string]int64),
 	}
-	r.observeReproducibilitySummary("in-progress", "")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
+	r.observeReproducibilitySummary("in-progress", "", "  Impo:Missing_Column|Cant_Find_Column_In_Schema  ")
+	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible", "impo:missing_column|cant_find_column_in_schema")
+	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible", "")
 	if r.capturedCases != 3 {
 		t.Fatalf("capturedCases=%d want=3", r.capturedCases)
 	}
@@ -142,6 +157,12 @@ func TestObserveReproducibilitySummary(t *testing.T) {
 	}
 	if r.capturedMinimizeReasons["base_replay_not_reproducible"] != 2 {
 		t.Fatalf("base_replay_not_reproducible=%d want=2", r.capturedMinimizeReasons["base_replay_not_reproducible"])
+	}
+	if r.capturedErrorSignatures["impo:missing_column|cant_find_column_in_schema"] != 2 {
+		t.Fatalf("impo signature=%d want=2", r.capturedErrorSignatures["impo:missing_column|cant_find_column_in_schema"])
+	}
+	if len(r.capturedErrorSignatures) != 1 {
+		t.Fatalf("capturedErrorSignatures=%v want single normalized signature", r.capturedErrorSignatures)
 	}
 }
 

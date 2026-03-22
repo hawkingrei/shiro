@@ -127,11 +127,13 @@ type Runner struct {
 	capturedCases                   int64
 	capturedMinimizeStatus          map[string]int64
 	capturedMinimizeReasons         map[string]int64
+	capturedErrorSignatures         map[string]int64
 	minimizeInFlight                int64
 	throughputLowSampleStreak       int64
 	throughputGuardTTL              int64
 	throughputGuardActivations      int64
 	dqpTimeoutCooldownTTL           int64
+	recentOracleTimeoutTTL          int64
 	oracleTimeoutCounts             map[string]int64
 	infraUnhealthyTTL               int64
 	infraErrorCounts                map[string]int64
@@ -233,6 +235,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		oracleStats:                     make(map[string]*oracleFunnel),
 		capturedMinimizeStatus:          make(map[string]int64),
 		capturedMinimizeReasons:         make(map[string]int64),
+		capturedErrorSignatures:         make(map[string]int64),
 		oracleTimeoutCounts:             make(map[string]int64),
 		infraErrorCounts:                make(map[string]int64),
 		baseActions:                     cfg.Weights.Actions,
@@ -782,7 +785,13 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 }
 
 func oracleBanditImmediateReward(result oracle.Result, skipReason string) float64 {
-	if !result.OK || isPanicError(result.Err) {
+	if isPanicError(result.Err) {
+		return 0.4
+	}
+	if isWrongResultMismatch(result) {
+		if isExplainSameDetails(result.Details) {
+			return 0.25
+		}
 		return 1.0
 	}
 	if result.Err != nil {
@@ -792,7 +801,7 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 		if _, ok := classifyInfraIssue(result.Err); ok {
 			return 0.0
 		}
-		return 0.05
+		return 0.15
 	}
 	if skipReason != "" {
 		if strings.Contains(skipReason, ":timeout") || isInfraReason(skipReason) {
@@ -801,8 +810,13 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 		return 0.05
 	}
 	// Keep a small positive reward for successful non-skip runs so the
-	// oracle-level bandit can learn execution effectiveness, not only bugs.
-	return 0.2
+	// oracle-level bandit can still observe execution effectiveness without
+	// overwhelming wrong-result signals.
+	return 0.1
+}
+
+func isWrongResultMismatch(result oracle.Result) bool {
+	return !result.OK && result.Err == nil
 }
 
 func missingTableName(err error) (string, bool) {
