@@ -498,6 +498,204 @@ func TestEETHasUnstableWindowAggregateWithTieBreaker(t *testing.T) {
 	}
 }
 
+func TestEETHasNullExtendedLimitOrderWithFalseLeftJoin(t *testing.T) {
+	limit := 16
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "sum",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}, Desc: true},
+					},
+				},
+				Alias: "c0",
+			},
+			{
+				Expr: generator.BinaryExpr{
+					Left:  generator.LiteralExpr{Value: 65},
+					Op:    "*",
+					Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+				},
+				Alias: "c1",
+			},
+			{
+				Expr: generator.FuncExpr{
+					Name: "ABS",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}},
+					},
+				},
+				Alias: "c2",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinLeft,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 0},
+					},
+				},
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.LiteralExpr{Value: 1}, Desc: true},
+			{Expr: generator.LiteralExpr{Value: 2}},
+		},
+		Limit: &limit,
+	}
+	if !eetHasNullExtendedLimitOrder(query) {
+		t.Fatalf("expected false LEFT JOIN null-extended ORDER BY with LIMIT to be detected")
+	}
+}
+
+func TestEETHasNullExtendedLimitOrderIgnoresPreservedTieBreaker(t *testing.T) {
+	limit := 16
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.WindowExpr{
+					Name: "sum",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+					},
+					PartitionBy: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+					},
+					OrderBy: []generator.OrderBy{
+						{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "c0"}}, Desc: true},
+					},
+				},
+				Alias: "c0",
+			},
+			{
+				Expr: generator.FuncExpr{
+					Name: "ABS",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}},
+					},
+				},
+				Alias: "c1",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinLeft,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 0},
+					},
+				},
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.LiteralExpr{Value: 1}, Desc: true},
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}}},
+		},
+		Limit: &limit,
+	}
+	if eetHasNullExtendedLimitOrder(query) {
+		t.Fatalf("expected preserved-side tie-breaker to keep ORDER BY deterministic enough")
+	}
+}
+
+func TestEETHasNullExtendedLimitOrderIgnoresMixedPreservedExpr(t *testing.T) {
+	limit := 16
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.FuncExpr{
+					Name: "COALESCE",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "c5"}},
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "l", Name: "id"}},
+					},
+				},
+				Alias: "c0",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "l",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinLeft,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 0},
+					},
+				},
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.LiteralExpr{Value: 1}},
+		},
+		Limit: &limit,
+	}
+	if eetHasNullExtendedLimitOrder(query) {
+		t.Fatalf("expected mixed preserved/null-extended ORDER BY expression to remain allowed")
+	}
+}
+
+func TestEETHasNullExtendedLimitOrderWithFalseRightJoin(t *testing.T) {
+	limit := 8
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{
+				Expr: generator.FuncExpr{
+					Name: "ABS",
+					Args: []generator.Expr{
+						generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}},
+					},
+				},
+				Alias: "c0",
+			},
+			{
+				Expr:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id"}},
+				Alias: "c1",
+			},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:  generator.JoinRight,
+					Table: "t1",
+					On: generator.BinaryExpr{
+						Left:  generator.LiteralExpr{Value: 1},
+						Op:    "=",
+						Right: generator.LiteralExpr{Value: 0},
+					},
+				},
+			},
+		},
+		OrderBy: []generator.OrderBy{
+			{Expr: generator.LiteralExpr{Value: 1}},
+		},
+		Limit: &limit,
+	}
+	if !eetHasNullExtendedLimitOrder(query) {
+		t.Fatalf("expected false RIGHT JOIN to treat the left side as null-extended")
+	}
+}
+
 func TestEETShouldRetryNoTransform(t *testing.T) {
 	retryable := []string{
 		"eet:no_transform",
