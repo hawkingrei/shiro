@@ -77,6 +77,21 @@ func TestNormalizeErrorSignature(t *testing.T) {
 	}
 }
 
+func TestNormalizeReplayFailureStage(t *testing.T) {
+	cases := map[string]string{
+		"":               "",
+		"  ":             "",
+		"apply_schema":   "apply_schema",
+		"apply-schema":   "apply_schema",
+		" exec case sql": "exec_case_sql",
+	}
+	for input, expect := range cases {
+		if got := normalizeReplayFailureStage(input); got != expect {
+			t.Fatalf("normalizeReplayFailureStage(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
 func TestDiffCountMap(t *testing.T) {
 	current := map[string]int64{
 		"skipped":     5,
@@ -139,13 +154,33 @@ func TestNormalizeTemplateJoinPredicateStrategy(t *testing.T) {
 
 func TestObserveReproducibilitySummary(t *testing.T) {
 	r := &Runner{
-		capturedMinimizeStatus:  make(map[string]int64),
-		capturedMinimizeReasons: make(map[string]int64),
-		capturedErrorSignatures: make(map[string]int64),
+		capturedMinimizeStatus:        make(map[string]int64),
+		capturedMinimizeReasons:       make(map[string]int64),
+		capturedErrorSignatures:       make(map[string]int64),
+		capturedReplayFailureStages:   make(map[string]int64),
+		capturedReplaySetupSignatures: make(map[string]int64),
 	}
-	r.observeReproducibilitySummary("in-progress", "", "  Impo:Missing_Column|Cant_Find_Column_In_Schema  ")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible", "impo:missing_column|cant_find_column_in_schema")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible", "")
+	r.observeReproducibilitySummary("in-progress", "", "  Impo:Missing_Column|Cant_Find_Column_In_Schema  ", nil)
+	r.observeReproducibilitySummary(
+		"skipped",
+		"base_replay_not_reproducible",
+		"impo:missing_column|cant_find_column_in_schema",
+		map[string]any{
+			"minimize_base_replay_failure_stage":       "apply-schema",
+			"minimize_base_replay_outcome":             "setup_error",
+			"minimize_base_replay_actual_error_reason": "eet:sql_error_1824",
+		},
+	)
+	r.observeReproducibilitySummary(
+		"skipped",
+		"base_replay_not_reproducible",
+		"",
+		map[string]any{
+			"minimize_base_replay_failure_stage":          "exec_case_sql",
+			"minimize_base_replay_outcome":                "error_mismatch",
+			"minimize_base_replay_actual_error_signature": "replay:no_error",
+		},
+	)
 	if r.capturedCases != 3 {
 		t.Fatalf("capturedCases=%d want=3", r.capturedCases)
 	}
@@ -163,6 +198,18 @@ func TestObserveReproducibilitySummary(t *testing.T) {
 	}
 	if len(r.capturedErrorSignatures) != 1 {
 		t.Fatalf("capturedErrorSignatures=%v want single normalized signature", r.capturedErrorSignatures)
+	}
+	if r.capturedReplayFailureStages["apply_schema"] != 1 {
+		t.Fatalf("apply_schema=%d want=1", r.capturedReplayFailureStages["apply_schema"])
+	}
+	if r.capturedReplayFailureStages["exec_case_sql"] != 1 {
+		t.Fatalf("exec_case_sql=%d want=1", r.capturedReplayFailureStages["exec_case_sql"])
+	}
+	if r.capturedReplaySetupSignatures["eet:sql_error_1824"] != 1 {
+		t.Fatalf("setup signature=%d want=1", r.capturedReplaySetupSignatures["eet:sql_error_1824"])
+	}
+	if len(r.capturedReplaySetupSignatures) != 1 {
+		t.Fatalf("capturedReplaySetupSignatures=%v want single setup signature", r.capturedReplaySetupSignatures)
 	}
 }
 

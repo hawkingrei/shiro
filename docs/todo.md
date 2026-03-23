@@ -21,7 +21,7 @@ Each completed task should contribute at least one new improvement item here whe
 5. Frontend CI: add end-to-end smoke checks against a fixture `reports.json` payload.
 6. Cluster repeated planner error signatures (for example `Can't find column ... in schema`) across report directories and generate one aggregated TiDB issue draft with representative artifacts instead of one draft per case.
 7. Add a fresh-batch triage summary that separates newly captured reports from historical artifacts so workers do not keep chasing stale PQS clusters after new logs arrive.
-8. Add interval-level summaries for `minimize_base_replay_failure_stage` plus normalized replay setup errors (especially `sql_error_1824`) so flaky replay drift is visible without opening per-case summaries.
+8. Split base-replay failure-stage summaries by `replay_kind` / `outcome` so `apply_schema` setup drift and `exec_case_sql` error mismatches stop collapsing into one flat top-N bucket.
 9. Add a compact wrong-result triage summary that separates likely engine-facing mismatches from likely determinism/noise cases inside the fresh batch.
 10. Expose per-oracle stable-vs-explain-same mismatch counts in interval summaries and bandit dumps so wrong-result-oriented reward tuning can be validated directly from fresh rerun logs.
 11. Split captured `error_signature` interval summaries into planner/runtime/infra classes and annotate pre-crash vs post-crash recency so duplicate timeout/no-throughput clusters can be downweighted automatically.

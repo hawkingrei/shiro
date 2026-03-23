@@ -22,6 +22,18 @@ const topOracleSummaryN = 3
 
 var coreOraclesForSummary = []string{"TLP", "CERT", "GroundTruth"}
 
+var errorSignatureReplacer = strings.NewReplacer(
+	" | ", "|",
+	" |", "|",
+	"| ", "|",
+	" : ", ":",
+	" :", ":",
+	": ", ":",
+	" + ", "+",
+	" +", "+",
+	"+ ", "+",
+)
+
 func ratio(numerator, denominator int64) float64 {
 	if denominator <= 0 {
 		return 0
@@ -407,7 +419,12 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	}
 }
 
-func (r *Runner) observeReproducibilitySummary(minimizeStatus string, minimizeReason string, errorSignature string) {
+func (r *Runner) observeReproducibilitySummary(
+	minimizeStatus string,
+	minimizeReason string,
+	errorSignature string,
+	details map[string]any,
+) {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
 	r.capturedCases++
@@ -420,6 +437,14 @@ func (r *Runner) observeReproducibilitySummary(minimizeStatus string, minimizeRe
 	signature := normalizeErrorSignature(errorSignature)
 	if signature != "" {
 		r.capturedErrorSignatures[signature]++
+	}
+	stage := normalizeReplayFailureStage(detailString(details, "minimize_base_replay_failure_stage"))
+	if stage != "" {
+		r.capturedReplayFailureStages[stage]++
+	}
+	setupSignature := normalizeReplaySetupSignature(details)
+	if setupSignature != "" {
+		r.capturedReplaySetupSignatures[setupSignature]++
 	}
 }
 
@@ -441,20 +466,47 @@ func normalizeErrorSignature(signature string) string {
 		return ""
 	}
 	normalized = strings.Join(strings.Fields(normalized), " ")
-	for _, pair := range [][2]string{
-		{" | ", "|"},
-		{" |", "|"},
-		{"| ", "|"},
-		{" : ", ":"},
-		{" :", ":"},
-		{": ", ":"},
-		{" + ", "+"},
-		{" +", "+"},
-		{"+ ", "+"},
-	} {
-		normalized = strings.ReplaceAll(normalized, pair[0], pair[1])
-	}
+	normalized = errorSignatureReplacer.Replace(normalized)
 	return strings.ReplaceAll(normalized, " ", "_")
+}
+
+func normalizeReplayFailureStage(stage string) string {
+	normalized := strings.ToLower(strings.TrimSpace(stage))
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	return strings.Join(strings.Fields(normalized), "_")
+}
+
+func normalizeReplaySetupSignature(details map[string]any) string {
+	if !isReplaySetupFailure(details) {
+		return ""
+	}
+	if signature := normalizeErrorSignature(detailString(details, "minimize_base_replay_actual_error_signature")); signature != "" {
+		return signature
+	}
+	reason := detailString(details, "minimize_base_replay_actual_error_reason")
+	if signature := normalizeErrorSignature(buildErrorSignature(
+		reason,
+		nil,
+		detailString(details, "minimize_base_replay_actual_error"),
+	)); signature != "" {
+		return signature
+	}
+	return normalizeErrorSignature(reason)
+}
+
+func isReplaySetupFailure(details map[string]any) bool {
+	if strings.EqualFold(detailString(details, "minimize_base_replay_outcome"), "setup_error") {
+		return true
+	}
+	switch normalizeReplayFailureStage(detailString(details, "minimize_base_replay_failure_stage")) {
+	case "connect", "reset_database", "use_database", "apply_schema", "load_data", "set_session_var":
+		return true
+	default:
+		return false
+	}
 }
 
 func oracleSkipReason(result oracle.Result) string {
@@ -680,6 +732,8 @@ func (r *Runner) startStatsLogger() func() {
 		lastCapturedMinimizeStatus := make(map[string]int64)
 		lastCapturedMinimizeReasons := make(map[string]int64)
 		lastCapturedErrorSignatures := make(map[string]int64)
+		lastCapturedReplayFailureStages := make(map[string]int64)
+		lastCapturedReplaySetupSignatures := make(map[string]int64)
 		lastOracleTimeoutCounts := make(map[string]int64)
 		lastInfraErrorCounts := make(map[string]int64)
 		lastSubqueryOracleStats := make(map[string]subqueryOracleStats)
@@ -792,6 +846,14 @@ func (r *Runner) startStatsLogger() func() {
 				capturedErrorSignatures := make(map[string]int64, len(r.capturedErrorSignatures))
 				for k, v := range r.capturedErrorSignatures {
 					capturedErrorSignatures[k] = v
+				}
+				capturedReplayFailureStages := make(map[string]int64, len(r.capturedReplayFailureStages))
+				for k, v := range r.capturedReplayFailureStages {
+					capturedReplayFailureStages[k] = v
+				}
+				capturedReplaySetupSignatures := make(map[string]int64, len(r.capturedReplaySetupSignatures))
+				for k, v := range r.capturedReplaySetupSignatures {
+					capturedReplaySetupSignatures[k] = v
 				}
 				oracleTimeoutCounts := make(map[string]int64, len(r.oracleTimeoutCounts))
 				for k, v := range r.oracleTimeoutCounts {
@@ -957,6 +1019,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaCapturedStatus := diffCountMap(capturedMinimizeStatus, lastCapturedMinimizeStatus)
 				deltaCapturedReasons := diffCountMap(capturedMinimizeReasons, lastCapturedMinimizeReasons)
 				deltaCapturedErrorSignatures := diffCountMap(capturedErrorSignatures, lastCapturedErrorSignatures)
+				deltaCapturedReplayFailureStages := diffCountMap(capturedReplayFailureStages, lastCapturedReplayFailureStages)
+				deltaCapturedReplaySetupSignatures := diffCountMap(capturedReplaySetupSignatures, lastCapturedReplaySetupSignatures)
 				deltaOracleTimeoutCounts := diffCountMap(oracleTimeoutCounts, lastOracleTimeoutCounts)
 				lastOracleTimeoutCounts = oracleTimeoutCounts
 				deltaInfraErrorCounts := diffCountMap(infraErrorCounts, lastInfraErrorCounts)
@@ -1069,6 +1133,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastCapturedMinimizeStatus = capturedMinimizeStatus
 				lastCapturedMinimizeReasons = capturedMinimizeReasons
 				lastCapturedErrorSignatures = capturedErrorSignatures
+				lastCapturedReplayFailureStages = capturedReplayFailureStages
+				lastCapturedReplaySetupSignatures = capturedReplaySetupSignatures
 				controlState := r.updateThroughputControlsForInterval(deltaTotal)
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
@@ -1384,6 +1450,20 @@ func (r *Runner) startStatsLogger() func() {
 								"captured_error_signatures last interval top=%d: %s",
 								topOracleSummaryN,
 								formatTopJoinSigs(deltaCapturedErrorSignatures, topOracleSummaryN),
+							)
+						}
+						if len(deltaCapturedReplayFailureStages) > 0 {
+							util.Infof(
+								"minimize_base_replay_stage last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedReplayFailureStages, topOracleSummaryN),
+							)
+						}
+						if len(deltaCapturedReplaySetupSignatures) > 0 {
+							util.Infof(
+								"minimize_base_replay_setup_errors last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedReplaySetupSignatures, topOracleSummaryN),
 							)
 						}
 					}

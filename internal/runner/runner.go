@@ -128,6 +128,8 @@ type Runner struct {
 	capturedMinimizeStatus          map[string]int64
 	capturedMinimizeReasons         map[string]int64
 	capturedErrorSignatures         map[string]int64
+	capturedReplayFailureStages     map[string]int64
+	capturedReplaySetupSignatures   map[string]int64
 	minimizeInFlight                int64
 	throughputLowSampleStreak       int64
 	throughputGuardTTL              int64
@@ -236,6 +238,8 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		capturedMinimizeStatus:          make(map[string]int64),
 		capturedMinimizeReasons:         make(map[string]int64),
 		capturedErrorSignatures:         make(map[string]int64),
+		capturedReplayFailureStages:     make(map[string]int64),
+		capturedReplaySetupSignatures:   make(map[string]int64),
 		oracleTimeoutCounts:             make(map[string]int64),
 		infraErrorCounts:                make(map[string]int64),
 		baseActions:                     cfg.Weights.Actions,
