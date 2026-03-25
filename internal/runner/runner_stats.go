@@ -22,6 +22,18 @@ const topOracleSummaryN = 3
 
 var coreOraclesForSummary = []string{"TLP", "CERT", "GroundTruth"}
 
+var errorSignatureReplacer = strings.NewReplacer(
+	" | ", "|",
+	" |", "|",
+	"| ", "|",
+	" : ", ":",
+	" :", ":",
+	": ", ":",
+	" + ", "+",
+	" +", "+",
+	"+ ", "+",
+)
+
 func ratio(numerator, denominator int64) float64 {
 	if denominator <= 0 {
 		return 0
@@ -30,15 +42,18 @@ func ratio(numerator, denominator int64) float64 {
 }
 
 type oracleFunnel struct {
-	Runs         int64
-	Effective    int64
-	Skips        int64
-	Errors       int64
-	Mismatches   int64
-	Panics       int64
-	Reports      int64
-	SkipReasons  map[string]int64
-	ErrorReasons map[string]int64
+	Runs             int64
+	Effective        int64
+	Skips            int64
+	Errors           int64
+	SkipErrors       int64
+	Mismatches       int64
+	ExplainSame      int64
+	Panics           int64
+	Reports          int64
+	SkipReasons      map[string]int64
+	ErrorReasons     map[string]int64
+	SkipErrorReasons map[string]int64
 }
 
 type subqueryOracleStats struct {
@@ -57,6 +72,14 @@ type builderAttemptStats struct {
 	MaxAttempts    int
 	Histogram      map[int]int64
 	FailureReasons map[string]int64
+}
+
+func newOracleFunnel() *oracleFunnel {
+	return &oracleFunnel{
+		SkipReasons:      make(map[string]int64),
+		ErrorReasons:     make(map[string]int64),
+		SkipErrorReasons: make(map[string]int64),
+	}
 }
 
 func (r *Runner) observeSQL(sql string, err error, features *db.SQLSubqueryFeatures) {
@@ -307,10 +330,7 @@ func (r *Runner) observeOracleRun(name string) {
 	defer r.statsMu.Unlock()
 	stat := r.oracleStats[name]
 	if stat == nil {
-		stat = &oracleFunnel{
-			SkipReasons:  make(map[string]int64),
-			ErrorReasons: make(map[string]int64),
-		}
+		stat = newOracleFunnel()
 		r.oracleStats[name] = stat
 	}
 	stat.Runs++
@@ -355,10 +375,7 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	defer r.statsMu.Unlock()
 	stat := r.oracleStats[name]
 	if stat == nil {
-		stat = &oracleFunnel{
-			SkipReasons:  make(map[string]int64),
-			ErrorReasons: make(map[string]int64),
-		}
+		stat = newOracleFunnel()
 		r.oracleStats[name] = stat
 	}
 	if skipReason != "" {
@@ -369,31 +386,45 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 		stat.Effective++
 	}
 	if result.Err != nil {
-		stat.Errors++
 		if reason := effectiveResultErrorReason(result); reason != "" {
-			stat.ErrorReasons[reason]++
+			if isSkipClassifiedResult(result, skipReason) {
+				stat.SkipErrors++
+				stat.SkipErrorReasons[reason]++
+			} else {
+				stat.Errors++
+				stat.ErrorReasons[reason]++
+				if result.Oracle == "CERT" {
+					r.certLastErrReason = reason
+				}
+				if result.Oracle == "TLP" {
+					r.tlpLastErrReason = reason
+				}
+			}
+		} else if isSkipClassifiedResult(result, skipReason) {
+			stat.SkipErrors++
+		} else {
+			stat.Errors++
+		}
+		if !isSkipClassifiedResult(result, skipReason) {
 			if result.Oracle == "CERT" {
-				r.certLastErrReason = reason
+				if len(result.SQL) > 0 {
+					r.certLastErrSQL = result.SQL[len(result.SQL)-1]
+				}
+				r.certLastErr = result.Err.Error()
 			}
 			if result.Oracle == "TLP" {
-				r.tlpLastErrReason = reason
+				if len(result.SQL) > 0 {
+					r.tlpLastErrSQL = result.SQL[len(result.SQL)-1]
+				}
+				r.tlpLastErr = result.Err.Error()
 			}
-		}
-		if result.Oracle == "CERT" {
-			if len(result.SQL) > 0 {
-				r.certLastErrSQL = result.SQL[len(result.SQL)-1]
-			}
-			r.certLastErr = result.Err.Error()
-		}
-		if result.Oracle == "TLP" {
-			if len(result.SQL) > 0 {
-				r.tlpLastErrSQL = result.SQL[len(result.SQL)-1]
-			}
-			r.tlpLastErr = result.Err.Error()
 		}
 	}
-	if !result.OK {
+	if isWrongResultMismatch(result) {
 		stat.Mismatches++
+		if isExplainSameDetails(result.Details) {
+			stat.ExplainSame++
+		}
 	}
 	if isPanic {
 		stat.Panics++
@@ -403,7 +434,12 @@ func (r *Runner) observeOracleResult(name string, result oracle.Result, skipReas
 	}
 }
 
-func (r *Runner) observeReproducibilitySummary(minimizeStatus string, minimizeReason string) {
+func (r *Runner) observeReproducibilitySummary(
+	minimizeStatus string,
+	minimizeReason string,
+	errorSignature string,
+	details map[string]any,
+) {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
 	r.capturedCases++
@@ -412,6 +448,18 @@ func (r *Runner) observeReproducibilitySummary(minimizeStatus string, minimizeRe
 	reason := strings.TrimSpace(minimizeReason)
 	if reason != "" {
 		r.capturedMinimizeReasons[reason]++
+	}
+	signature := normalizeErrorSignature(errorSignature)
+	if signature != "" {
+		r.capturedErrorSignatures[signature]++
+	}
+	stage := normalizeReplayFailureStage(detailString(details, "minimize_base_replay_failure_stage"))
+	if stage != "" {
+		r.capturedReplayFailureStages[stage]++
+	}
+	setupSignature := normalizeReplaySetupSignature(details)
+	if setupSignature != "" {
+		r.capturedReplaySetupSignatures[setupSignature]++
 	}
 }
 
@@ -425,6 +473,55 @@ func normalizeMinimizeStatus(status string) string {
 		return "in_progress"
 	}
 	return normalized
+}
+
+func normalizeErrorSignature(signature string) string {
+	normalized := strings.ToLower(strings.TrimSpace(signature))
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	normalized = errorSignatureReplacer.Replace(normalized)
+	return strings.ReplaceAll(normalized, " ", "_")
+}
+
+func normalizeReplayFailureStage(stage string) string {
+	normalized := strings.ToLower(strings.TrimSpace(stage))
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	return strings.Join(strings.Fields(normalized), "_")
+}
+
+func normalizeReplaySetupSignature(details map[string]any) string {
+	if !isReplaySetupFailure(details) {
+		return ""
+	}
+	if signature := normalizeErrorSignature(detailString(details, "minimize_base_replay_actual_error_signature")); signature != "" {
+		return signature
+	}
+	reason := detailString(details, "minimize_base_replay_actual_error_reason")
+	if signature := normalizeErrorSignature(buildErrorSignature(
+		reason,
+		nil,
+		detailString(details, "minimize_base_replay_actual_error"),
+	)); signature != "" {
+		return signature
+	}
+	return normalizeErrorSignature(reason)
+}
+
+func isReplaySetupFailure(details map[string]any) bool {
+	if strings.EqualFold(detailString(details, "minimize_base_replay_outcome"), "setup_error") {
+		return true
+	}
+	switch normalizeReplayFailureStage(detailString(details, "minimize_base_replay_failure_stage")) {
+	case "connect", "reset_database", "use_database", "apply_schema", "load_data", "set_session_var":
+		return true
+	default:
+		return false
+	}
 }
 
 func oracleSkipReason(result oracle.Result) string {
@@ -466,7 +563,7 @@ func isExplainSameDetails(details map[string]any) bool {
 func (r *Runner) applyResultMetrics(result oracle.Result) {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
-	if !result.OK {
+	if isWrongResultMismatch(result) {
 		r.mismatchTotal++
 		if isExplainSameDetails(result.Details) {
 			r.mismatchExplainSame++
@@ -649,6 +746,9 @@ func (r *Runner) startStatsLogger() func() {
 		lastSubqueryDisallowReasons := make(map[string]int64)
 		lastCapturedMinimizeStatus := make(map[string]int64)
 		lastCapturedMinimizeReasons := make(map[string]int64)
+		lastCapturedErrorSignatures := make(map[string]int64)
+		lastCapturedReplayFailureStages := make(map[string]int64)
+		lastCapturedReplaySetupSignatures := make(map[string]int64)
 		lastOracleTimeoutCounts := make(map[string]int64)
 		lastInfraErrorCounts := make(map[string]int64)
 		lastSubqueryOracleStats := make(map[string]subqueryOracleStats)
@@ -758,6 +858,18 @@ func (r *Runner) startStatsLogger() func() {
 				for k, v := range r.capturedMinimizeReasons {
 					capturedMinimizeReasons[k] = v
 				}
+				capturedErrorSignatures := make(map[string]int64, len(r.capturedErrorSignatures))
+				for k, v := range r.capturedErrorSignatures {
+					capturedErrorSignatures[k] = v
+				}
+				capturedReplayFailureStages := make(map[string]int64, len(r.capturedReplayFailureStages))
+				for k, v := range r.capturedReplayFailureStages {
+					capturedReplayFailureStages[k] = v
+				}
+				capturedReplaySetupSignatures := make(map[string]int64, len(r.capturedReplaySetupSignatures))
+				for k, v := range r.capturedReplaySetupSignatures {
+					capturedReplaySetupSignatures[k] = v
+				}
 				oracleTimeoutCounts := make(map[string]int64, len(r.oracleTimeoutCounts))
 				for k, v := range r.oracleTimeoutCounts {
 					oracleTimeoutCounts[k] = v
@@ -812,13 +924,15 @@ func (r *Runner) startStatsLogger() func() {
 						continue
 					}
 					copyStat := oracleFunnel{
-						Runs:       stat.Runs,
-						Effective:  stat.Effective,
-						Skips:      stat.Skips,
-						Errors:     stat.Errors,
-						Mismatches: stat.Mismatches,
-						Panics:     stat.Panics,
-						Reports:    stat.Reports,
+						Runs:        stat.Runs,
+						Effective:   stat.Effective,
+						Skips:       stat.Skips,
+						Errors:      stat.Errors,
+						SkipErrors:  stat.SkipErrors,
+						Mismatches:  stat.Mismatches,
+						ExplainSame: stat.ExplainSame,
+						Panics:      stat.Panics,
+						Reports:     stat.Reports,
 						SkipReasons: func() map[string]int64 {
 							out := make(map[string]int64, len(stat.SkipReasons))
 							for k, v := range stat.SkipReasons {
@@ -829,6 +943,13 @@ func (r *Runner) startStatsLogger() func() {
 						ErrorReasons: func() map[string]int64 {
 							out := make(map[string]int64, len(stat.ErrorReasons))
 							for k, v := range stat.ErrorReasons {
+								out[k] = v
+							}
+							return out
+						}(),
+						SkipErrorReasons: func() map[string]int64 {
+							out := make(map[string]int64, len(stat.SkipErrorReasons))
+							for k, v := range stat.SkipErrorReasons {
 								out[k] = v
 							}
 							return out
@@ -920,6 +1041,9 @@ func (r *Runner) startStatsLogger() func() {
 				deltaSubqueryFailed := subqueryFailed - lastSubqueryFailed
 				deltaCapturedStatus := diffCountMap(capturedMinimizeStatus, lastCapturedMinimizeStatus)
 				deltaCapturedReasons := diffCountMap(capturedMinimizeReasons, lastCapturedMinimizeReasons)
+				deltaCapturedErrorSignatures := diffCountMap(capturedErrorSignatures, lastCapturedErrorSignatures)
+				deltaCapturedReplayFailureStages := diffCountMap(capturedReplayFailureStages, lastCapturedReplayFailureStages)
+				deltaCapturedReplaySetupSignatures := diffCountMap(capturedReplaySetupSignatures, lastCapturedReplaySetupSignatures)
 				deltaOracleTimeoutCounts := diffCountMap(oracleTimeoutCounts, lastOracleTimeoutCounts)
 				lastOracleTimeoutCounts = oracleTimeoutCounts
 				deltaInfraErrorCounts := diffCountMap(infraErrorCounts, lastInfraErrorCounts)
@@ -1031,6 +1155,9 @@ func (r *Runner) startStatsLogger() func() {
 				lastCapturedCases = capturedCases
 				lastCapturedMinimizeStatus = capturedMinimizeStatus
 				lastCapturedMinimizeReasons = capturedMinimizeReasons
+				lastCapturedErrorSignatures = capturedErrorSignatures
+				lastCapturedReplayFailureStages = capturedReplayFailureStages
+				lastCapturedReplaySetupSignatures = capturedReplaySetupSignatures
 				controlState := r.updateThroughputControlsForInterval(deltaTotal)
 				var tqsStats tqs.Stats
 				if r.tqsHistory != nil {
@@ -1341,6 +1468,27 @@ func (r *Runner) startStatsLogger() func() {
 								formatTopJoinSigs(deltaCapturedReasons, topOracleSummaryN),
 							)
 						}
+						if len(deltaCapturedErrorSignatures) > 0 {
+							util.Infof(
+								"captured_error_signatures last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedErrorSignatures, topOracleSummaryN),
+							)
+						}
+						if len(deltaCapturedReplayFailureStages) > 0 {
+							util.Infof(
+								"minimize_base_replay_stage last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedReplayFailureStages, topOracleSummaryN),
+							)
+						}
+						if len(deltaCapturedReplaySetupSignatures) > 0 {
+							util.Infof(
+								"minimize_base_replay_setup_errors last interval top=%d: %s",
+								topOracleSummaryN,
+								formatTopJoinSigs(deltaCapturedReplaySetupSignatures, topOracleSummaryN),
+							)
+						}
 					}
 					if len(deltaJoinCounts) > 0 {
 						util.Detailf(
@@ -1401,13 +1549,15 @@ func (r *Runner) startStatsLogger() func() {
 						for name, stat := range oracleStats {
 							prev := lastOracleStats[name]
 							delta := oracleFunnel{
-								Runs:       stat.Runs - prev.Runs,
-								Effective:  stat.Effective - prev.Effective,
-								Skips:      stat.Skips - prev.Skips,
-								Errors:     stat.Errors - prev.Errors,
-								Mismatches: stat.Mismatches - prev.Mismatches,
-								Panics:     stat.Panics - prev.Panics,
-								Reports:    stat.Reports - prev.Reports,
+								Runs:        stat.Runs - prev.Runs,
+								Effective:   stat.Effective - prev.Effective,
+								Skips:       stat.Skips - prev.Skips,
+								Errors:      stat.Errors - prev.Errors,
+								SkipErrors:  stat.SkipErrors - prev.SkipErrors,
+								Mismatches:  stat.Mismatches - prev.Mismatches,
+								ExplainSame: stat.ExplainSame - prev.ExplainSame,
+								Panics:      stat.Panics - prev.Panics,
+								Reports:     stat.Reports - prev.Reports,
 								SkipReasons: func() map[string]int64 {
 									out := make(map[string]int64)
 									for k, v := range stat.SkipReasons {
@@ -1428,8 +1578,18 @@ func (r *Runner) startStatsLogger() func() {
 									}
 									return out
 								}(),
+								SkipErrorReasons: func() map[string]int64 {
+									out := make(map[string]int64)
+									for k, v := range stat.SkipErrorReasons {
+										prevVal := prev.SkipErrorReasons[k]
+										if v-prevVal > 0 {
+											out[k] = v - prevVal
+										}
+									}
+									return out
+								}(),
 							}
-							if delta.Runs > 0 || delta.Effective > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
+							if delta.Runs > 0 || delta.Effective > 0 || delta.Skips > 0 || delta.Errors > 0 || delta.SkipErrors > 0 || delta.Mismatches > 0 || delta.Panics > 0 || delta.Reports > 0 {
 								deltaFunnel[name] = delta
 							}
 						}
@@ -1494,6 +1654,12 @@ func (r *Runner) startStatsLogger() func() {
 									}
 									util.Detailf("oracle_error_reasons last interval oracle=%s top=%d: %s", name, topOracleReasonsN, formatTopJoinSigs(delta.ErrorReasons, topOracleReasonsN))
 								}
+								for name, delta := range deltaFunnel {
+									if len(delta.SkipErrorReasons) == 0 {
+										continue
+									}
+									util.Detailf("oracle_skip_error_reasons last interval oracle=%s top=%d: %s", name, topOracleReasonsN, formatTopJoinSigs(delta.SkipErrorReasons, topOracleReasonsN))
+								}
 								if certDelta, ok := deltaFunnel["CERT"]; ok && certDelta.Errors > 0 {
 									if r.certLastErrSQL != "" && r.certLastErr != "" {
 										util.Detailf(
@@ -1525,6 +1691,9 @@ func (r *Runner) startStatsLogger() func() {
 									}
 									if len(delta.ErrorReasons) > 0 {
 										util.Infof("oracle_error_reasons last interval oracle=%s top=%d: %s", name, topOracleSummaryN, formatTopJoinSigs(delta.ErrorReasons, topOracleSummaryN))
+									}
+									if len(delta.SkipErrorReasons) > 0 {
+										util.Infof("oracle_skip_error_reasons last interval oracle=%s top=%d: %s", name, topOracleSummaryN, formatTopJoinSigs(delta.SkipErrorReasons, topOracleSummaryN))
 									}
 								}
 							}
@@ -1971,7 +2140,7 @@ func formatOracleFunnel(stats map[string]oracleFunnel) string {
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
 		stat := stats[name]
-		parts = append(parts, fmt.Sprintf("%s=run/%d eff/%d skip/%d err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Effective, stat.Skips, stat.Errors, stat.Mismatches, stat.Panics, stat.Reports))
+		parts = append(parts, fmt.Sprintf("%s=run/%d eff/%d skip/%d err/%d skip_err/%d mismatch/%d panic/%d report/%d", name, stat.Runs, stat.Effective, stat.Skips, stat.Errors, stat.SkipErrors, stat.Mismatches, stat.Panics, stat.Reports))
 	}
 	return strings.Join(parts, " ")
 }

@@ -6,6 +6,7 @@ const minSQLTotalPerInterval int64 = 200
 const lowSampleStreakTrigger int64 = 2
 const throughputGuardTTLIntervals int64 = 3
 const dqpTimeoutCooldownTTLIntervals int64 = 2
+const recentOracleTimeoutTTLIntervals int64 = 2
 const dqpOracleTimeoutCapMs = 5000
 const infraUnhealthyTTLIntervals int64 = 6
 const infraOracleTimeoutCapMs = 3000
@@ -55,6 +56,9 @@ func (r *Runner) observeOracleTimeoutControl(oracleName string, err error) {
 		r.oracleTimeoutCounts = make(map[string]int64)
 	}
 	r.oracleTimeoutCounts[timeoutReason]++
+	if r.recentOracleTimeoutTTL < recentOracleTimeoutTTLIntervals {
+		r.recentOracleTimeoutTTL = recentOracleTimeoutTTLIntervals
+	}
 	if strings.EqualFold(oracleName, "DQP") && r.dqpTimeoutCooldownTTL < dqpTimeoutCooldownTTLIntervals {
 		r.dqpTimeoutCooldownTTL = dqpTimeoutCooldownTTLIntervals
 	}
@@ -87,11 +91,15 @@ func (r *Runner) updateThroughputControlsForInterval(deltaTotal int64) throughpu
 	}
 	prevGuardActive := r.throughputGuardTTL > 0
 	prevInfraUnhealthy := r.infraUnhealthyTTL > 0
+	hadRecentOracleTimeout := r.recentOracleTimeoutTTL > 0
 	if r.throughputGuardTTL > 0 {
 		r.throughputGuardTTL--
 	}
 	if r.dqpTimeoutCooldownTTL > 0 {
 		r.dqpTimeoutCooldownTTL--
+	}
+	if r.recentOracleTimeoutTTL > 0 {
+		r.recentOracleTimeoutTTL--
 	}
 	if r.infraUnhealthyTTL > 0 {
 		r.infraUnhealthyTTL--
@@ -110,6 +118,9 @@ func (r *Runner) updateThroughputControlsForInterval(deltaTotal int64) throughpu
 		if r.dqpTimeoutCooldownTTL < dqpTimeoutCooldownTTLIntervals {
 			r.dqpTimeoutCooldownTTL = dqpTimeoutCooldownTTLIntervals
 		}
+	}
+	if lowSample && hadRecentOracleTimeout && r.infraUnhealthyTTL < infraUnhealthyTTLIntervals {
+		r.infraUnhealthyTTL = infraUnhealthyTTLIntervals
 	}
 	guardActive := r.throughputGuardTTL > 0 || r.infraUnhealthyTTL > 0
 	recovered := (prevGuardActive || prevInfraUnhealthy) && !guardActive

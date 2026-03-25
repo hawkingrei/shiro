@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -60,6 +61,76 @@ func TestNormalizeMinimizeStatus(t *testing.T) {
 		if got := normalizeMinimizeStatus(input); got != expect {
 			t.Fatalf("normalizeMinimizeStatus(%q)=%q want=%q", input, got, expect)
 		}
+	}
+}
+
+func TestNormalizeErrorSignature(t *testing.T) {
+	cases := map[string]string{
+		"":   "",
+		"  ": "",
+		"Impo:Missing_Column|Cant_Find_Column_In_Schema":      "impo:missing_column|cant_find_column_in_schema",
+		"  EET:missing_column | cant_find_column_in_schema  ": "eet:missing_column|cant_find_column_in_schema",
+	}
+	for input, expect := range cases {
+		if got := normalizeErrorSignature(input); got != expect {
+			t.Fatalf("normalizeErrorSignature(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
+func TestNormalizeReplayFailureStage(t *testing.T) {
+	cases := map[string]string{
+		"":               "",
+		"  ":             "",
+		"apply_schema":   "apply_schema",
+		"apply-schema":   "apply_schema",
+		" exec case sql": "exec_case_sql",
+	}
+	for input, expect := range cases {
+		if got := normalizeReplayFailureStage(input); got != expect {
+			t.Fatalf("normalizeReplayFailureStage(%q)=%q want=%q", input, got, expect)
+		}
+	}
+}
+
+func TestObserveOracleResultSeparatesSkipErrors(t *testing.T) {
+	r := &Runner{
+		oracleStats: make(map[string]*oracleFunnel),
+	}
+	r.observeOracleResult("EET", oracle.Result{
+		Oracle: "EET",
+		OK:     true,
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+		Details: map[string]any{
+			"skip_error_reason": "eet:missing_column",
+		},
+	}, "eet:missing_column", false, false)
+	r.observeOracleResult("EET", oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): planner bug"),
+		Details: map[string]any{
+			"error_reason": "eet:planner_bug",
+		},
+	}, "", false, false)
+
+	stat := r.oracleStats["EET"]
+	if stat == nil {
+		t.Fatalf("expected oracle stats for EET")
+	}
+	if stat.Skips != 1 {
+		t.Fatalf("Skips=%d want=1", stat.Skips)
+	}
+	if stat.Errors != 1 {
+		t.Fatalf("Errors=%d want=1", stat.Errors)
+	}
+	if stat.SkipErrors != 1 {
+		t.Fatalf("SkipErrors=%d want=1", stat.SkipErrors)
+	}
+	if stat.ErrorReasons["eet:planner_bug"] != 1 {
+		t.Fatalf("ErrorReasons[eet:planner_bug]=%d want=1", stat.ErrorReasons["eet:planner_bug"])
+	}
+	if stat.SkipErrorReasons["eet:missing_column"] != 1 {
+		t.Fatalf("SkipErrorReasons[eet:missing_column]=%d want=1", stat.SkipErrorReasons["eet:missing_column"])
 	}
 }
 
@@ -125,12 +196,33 @@ func TestNormalizeTemplateJoinPredicateStrategy(t *testing.T) {
 
 func TestObserveReproducibilitySummary(t *testing.T) {
 	r := &Runner{
-		capturedMinimizeStatus:  make(map[string]int64),
-		capturedMinimizeReasons: make(map[string]int64),
+		capturedMinimizeStatus:        make(map[string]int64),
+		capturedMinimizeReasons:       make(map[string]int64),
+		capturedErrorSignatures:       make(map[string]int64),
+		capturedReplayFailureStages:   make(map[string]int64),
+		capturedReplaySetupSignatures: make(map[string]int64),
 	}
-	r.observeReproducibilitySummary("in-progress", "")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
-	r.observeReproducibilitySummary("skipped", "base_replay_not_reproducible")
+	r.observeReproducibilitySummary("in-progress", "", "  Impo:Missing_Column|Cant_Find_Column_In_Schema  ", nil)
+	r.observeReproducibilitySummary(
+		"skipped",
+		"base_replay_not_reproducible",
+		"impo:missing_column|cant_find_column_in_schema",
+		map[string]any{
+			"minimize_base_replay_failure_stage":       "apply-schema",
+			"minimize_base_replay_outcome":             "setup_error",
+			"minimize_base_replay_actual_error_reason": "eet:sql_error_1824",
+		},
+	)
+	r.observeReproducibilitySummary(
+		"skipped",
+		"base_replay_not_reproducible",
+		"",
+		map[string]any{
+			"minimize_base_replay_failure_stage":          "exec_case_sql",
+			"minimize_base_replay_outcome":                "error_mismatch",
+			"minimize_base_replay_actual_error_signature": "replay:no_error",
+		},
+	)
 	if r.capturedCases != 3 {
 		t.Fatalf("capturedCases=%d want=3", r.capturedCases)
 	}
@@ -142,6 +234,24 @@ func TestObserveReproducibilitySummary(t *testing.T) {
 	}
 	if r.capturedMinimizeReasons["base_replay_not_reproducible"] != 2 {
 		t.Fatalf("base_replay_not_reproducible=%d want=2", r.capturedMinimizeReasons["base_replay_not_reproducible"])
+	}
+	if r.capturedErrorSignatures["impo:missing_column|cant_find_column_in_schema"] != 2 {
+		t.Fatalf("impo signature=%d want=2", r.capturedErrorSignatures["impo:missing_column|cant_find_column_in_schema"])
+	}
+	if len(r.capturedErrorSignatures) != 1 {
+		t.Fatalf("capturedErrorSignatures=%v want single normalized signature", r.capturedErrorSignatures)
+	}
+	if r.capturedReplayFailureStages["apply_schema"] != 1 {
+		t.Fatalf("apply_schema=%d want=1", r.capturedReplayFailureStages["apply_schema"])
+	}
+	if r.capturedReplayFailureStages["exec_case_sql"] != 1 {
+		t.Fatalf("exec_case_sql=%d want=1", r.capturedReplayFailureStages["exec_case_sql"])
+	}
+	if r.capturedReplaySetupSignatures["eet:sql_error_1824"] != 1 {
+		t.Fatalf("setup signature=%d want=1", r.capturedReplaySetupSignatures["eet:sql_error_1824"])
+	}
+	if len(r.capturedReplaySetupSignatures) != 1 {
+		t.Fatalf("capturedReplaySetupSignatures=%v want single setup signature", r.capturedReplaySetupSignatures)
 	}
 }
 

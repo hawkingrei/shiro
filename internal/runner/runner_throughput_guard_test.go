@@ -48,6 +48,27 @@ func TestObserveOracleTimeoutControlSetsDQPCooldown(t *testing.T) {
 	}
 }
 
+func TestUpdateThroughputControlsMarksInfraUnhealthyAfterRecentTimeoutAndLowSample(t *testing.T) {
+	r := &Runner{
+		oracleTimeoutCounts: make(map[string]int64),
+		infraErrorCounts:    make(map[string]int64),
+	}
+	r.observeOracleTimeoutControl("PQS", context.DeadlineExceeded)
+
+	state := r.updateThroughputControlsForInterval(500)
+	if state.InfraUnhealthy {
+		t.Fatalf("recent timeout alone should not mark infra unhealthy")
+	}
+
+	state = r.updateThroughputControlsForInterval(1)
+	if !state.InfraUnhealthy {
+		t.Fatalf("recent timeout followed by low throughput should mark infra unhealthy: %+v", state)
+	}
+	if state.InfraUnhealthyTTL != infraUnhealthyTTLIntervals {
+		t.Fatalf("unexpected infra unhealthy ttl=%d", state.InfraUnhealthyTTL)
+	}
+}
+
 func TestOracleWeightByNameWithGuardAndCooldown(t *testing.T) {
 	r := &Runner{
 		cfg: config.Config{
