@@ -69,3 +69,22 @@ func TestOracleBanditFunnelReward(t *testing.T) {
 		t.Fatalf("oracleBanditFunnelReward()=%v want=%v", got, want)
 	}
 }
+
+func TestOracleBanditFunnelRewardIgnoresSkipErrors(t *testing.T) {
+	base := oracleFunnel{
+		Runs:       10,
+		Mismatches: 1,
+		Skips:      1,
+		SkipReasons: map[string]int64{
+			"eet:missing_column": 1,
+		},
+	}
+	withSkipErrors := base
+	withSkipErrors.SkipErrors = 3
+	withSkipErrors.SkipErrorReasons = map[string]int64{
+		"eet:missing_column": 3,
+	}
+	if got, want := oracleBanditFunnelReward(withSkipErrors), oracleBanditFunnelReward(base); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("oracleBanditFunnelReward(skip errors)=%v want %v", got, want)
+	}
+}

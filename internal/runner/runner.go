@@ -798,7 +798,7 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 		}
 		return 1.0
 	}
-	if result.OK && skipReason != "" {
+	if isSkipClassifiedResult(result, skipReason) {
 		if strings.Contains(skipReason, ":timeout") || isInfraReason(skipReason) {
 			return 0.0
 		}
@@ -817,6 +817,10 @@ func oracleBanditImmediateReward(result oracle.Result, skipReason string) float6
 	// oracle-level bandit can still observe execution effectiveness without
 	// overwhelming wrong-result signals.
 	return 0.1
+}
+
+func isSkipClassifiedResult(result oracle.Result, skipReason string) bool {
+	return result.OK && strings.TrimSpace(skipReason) != ""
 }
 
 func isWrongResultMismatch(result oracle.Result) bool {

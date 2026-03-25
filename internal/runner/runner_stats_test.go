@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -89,6 +90,47 @@ func TestNormalizeReplayFailureStage(t *testing.T) {
 		if got := normalizeReplayFailureStage(input); got != expect {
 			t.Fatalf("normalizeReplayFailureStage(%q)=%q want=%q", input, got, expect)
 		}
+	}
+}
+
+func TestObserveOracleResultSeparatesSkipErrors(t *testing.T) {
+	r := &Runner{
+		oracleStats: make(map[string]*oracleFunnel),
+	}
+	r.observeOracleResult("EET", oracle.Result{
+		Oracle: "EET",
+		OK:     true,
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+		Details: map[string]any{
+			"skip_error_reason": "eet:missing_column",
+		},
+	}, "eet:missing_column", false, false)
+	r.observeOracleResult("EET", oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): planner bug"),
+		Details: map[string]any{
+			"error_reason": "eet:planner_bug",
+		},
+	}, "", false, false)
+
+	stat := r.oracleStats["EET"]
+	if stat == nil {
+		t.Fatalf("expected oracle stats for EET")
+	}
+	if stat.Skips != 1 {
+		t.Fatalf("Skips=%d want=1", stat.Skips)
+	}
+	if stat.Errors != 1 {
+		t.Fatalf("Errors=%d want=1", stat.Errors)
+	}
+	if stat.SkipErrors != 1 {
+		t.Fatalf("SkipErrors=%d want=1", stat.SkipErrors)
+	}
+	if stat.ErrorReasons["eet:planner_bug"] != 1 {
+		t.Fatalf("ErrorReasons[eet:planner_bug]=%d want=1", stat.ErrorReasons["eet:planner_bug"])
+	}
+	if stat.SkipErrorReasons["eet:missing_column"] != 1 {
+		t.Fatalf("SkipErrorReasons[eet:missing_column]=%d want=1", stat.SkipErrorReasons["eet:missing_column"])
 	}
 }
 
