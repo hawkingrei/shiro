@@ -934,22 +934,8 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	pick := pairs[g.Rand.Intn(len(pairs))]
 	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
 	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
-	aggQuery := &SelectQuery{
-		Items: []SelectItem{
-			{
-				Expr:  ColumnExpr{Ref: innerRef},
-				Alias: "g0",
-			},
-			{
-				Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
-				Alias: "cnt",
-			},
-		},
-		From:    FromClause{BaseTable: inner.Name},
-		GroupBy: []Expr{ColumnExpr{Ref: innerRef}},
-	}
-	groupAliasRef := ColumnRef{Table: "agg", Name: "g0", Type: pick.inner.Type}
-	countAliasRef := ColumnRef{Table: "agg", Name: "cnt", Type: schema.TypeBigInt}
+	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
+	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
 	orderExpr := FuncExpr{
 		Name: "ABS",
 		Args: []Expr{
@@ -964,19 +950,21 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: groupAliasRef},
+				Expr:  ColumnExpr{Ref: innerRef},
 				Alias: "g0",
 			},
 			{
-				Expr:  ColumnExpr{Ref: countAliasRef},
+				Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
 				Alias: "cnt",
 			},
 		},
-		From: FromClause{
-			BaseTable: "agg",
-			BaseAlias: "agg",
-			BaseQuery: aggQuery,
+		From: FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    ">=",
+			Right: ColumnExpr{Ref: mergedRef},
 		},
+		GroupBy: []Expr{ColumnExpr{Ref: innerRef}},
 		OrderBy: []OrderBy{
 			{Expr: orderExpr},
 			{Expr: ColumnExpr{Ref: countAliasRef}, Desc: true},

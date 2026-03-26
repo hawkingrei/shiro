@@ -72,30 +72,32 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery == nil {
-		t.Fatalf("expected grouped derived table inside grouped-output-order-limit LATERAL hook")
+	if lateral.TableQuery.From.BaseQuery != nil {
+		t.Fatalf("expected grouped-output-order-limit hook to group directly inside the LATERAL body")
 	}
-	agg := lateral.TableQuery.From.BaseQuery
-	if len(agg.GroupBy) == 0 {
-		t.Fatalf("expected GROUP BY inside grouped derived table")
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped-output-order-limit LATERAL hook")
 	}
-	if !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
-		t.Fatalf("expected grouped derived table to expose g0/cnt aliases")
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
+		t.Fatalf("expected grouped-output-order-limit LATERAL hook to expose g0/cnt aliases directly")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected grouped-output-order-limit hook to keep LIMIT 1 inside LATERAL")
 	}
 	usingCol := query.From.Joins[0].Using[0]
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
+		t.Fatalf("expected grouped-output-order-limit WHERE to reference merged USING column %q before aggregation", usingCol)
+	}
 	if len(lateral.TableQuery.OrderBy) == 0 {
 		t.Fatalf("expected ORDER BY inside grouped-output-order-limit hook")
 	}
-	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName(), "g0") {
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference grouped output alias")
 	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, usingCol) {
 		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference merged USING column %q", usingCol)
 	}
-	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, lateral.TableQuery.From.baseName(), "cnt") {
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "cnt") {
 		t.Fatalf("expected grouped-output-order-limit ORDER BY to rank by grouped count alias")
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
@@ -116,16 +118,19 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit NATURAL hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery == nil {
-		t.Fatalf("expected grouped derived table inside grouped-output-order-limit NATURAL hook")
+	if lateral.TableQuery.From.BaseQuery != nil {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to group directly inside the LATERAL body")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
 	}
-	if len(lateral.TableQuery.OrderBy) == 0 || !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[0].Expr) {
+	if !exprHasUnqualifiedColumn(lateral.TableQuery.Where) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified before aggregation")
+	}
+	if len(lateral.TableQuery.OrderBy) == 0 || !exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified in ORDER BY")
 	}
-	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName(), "g0") {
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference grouped output alias in ORDER BY")
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
@@ -1246,29 +1251,35 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	lateral := query.From.Joins[1]
-	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery != nil {
 		return false
 	}
-	agg := lateral.TableQuery.From.BaseQuery
-	if len(agg.GroupBy) == 0 || !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
+	if len(lateral.TableQuery.GroupBy) == 0 || !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
 		return false
 	}
-	if lateral.TableQuery.Limit == nil {
+	if lateral.TableQuery.Limit == nil || lateral.TableQuery.Where == nil {
 		return false
 	}
 	if len(lateral.TableQuery.OrderBy) == 0 {
 		return false
 	}
-	if !exprUsesTable(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName()) {
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		return false
 	}
-	if !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[0].Expr) {
+	if len(lateral.TableQuery.OrderBy) > 1 && !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "cnt") {
 		return false
 	}
-	if len(lateral.TableQuery.OrderBy) > 1 && !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, lateral.TableQuery.From.baseName(), "cnt") {
-		return false
+	if mergedJoin.Natural {
+		return exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.Where) &&
+			exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.OrderBy[0].Expr, "g0")
 	}
-	return true
+	for _, name := range mergedJoin.Using {
+		if exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, name) &&
+			exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
@@ -1350,6 +1361,26 @@ func exprUsesUnqualifiedColumnName(expr Expr, name string) bool {
 		if col.Table == "" && col.Name == name {
 			return true
 		}
+	}
+	return false
+}
+
+func exprUsesUnqualifiedColumnOtherThan(expr Expr, excluded ...string) bool {
+	if expr == nil {
+		return false
+	}
+	skip := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		skip[name] = struct{}{}
+	}
+	for _, col := range expr.Columns() {
+		if col.Table != "" {
+			continue
+		}
+		if _, ok := skip[col.Name]; ok {
+			continue
+		}
+		return true
 	}
 	return false
 }
