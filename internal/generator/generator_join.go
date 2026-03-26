@@ -955,6 +955,9 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	if g == nil {
 		return nil
 	}
+	if !g.Config.Features.WindowFuncs {
+		return nil
+	}
 	joinType, ok := g.pickSupportedLateralJoinType()
 	if !ok {
 		return nil
@@ -1139,6 +1142,19 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		TableQuery: siblingQuery,
 		On:         g.trueExpr(),
 	}
+	windowOrderExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{BinaryExpr{
+			Left: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "tie0",
+				Type:  tieAliasRef.Type,
+			}},
+			Op:    "-",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		}},
+	}
+	windowAliasRef := ColumnRef{Name: "outer_win0", Type: probeAliasRef.Type}
 	query := &SelectQuery{
 		Items: []SelectItem{
 			{
@@ -1173,6 +1189,26 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 				}},
 				Alias: "sibling_probe0",
 			},
+			{
+				Expr: WindowExpr{
+					Name: "SUM",
+					Args: []Expr{ColumnExpr{Ref: ColumnRef{
+						Table: "sx",
+						Name:  "probe0",
+						Type:  probeAliasRef.Type,
+					}}},
+					PartitionBy: []Expr{ColumnExpr{Ref: baseOuterCol}},
+					OrderBy: []OrderBy{
+						{Expr: windowOrderExpr},
+						{Expr: ColumnExpr{Ref: ColumnRef{
+							Table: "sx",
+							Name:  "probe0",
+							Type:  probeAliasRef.Type,
+						}}},
+					},
+				},
+				Alias: "outer_win0",
+			},
 		},
 		From: FromClause{
 			BaseTable: base.Name,
@@ -1193,6 +1229,10 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	}
 	query.OrderBy = []OrderBy{
 		{
+			Expr: ColumnExpr{Ref: windowAliasRef},
+			Desc: true,
+		},
+		{
 			Expr: ColumnExpr{Ref: ColumnRef{
 				Table: "sx",
 				Name:  "probe0",
@@ -1200,18 +1240,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			}},
 		},
 		{
-			Expr: FuncExpr{
-				Name: "ABS",
-				Args: []Expr{BinaryExpr{
-					Left: ColumnExpr{Ref: ColumnRef{
-						Table: "dt",
-						Name:  "tie0",
-						Type:  tieAliasRef.Type,
-					}},
-					Op:    "-",
-					Right: ColumnExpr{Ref: siblingOuterCol},
-				}},
-			},
+			Expr: windowOrderExpr,
 		},
 		{Expr: ColumnExpr{Ref: baseOuterCol}},
 	}

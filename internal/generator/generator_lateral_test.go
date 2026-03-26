@@ -196,8 +196,28 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 		query.From.Joins[1].tableName(): {},
 		query.From.Joins[2].tableName(): {},
 	}
+	windowExpr, ok := selectItemExprByAlias(query.Items, "outer_win0")
+	if !ok {
+		t.Fatalf("expected outer query to expose an outer window consumer alias")
+	}
+	window, ok := windowExpr.(WindowExpr)
+	if !ok || window.Name != "SUM" {
+		t.Fatalf("expected outer query to consume sibling-derived output through a SUM window")
+	}
+	if len(window.Args) != 1 || !exprUsesQualifiedColumnName(window.Args[0], "sx", "probe0") {
+		t.Fatalf("expected outer window consumer to aggregate sibling-derived probe0")
+	}
+	if len(window.PartitionBy) == 0 || countVisibleTables(window.PartitionBy[0], outerVisible) == 0 {
+		t.Fatalf("expected outer window consumer to keep base-table visibility in PARTITION BY")
+	}
+	if len(window.OrderBy) < 2 || !exprContainsFuncName(window.OrderBy[0].Expr, "ABS") || !exprUsesQualifiedColumnName(window.OrderBy[0].Expr, "dt", "tie0") || countVisibleTables(window.OrderBy[0].Expr, outerVisible) < 2 {
+		t.Fatalf("expected outer window consumer ORDER BY to keep post-lateral tie0 visibility")
+	}
+	if !exprUsesQualifiedColumnName(window.OrderBy[1].Expr, "sx", "probe0") {
+		t.Fatalf("expected outer window consumer ORDER BY to keep sibling-derived probe0 visibility")
+	}
 	if query.Where != nil {
-		t.Fatalf("expected scalar-subquery projected-order-limit hook to avoid an extra outer WHERE once reuse moves into the sibling LATERAL")
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to avoid an extra outer WHERE once reuse moves into the sibling LATERAL and outer window consumer")
 	}
 	if countVisibleTables(lateral.On, outerVisible) != 0 {
 		t.Fatalf("expected first LATERAL join predicate to stay trivial once the sibling consumer takes over")
@@ -205,16 +225,19 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if countVisibleTables(sibling.On, outerVisible) != 0 {
 		t.Fatalf("expected sibling LATERAL join predicate to stay trivial so reuse lives inside the sibling LATERAL body")
 	}
-	if len(query.OrderBy) < 3 {
-		t.Fatalf("expected outer query ORDER BY to consume post-lateral projected values")
+	if len(query.OrderBy) < 4 {
+		t.Fatalf("expected outer query ORDER BY to rank by the outer window consumer before the post-lateral projected values")
 	}
-	if !exprUsesQualifiedColumnName(query.OrderBy[0].Expr, "sx", "probe0") {
-		t.Fatalf("expected outer query ORDER BY to rank by the sibling LATERAL output alias")
+	if !exprUsesUnqualifiedColumnName(query.OrderBy[0].Expr, "outer_win0") || !query.OrderBy[0].Desc {
+		t.Fatalf("expected outer query ORDER BY to rank by the outer window alias")
 	}
-	if !exprContainsFuncName(query.OrderBy[1].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[1].Expr, outerVisible) < 2 {
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "sx", "probe0") {
+		t.Fatalf("expected outer query ORDER BY second key to keep the sibling-derived output alias visible")
+	}
+	if !exprContainsFuncName(query.OrderBy[2].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[2].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[2].Expr, outerVisible) < 2 {
 		t.Fatalf("expected outer query ORDER BY to keep consuming a post-lateral expression over tie0 and the sibling outer table")
 	}
-	if countVisibleTables(query.OrderBy[2].Expr, outerVisible) == 0 {
+	if countVisibleTables(query.OrderBy[3].Expr, outerVisible) == 0 {
 		t.Fatalf("expected outer query ORDER BY tie breaker to keep base-table visibility")
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
@@ -1263,6 +1286,7 @@ func newScalarSubqueryOrderLimitTestGenerator(t *testing.T) *Generator {
 	t.Helper()
 	gen := newMultiOuterOrderLimitTestGenerator(t)
 	gen.Config.Features.Subqueries = true
+	gen.Config.Features.WindowFuncs = true
 	gen.SetDisallowScalarSubquery(false)
 	return gen
 }
@@ -1839,22 +1863,42 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if name := query.From.Joins[2].tableName(); name != "" {
 		outerVisible[name] = struct{}{}
 	}
+	windowExpr, ok := selectItemExprByAlias(query.Items, "outer_win0")
+	if !ok {
+		return false
+	}
+	window, ok := windowExpr.(WindowExpr)
+	if !ok || window.Name != "SUM" || len(window.Args) != 1 || !exprUsesQualifiedColumnName(window.Args[0], "sx", "probe0") {
+		return false
+	}
+	if len(window.PartitionBy) == 0 || countVisibleTables(window.PartitionBy[0], outerVisible) == 0 || len(window.OrderBy) < 2 {
+		return false
+	}
+	if !exprContainsFuncName(window.OrderBy[0].Expr, "ABS") || !exprUsesQualifiedColumnName(window.OrderBy[0].Expr, "dt", "tie0") || countVisibleTables(window.OrderBy[0].Expr, outerVisible) < 2 {
+		return false
+	}
+	if !exprUsesQualifiedColumnName(window.OrderBy[1].Expr, "sx", "probe0") {
+		return false
+	}
 	if query.Where != nil {
 		return false
 	}
 	if countVisibleTables(lateral.On, outerVisible) != 0 || countVisibleTables(sibling.On, outerVisible) != 0 {
 		return false
 	}
-	if len(query.OrderBy) < 3 {
+	if len(query.OrderBy) < 4 {
 		return false
 	}
-	if !exprUsesQualifiedColumnName(query.OrderBy[0].Expr, "sx", "probe0") {
+	if !exprUsesUnqualifiedColumnName(query.OrderBy[0].Expr, "outer_win0") || !query.OrderBy[0].Desc {
 		return false
 	}
-	if !exprContainsFuncName(query.OrderBy[1].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[1].Expr, outerVisible) < 2 {
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "sx", "probe0") {
 		return false
 	}
-	return countVisibleTables(query.OrderBy[2].Expr, outerVisible) > 0
+	if !exprContainsFuncName(query.OrderBy[2].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[2].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[2].Expr, outerVisible) < 2 {
+		return false
+	}
+	return countVisibleTables(query.OrderBy[3].Expr, outerVisible) > 0
 }
 
 func queryHasMultiOuterProjectedOrderLimitLateralHook(query *SelectQuery) bool {
