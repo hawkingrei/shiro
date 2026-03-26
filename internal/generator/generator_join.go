@@ -866,6 +866,175 @@ func (g *Generator) buildGroupedOutputAliasLateralHookQuery(tables []schema.Tabl
 	return nil
 }
 
+func (g *Generator) buildProjectedOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinProjectedOrderLimitProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildProjectedOrderLimitLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !g.isNumericType(candidate.Column.Type) {
+			continue
+		}
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok || !g.isNumericType(innerCol.Type) {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	scoreExpr := CaseExpr{
+		Whens: []CaseWhen{
+			{
+				When: BinaryExpr{
+					Left:  ColumnExpr{Ref: innerRef},
+					Op:    ">=",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
+				Then: BinaryExpr{
+					Left:  ColumnExpr{Ref: innerRef},
+					Op:    "-",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
+			},
+		},
+		Else: BinaryExpr{
+			Left:  ColumnExpr{Ref: mergedRef},
+			Op:    "-",
+			Right: ColumnExpr{Ref: innerRef},
+		},
+	}
+	scoreAliasRef := ColumnRef{Name: "score0", Type: pick.inner.Type}
+	innerAliasRef := ColumnRef{Name: "inner0", Type: pick.inner.Type}
+	limit := 1
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: innerRef},
+				Alias: "inner0",
+			},
+			{
+				Expr:  scoreExpr,
+				Alias: "score0",
+			},
+		},
+		From: FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    "<>",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: scoreAliasRef}},
+			{Expr: ColumnExpr{Ref: innerAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: mergedRef}},
+		},
+		Limit: &limit,
+	}
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	})
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "score0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_score0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "inner0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_inner0",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
 func (g *Generator) buildGroupedOutputOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
 	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || !g.Config.Features.GroupBy || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
 		return nil

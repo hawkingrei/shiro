@@ -1423,6 +1423,106 @@ func TestValidateQueryScopeLateralJoinAllowsGroupedOutputOrderLimitVisibility(t 
 	}
 }
 
+func TestValidateQueryScopeLateralJoinAllowsProjectedOrderLimitVisibility(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	limit := 1
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Alias: "inner0"},
+			{Expr: CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
+					},
+				},
+				Else: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+					Op:    "-",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+				},
+			}, Alias: "score0"},
+		},
+		From: FromClause{BaseTable: "t2"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+			Op:    "<>",
+			Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+		},
+		OrderBy: []OrderBy{
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "score0", Type: schema.TypeInt}},
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "inner0", Type: schema.TypeInt}},
+				Desc: true,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+			},
+		},
+		Limit: &limit,
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					Using: []string{"id"},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "score0"},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected non-grouped LATERAL ORDER BY/LIMIT to see merged outer column and projected score alias")
+	}
+}
+
 func TestValidateQueryScopeLateralJoinUsingRejectsQualifiedMergedColumn(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

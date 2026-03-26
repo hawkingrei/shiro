@@ -147,6 +147,28 @@ func TestSelectCandidatesHandleGroupedOutputOrderLimitLateralJoin(t *testing.T) 
 	}
 }
 
+func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.inner0 AS lateral_inner0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT t2.id AS inner0, CASE WHEN (t2.id >= id) THEN (t2.id - id) ELSE (id - t2.id) END AS score0 FROM t2 WHERE (t2.id <> id) ORDER BY score0, inner0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for projected-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized projected-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesHandleAggregateLateralJoin(t *testing.T) {
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 = t1.c1))) AS dt ON (1 = 1) ORDER BY 1, 2"
 	p := parser.New()
