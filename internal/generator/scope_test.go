@@ -724,52 +724,58 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 			},
 		},
 		Items: []SelectItem{
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "score0"},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}, Alias: "probe0"},
 			{
-				Expr: WindowExpr{
+				Expr: FuncExpr{
 					Name: "SUM",
-					Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}},
-					PartitionBy: []Expr{
-						ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
-					},
-					OrderBy: []OrderBy{
-						{
-							Expr: FuncExpr{
-								Name: "ABS",
-								Args: []Expr{BinaryExpr{
-									Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-									Op:    "-",
-									Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-								}},
-							},
-						},
-						{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}},
-					},
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+						}},
+					}},
 				},
-				Alias: "outer_win0",
+				Alias: "outer_sum0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "MAX",
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+						}},
+					}},
+				},
+				Alias: "outer_max0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "MIN",
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}},
+						}},
+					}},
+				},
+				Alias: "outer_min0",
 			},
 		},
 		OrderBy: []OrderBy{
-			{Expr: ColumnExpr{Ref: ColumnRef{Name: "outer_win0", Type: schema.TypeInt}}, Desc: true},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}},
-			{
-				Expr: FuncExpr{
-					Name: "ABS",
-					Args: []Expr{BinaryExpr{
-						Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-					}},
-				},
-			},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "outer_sum0", Type: schema.TypeInt}}, Desc: true},
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "outer_max0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "outer_min0", Type: schema.TypeInt}}},
 		},
 	}
 
 	if !gen.validateQueryScope(query) {
-		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery, the sibling LATERAL consumer, and the outer window consumer")
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery, the sibling LATERAL consumer, and the outer aggregate consumer")
 	}
 }
 

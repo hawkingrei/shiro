@@ -955,7 +955,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	if g == nil {
 		return nil
 	}
-	if !g.Config.Features.WindowFuncs {
+	if !g.Config.Features.Aggregates {
 		return nil
 	}
 	joinType, ok := g.pickSupportedLateralJoinType()
@@ -1142,72 +1142,68 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		TableQuery: siblingQuery,
 		On:         g.trueExpr(),
 	}
-	windowOrderExpr := FuncExpr{
-		Name: "ABS",
-		Args: []Expr{BinaryExpr{
-			Left: ColumnExpr{Ref: ColumnRef{
-				Table: "dt",
-				Name:  "tie0",
-				Type:  tieAliasRef.Type,
-			}},
-			Op:    "-",
-			Right: ColumnExpr{Ref: siblingOuterCol},
-		}},
-	}
-	windowAliasRef := ColumnRef{Name: "outer_win0", Type: probeAliasRef.Type}
+	outerSumRef := ColumnRef{Name: "outer_sum0", Type: probeAliasRef.Type}
+	outerMaxRef := ColumnRef{Name: "outer_max0", Type: tieAliasRef.Type}
+	outerMinRef := ColumnRef{Name: "outer_min0", Type: scoreAliasRef.Type}
 	query := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: baseOuterCol},
-				Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
-			},
-			{
-				Expr:  ColumnExpr{Ref: siblingOuterCol},
-				Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
-			},
-			{
-				Expr: ColumnExpr{Ref: ColumnRef{
-					Table: "dt",
-					Name:  "score0",
-					Type:  scoreAliasRef.Type,
-				}},
-				Alias: "lateral_score0",
-			},
-			{
-				Expr: ColumnExpr{Ref: ColumnRef{
-					Table: "dt",
-					Name:  "tie0",
-					Type:  tieAliasRef.Type,
-				}},
-				Alias: "lateral_tie0",
-			},
-			{
-				Expr: ColumnExpr{Ref: ColumnRef{
-					Table: "sx",
-					Name:  "probe0",
-					Type:  probeAliasRef.Type,
-				}},
-				Alias: "sibling_probe0",
-			},
-			{
-				Expr: WindowExpr{
+				Expr: FuncExpr{
 					Name: "SUM",
-					Args: []Expr{ColumnExpr{Ref: ColumnRef{
-						Table: "sx",
-						Name:  "probe0",
-						Type:  probeAliasRef.Type,
-					}}},
-					PartitionBy: []Expr{ColumnExpr{Ref: baseOuterCol}},
-					OrderBy: []OrderBy{
-						{Expr: windowOrderExpr},
-						{Expr: ColumnExpr{Ref: ColumnRef{
-							Table: "sx",
-							Name:  "probe0",
-							Type:  probeAliasRef.Type,
-						}}},
-					},
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left: ColumnExpr{Ref: ColumnRef{
+								Table: "sx",
+								Name:  "probe0",
+								Type:  probeAliasRef.Type,
+							}},
+							Op: "-",
+							Right: ColumnExpr{Ref: ColumnRef{
+								Table: "dt",
+								Name:  "tie0",
+								Type:  tieAliasRef.Type,
+							}},
+						}},
+					}},
 				},
-				Alias: "outer_win0",
+				Alias: "outer_sum0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "MAX",
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left: ColumnExpr{Ref: ColumnRef{
+								Table: "dt",
+								Name:  "tie0",
+								Type:  tieAliasRef.Type,
+							}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						}},
+					}},
+				},
+				Alias: "outer_max0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "MIN",
+					Args: []Expr{FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left: ColumnExpr{Ref: ColumnRef{
+								Table: "dt",
+								Name:  "score0",
+								Type:  scoreAliasRef.Type,
+							}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: baseSignalRef},
+						}},
+					}},
+				},
+				Alias: "outer_min0",
 			},
 		},
 		From: FromClause{
@@ -1229,20 +1225,15 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	}
 	query.OrderBy = []OrderBy{
 		{
-			Expr: ColumnExpr{Ref: windowAliasRef},
+			Expr: ColumnExpr{Ref: outerSumRef},
 			Desc: true,
 		},
 		{
-			Expr: ColumnExpr{Ref: ColumnRef{
-				Table: "sx",
-				Name:  "probe0",
-				Type:  probeAliasRef.Type,
-			}},
+			Expr: ColumnExpr{Ref: outerMaxRef},
 		},
 		{
-			Expr: windowOrderExpr,
+			Expr: ColumnExpr{Ref: outerMinRef},
 		},
-		{Expr: ColumnExpr{Ref: baseOuterCol}},
 	}
 	return query
 }
