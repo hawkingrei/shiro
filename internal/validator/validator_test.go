@@ -66,6 +66,14 @@ func TestValidateLateralCaseCorrelatedGroupKeySQL(t *testing.T) {
 	}
 }
 
+func TestValidateLateralNestedCaseCorrelatedGroupKeySQL(t *testing.T) {
+	v := New()
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN t2.c2 ELSE t1.c1 END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN t1.c1 ELSE t2.c2 END END AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN t2.c2 ELSE t1.c1 END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN t1.c1 ELSE t2.c2 END END) AS dt ON (1 = 1) ORDER BY 1, 2"
+	if err := v.Validate(sql); err != nil {
+		t.Fatalf("expected nested-case-correlated grouped key LATERAL SQL to parse, got %v", err)
+	}
+}
+
 func TestValidateLateralAggregateValuedHavingSQL(t *testing.T) {
 	v := New()
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY t2.c2 HAVING (SUM(t2.v0) >= t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
