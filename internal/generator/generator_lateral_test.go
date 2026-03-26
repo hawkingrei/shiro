@@ -173,6 +173,40 @@ func TestBuildGroupedAggregateLateralHookQueryOuterFilteredWhere(t *testing.T) {
 	}
 }
 
+func TestBuildGroupedAggregateLateralHookQueryMultiFilteredWhere(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeMultiFilteredWhere)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL multi-filtered WHERE hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate multi-filtered WHERE hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate multi-filtered WHERE hook")
+	}
+	if lateral.TableQuery.Having != nil {
+		t.Fatalf("expected multi-filter variant to keep correlation in WHERE only")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) < 2 {
+		t.Fatalf("expected grouped aggregate multi-filtered WHERE to reference two left-side tables")
+	}
+	if !exprUsesAggregateSourceColumn(lateral.TableQuery.Where, lateral.TableQuery.Items) {
+		t.Fatalf("expected grouped aggregate multi-filtered WHERE to reference an aggregate source column")
+	}
+	if !exprUsesGroupByColumn(lateral.TableQuery.Where, lateral.TableQuery.GroupBy) {
+		t.Fatalf("expected grouped aggregate multi-filtered WHERE to reference a grouped column")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate multi-filtered WHERE LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
 func TestBuildGroupedAggregateLateralHookQueryAggregateValuedHaving(t *testing.T) {
 	gen := newGroupedAggregateLateralTestGenerator(t)
 	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeAggregateValueHaving)
@@ -253,6 +287,23 @@ func TestGenerateSelectQueryExercisesOuterFilteredGroupedAggregateLateralHook(t 
 	}
 
 	t.Fatalf("expected generator to exercise outer-filtered grouped aggregate lateral hook")
+}
+
+func TestGenerateSelectQueryExercisesMultiFilteredGroupedAggregateLateralHook(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 800; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasMultiFilteredGroupedAggregateLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated multi-filtered grouped aggregate lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise multi-filtered grouped aggregate lateral hook")
 }
 
 func TestGenerateSelectQueryExercisesAggregateValuedHavingLateralHook(t *testing.T) {
@@ -568,6 +619,29 @@ func queryHasOuterFilteredGroupedAggregateLateralHook(query *SelectQuery) bool {
 	return false
 }
 
+func queryHasMultiFilteredGroupedAggregateLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && len(join.TableQuery.GroupBy) > 0 && join.TableQuery.Having == nil {
+			if countVisibleTables(join.TableQuery.Where, visible) >= 2 &&
+				exprUsesAggregateSourceColumn(join.TableQuery.Where, join.TableQuery.Items) &&
+				exprUsesGroupByColumn(join.TableQuery.Where, join.TableQuery.GroupBy) {
+				return true
+			}
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 func queryHasAggregateValuedHavingLateralHook(query *SelectQuery) bool {
 	if query == nil {
 		return false
@@ -732,6 +806,27 @@ func exprUsesAggregateSourceColumn(expr Expr, items []SelectItem) bool {
 	for _, used := range expr.Columns() {
 		for _, aggCol := range aggCols {
 			if used.Table == aggCol.Table && used.Name == aggCol.Name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func exprUsesGroupByColumn(expr Expr, groupBy []Expr) bool {
+	if expr == nil || len(groupBy) == 0 {
+		return false
+	}
+	groupCols := make([]ColumnRef, 0, len(groupBy))
+	for _, item := range groupBy {
+		groupCols = append(groupCols, item.Columns()...)
+	}
+	if len(groupCols) == 0 {
+		return false
+	}
+	for _, used := range expr.Columns() {
+		for _, groupCol := range groupCols {
+			if used.Table == groupCol.Table && used.Name == groupCol.Name {
 				return true
 			}
 		}

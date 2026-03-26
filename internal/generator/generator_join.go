@@ -23,6 +23,7 @@ type groupedAggregateLateralMode int
 const (
 	groupedAggregateLateralModeWhere groupedAggregateLateralMode = iota
 	groupedAggregateLateralModeOuterFilteredWhere
+	groupedAggregateLateralModeMultiFilteredWhere
 	groupedAggregateLateralModeGroupKeyHaving
 	groupedAggregateLateralModeAggregateValueHaving
 )
@@ -446,6 +447,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 	variantOrder := []groupedAggregateLateralMode{
 		groupedAggregateLateralModeWhere,
 		groupedAggregateLateralModeOuterFilteredWhere,
+		groupedAggregateLateralModeMultiFilteredWhere,
 	}
 	if g.Config.Features.Having {
 		variantOrder = append(variantOrder,
@@ -546,6 +548,32 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		where = BinaryExpr{
 			Left: where,
 			Op:   "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: filterInnerRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: filterOuterRef},
+			},
+		}
+	case groupedAggregateLateralModeMultiFilteredWhere:
+		filterOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name, groupInnerCol.Name)
+		if !ok || !compatibleColumnType(filterInnerRef.Type, filterOuterRef.Type) {
+			return nil
+		}
+		where = BinaryExpr{
+			Left: BinaryExpr{
+				Left: where,
+				Op:   "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: groupInnerCol},
+					Op:    "=",
+					Right: ColumnExpr{Ref: siblingOuterCol},
+				},
+			},
+			Op: "AND",
 			Right: BinaryExpr{
 				Left:  ColumnExpr{Ref: filterInnerRef},
 				Op:    ">=",
