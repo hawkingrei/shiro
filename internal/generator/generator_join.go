@@ -22,6 +22,7 @@ type groupedAggregateLateralMode int
 
 const (
 	groupedAggregateLateralModeWhere groupedAggregateLateralMode = iota
+	groupedAggregateLateralModeOuterFilteredWhere
 	groupedAggregateLateralModeGroupKeyHaving
 	groupedAggregateLateralModeAggregateValueHaving
 )
@@ -442,7 +443,10 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 	if !util.Chance(g.Rand, LateralJoinGroupedAggregateProb) {
 		return nil
 	}
-	variantOrder := []groupedAggregateLateralMode{groupedAggregateLateralModeWhere}
+	variantOrder := []groupedAggregateLateralMode{
+		groupedAggregateLateralModeWhere,
+		groupedAggregateLateralModeOuterFilteredWhere,
+	}
 	if g.Config.Features.Having {
 		variantOrder = append(variantOrder,
 			groupedAggregateLateralModeGroupKeyHaving,
@@ -519,7 +523,8 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		Op:    "=",
 		Right: ColumnExpr{Ref: baseOuterCol},
 	})
-	if mode == groupedAggregateLateralModeWhere {
+	switch mode {
+	case groupedAggregateLateralModeWhere:
 		where = BinaryExpr{
 			Left: where,
 			Op:   "AND",
@@ -527,6 +532,24 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 				Left:  ColumnExpr{Ref: groupInnerCol},
 				Op:    "=",
 				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		}
+	case groupedAggregateLateralModeOuterFilteredWhere:
+		filterOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name, groupInnerCol.Name)
+		if !ok || !compatibleColumnType(filterInnerRef.Type, filterOuterRef.Type) {
+			return nil
+		}
+		where = BinaryExpr{
+			Left: where,
+			Op:   "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: filterInnerRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: filterOuterRef},
 			},
 		}
 	}
@@ -545,7 +568,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 			Right: ColumnExpr{Ref: siblingOuterCol},
 		}
 	case groupedAggregateLateralModeAggregateValueHaving:
-		havingOuterRef, ok := g.pickGroupedAggregateHavingOuterRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		havingOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
 		if !ok {
 			return nil
 		}
@@ -806,11 +829,18 @@ func (g *Generator) pickAggregateValueColumnRef(tbl schema.Table, excludeNames .
 	return ColumnRef{}, false
 }
 
-func (g *Generator) pickGroupedAggregateHavingOuterRef(base schema.Table, sibling schema.Table, excludeNames ...string) (ColumnRef, bool) {
+func (g *Generator) pickGroupedAggregateOuterNumericRef(base schema.Table, sibling schema.Table, excludeNames ...string) (ColumnRef, bool) {
 	if ref, ok := g.pickAggregateValueColumnRef(sibling, excludeNames...); ok {
 		return ref, true
 	}
 	return g.pickAggregateValueColumnRef(base, excludeNames...)
+}
+
+func (g *Generator) pickGroupedAggregateFilterInnerRef(tbl schema.Table, sumRef ColumnRef, hasSum bool, excludeNames ...string) (ColumnRef, bool) {
+	if hasSum {
+		return sumRef, true
+	}
+	return g.pickAggregateValueColumnRef(tbl, excludeNames...)
 }
 
 func (g *Generator) pickGroupedAggregateHavingExpr(sumRef ColumnRef, hasSum bool) (Expr, bool) {
