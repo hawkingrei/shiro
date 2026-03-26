@@ -132,8 +132,8 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 		query.From.Joins[0].tableName(): {},
 		query.From.Joins[1].tableName(): {},
 	}
-	if query.Where == nil || !exprUsesQualifiedColumnName(query.Where, "dt", "tie0") || countVisibleTables(query.Where, outerVisible) < 2 {
-		t.Fatalf("expected outer query WHERE to consume the reused scalar-subquery value after lateral projection")
+	if !exprContainsExists(query.Where) || !exprHasExistsQueryUsingVisibleTables(query.Where, outerVisible, 3) || !exprHasExistsQueryReferencingQualifiedColumn(query.Where, "dt", "tie0") {
+		t.Fatalf("expected outer query semi-filter to consume the reused scalar-subquery value after lateral projection")
 	}
 	if len(query.OrderBy) < 3 {
 		t.Fatalf("expected outer query ORDER BY to consume post-lateral projected values")
@@ -1716,7 +1716,7 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if name := query.From.Joins[1].tableName(); name != "" {
 		outerVisible[name] = struct{}{}
 	}
-	if query.Where == nil || !exprUsesQualifiedColumnName(query.Where, "dt", "tie0") || countVisibleTables(query.Where, outerVisible) < 2 {
+	if !exprContainsExists(query.Where) || !exprHasExistsQueryUsingVisibleTables(query.Where, outerVisible, 3) || !exprHasExistsQueryReferencingQualifiedColumn(query.Where, "dt", "tie0") {
 		return false
 	}
 	if len(query.OrderBy) < 3 {
@@ -2246,6 +2246,64 @@ func exprContainsScalarSubquery(expr Expr) bool {
 	}
 }
 
+func exprContainsExists(expr Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case ExistsExpr:
+		return true
+	case UnaryExpr:
+		return exprContainsExists(e.Expr)
+	case BinaryExpr:
+		return exprContainsExists(e.Left) || exprContainsExists(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprContainsExists(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprContainsExists(e.Expr)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprContainsExists(when.When) || exprContainsExists(when.Then) {
+				return true
+			}
+		}
+		return exprContainsExists(e.Else)
+	case InExpr:
+		if exprContainsExists(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprContainsExists(item) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprContainsExists(arg) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprContainsExists(expr) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprContainsExists(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 func exprHasOrderedLimitedScalarSubquery(expr Expr) bool {
 	switch e := expr.(type) {
 	case nil:
@@ -2295,6 +2353,66 @@ func exprHasOrderedLimitedScalarSubquery(expr Expr) bool {
 		}
 		for _, ob := range e.OrderBy {
 			if exprHasOrderedLimitedScalarSubquery(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func exprHasExistsQueryUsingVisibleTables(expr Expr, visible map[string]struct{}, minCount int) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case ExistsExpr:
+		return countVisibleTablesRecursive(e.Query, visible) >= minCount
+	case UnaryExpr:
+		return exprHasExistsQueryUsingVisibleTables(e.Expr, visible, minCount)
+	case BinaryExpr:
+		return exprHasExistsQueryUsingVisibleTables(e.Left, visible, minCount) ||
+			exprHasExistsQueryUsingVisibleTables(e.Right, visible, minCount)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasExistsQueryUsingVisibleTables(arg, visible, minCount) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprHasExistsQueryUsingVisibleTables(e.Expr, visible, minCount)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprHasExistsQueryUsingVisibleTables(when.When, visible, minCount) ||
+				exprHasExistsQueryUsingVisibleTables(when.Then, visible, minCount) {
+				return true
+			}
+		}
+		return exprHasExistsQueryUsingVisibleTables(e.Else, visible, minCount)
+	case InExpr:
+		if exprHasExistsQueryUsingVisibleTables(e.Left, visible, minCount) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasExistsQueryUsingVisibleTables(item, visible, minCount) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasExistsQueryUsingVisibleTables(arg, visible, minCount) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprHasExistsQueryUsingVisibleTables(expr, visible, minCount) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasExistsQueryUsingVisibleTables(ob.Expr, visible, minCount) {
 				return true
 			}
 		}
@@ -2370,6 +2488,66 @@ func scalarSubquerySignatures(expr Expr) []string {
 	return out
 }
 
+func exprHasExistsQueryReferencingQualifiedColumn(expr Expr, table string, name string) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case ExistsExpr:
+		return queryUsesQualifiedColumnRecursive(e.Query, table, name)
+	case UnaryExpr:
+		return exprHasExistsQueryReferencingQualifiedColumn(e.Expr, table, name)
+	case BinaryExpr:
+		return exprHasExistsQueryReferencingQualifiedColumn(e.Left, table, name) ||
+			exprHasExistsQueryReferencingQualifiedColumn(e.Right, table, name)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasExistsQueryReferencingQualifiedColumn(arg, table, name) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprHasExistsQueryReferencingQualifiedColumn(e.Expr, table, name)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprHasExistsQueryReferencingQualifiedColumn(when.When, table, name) ||
+				exprHasExistsQueryReferencingQualifiedColumn(when.Then, table, name) {
+				return true
+			}
+		}
+		return exprHasExistsQueryReferencingQualifiedColumn(e.Else, table, name)
+	case InExpr:
+		if exprHasExistsQueryReferencingQualifiedColumn(e.Left, table, name) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasExistsQueryReferencingQualifiedColumn(item, table, name) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasExistsQueryReferencingQualifiedColumn(arg, table, name) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprHasExistsQueryReferencingQualifiedColumn(expr, table, name) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasExistsQueryReferencingQualifiedColumn(ob.Expr, table, name) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 func caseExprDepth(expr Expr) int {
 	switch e := expr.(type) {
 	case nil:
@@ -2409,6 +2587,128 @@ func caseExprDepth(expr Expr) int {
 		return caseExprDepth(e.Expr)
 	default:
 		return 0
+	}
+}
+
+func queryUsesQualifiedColumnRecursive(query *SelectQuery, table string, name string) bool {
+	if query == nil || table == "" || name == "" {
+		return false
+	}
+	for _, cte := range query.With {
+		if queryUsesQualifiedColumnRecursive(cte.Query, table, name) {
+			return true
+		}
+	}
+	for _, op := range query.SetOps {
+		if queryUsesQualifiedColumnRecursive(op.Query, table, name) {
+			return true
+		}
+	}
+	if queryUsesQualifiedColumnInExprRecursive(query.Where, table, name) || queryUsesQualifiedColumnInExprRecursive(query.Having, table, name) {
+		return true
+	}
+	for _, item := range query.Items {
+		if queryUsesQualifiedColumnInExprRecursive(item.Expr, table, name) {
+			return true
+		}
+	}
+	for _, expr := range query.GroupBy {
+		if queryUsesQualifiedColumnInExprRecursive(expr, table, name) {
+			return true
+		}
+	}
+	for _, ob := range query.OrderBy {
+		if queryUsesQualifiedColumnInExprRecursive(ob.Expr, table, name) {
+			return true
+		}
+	}
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			if queryUsesQualifiedColumnInExprRecursive(expr, table, name) {
+				return true
+			}
+		}
+		for _, ob := range def.OrderBy {
+			if queryUsesQualifiedColumnInExprRecursive(ob.Expr, table, name) {
+				return true
+			}
+		}
+	}
+	if queryUsesQualifiedColumnRecursive(query.From.BaseQuery, table, name) {
+		return true
+	}
+	for _, join := range query.From.Joins {
+		if queryUsesQualifiedColumnInExprRecursive(join.On, table, name) || queryUsesQualifiedColumnRecursive(join.TableQuery, table, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryUsesQualifiedColumnInExprRecursive(expr Expr, table string, name string) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case ColumnExpr:
+		return e.Ref.Table == table && e.Ref.Name == name
+	case UnaryExpr:
+		return queryUsesQualifiedColumnInExprRecursive(e.Expr, table, name)
+	case BinaryExpr:
+		return queryUsesQualifiedColumnInExprRecursive(e.Left, table, name) ||
+			queryUsesQualifiedColumnInExprRecursive(e.Right, table, name)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if queryUsesQualifiedColumnInExprRecursive(arg, table, name) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return queryUsesQualifiedColumnInExprRecursive(e.Expr, table, name)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if queryUsesQualifiedColumnInExprRecursive(when.When, table, name) ||
+				queryUsesQualifiedColumnInExprRecursive(when.Then, table, name) {
+				return true
+			}
+		}
+		return queryUsesQualifiedColumnInExprRecursive(e.Else, table, name)
+	case InExpr:
+		if queryUsesQualifiedColumnInExprRecursive(e.Left, table, name) {
+			return true
+		}
+		for _, item := range e.List {
+			if queryUsesQualifiedColumnInExprRecursive(item, table, name) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		return queryUsesQualifiedColumnInExprRecursive(e.Left, table, name) ||
+			queryUsesQualifiedColumnRecursive(e.Query, table, name)
+	case SubqueryExpr:
+		return queryUsesQualifiedColumnRecursive(e.Query, table, name)
+	case ExistsExpr:
+		return queryUsesQualifiedColumnRecursive(e.Query, table, name)
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if queryUsesQualifiedColumnInExprRecursive(arg, table, name) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if queryUsesQualifiedColumnInExprRecursive(expr, table, name) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if queryUsesQualifiedColumnInExprRecursive(ob.Expr, table, name) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
 	}
 }
 

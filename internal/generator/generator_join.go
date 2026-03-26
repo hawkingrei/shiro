@@ -1113,15 +1113,52 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			},
 		},
 	}
-	query.Where = BinaryExpr{
-		Left: ColumnExpr{Ref: ColumnRef{
-			Table: "dt",
-			Name:  "tie0",
-			Type:  tieAliasRef.Type,
-		}},
-		Op:    ">=",
-		Right: ColumnExpr{Ref: siblingOuterCol},
-	}
+	query.Where = ExistsExpr{Query: &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  LiteralExpr{Value: 1},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{BaseTable: inner.Name, BaseAlias: "post"},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left: BinaryExpr{
+					Left: ColumnExpr{Ref: ColumnRef{
+						Table: "post",
+						Name:  baseInnerCol.Name,
+						Type:  baseInnerCol.Type,
+					}},
+					Op:    "=",
+					Right: ColumnExpr{Ref: baseOuterCol},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left: ColumnExpr{Ref: ColumnRef{
+						Table: "post",
+						Name:  scalarSourceCol.Name,
+						Type:  scalarSourceCol.Type,
+					}},
+					Op: "=",
+					Right: ColumnExpr{Ref: ColumnRef{
+						Table: "dt",
+						Name:  "tie0",
+						Type:  tieAliasRef.Type,
+					}},
+				},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left: ColumnExpr{Ref: ColumnRef{
+					Table: "post",
+					Name:  innerScoreCol.Name,
+					Type:  innerScoreCol.Type,
+				}},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+	}}
 	query.OrderBy = []OrderBy{
 		{
 			Expr: FuncExpr{
