@@ -959,6 +959,9 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	if !ok {
 		return nil
 	}
+	if joinType != JoinInner {
+		return nil
+	}
 	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
 	if !ok {
 		return nil
@@ -1067,8 +1070,33 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		TableAlias: "dt",
 		TableQuery: lateralQuery,
 	}
-	if joinType == JoinInner {
-		lateralJoin.On = g.trueExpr()
+	lateralJoin.On = BinaryExpr{
+		Left: BinaryExpr{
+			Left: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "tie0",
+				Type:  tieAliasRef.Type,
+			}},
+			Op:    ">=",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		},
+		Op: "AND",
+		Right: BinaryExpr{
+			Left: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "score0",
+				Type:  scoreAliasRef.Type,
+			}},
+			Op: "<=",
+			Right: FuncExpr{
+				Name: "ABS",
+				Args: []Expr{BinaryExpr{
+					Left:  ColumnExpr{Ref: baseSignalRef},
+					Op:    "-",
+					Right: ColumnExpr{Ref: siblingOuterCol},
+				}},
+			},
+		},
 	}
 	query := &SelectQuery{
 		Items: []SelectItem{
@@ -1113,52 +1141,6 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			},
 		},
 	}
-	query.Where = ExistsExpr{Query: &SelectQuery{
-		Items: []SelectItem{
-			{
-				Expr:  LiteralExpr{Value: 1},
-				Alias: "probe0",
-			},
-		},
-		From: FromClause{BaseTable: inner.Name, BaseAlias: "post"},
-		Where: BinaryExpr{
-			Left: BinaryExpr{
-				Left: BinaryExpr{
-					Left: ColumnExpr{Ref: ColumnRef{
-						Table: "post",
-						Name:  baseInnerCol.Name,
-						Type:  baseInnerCol.Type,
-					}},
-					Op:    "=",
-					Right: ColumnExpr{Ref: baseOuterCol},
-				},
-				Op: "AND",
-				Right: BinaryExpr{
-					Left: ColumnExpr{Ref: ColumnRef{
-						Table: "post",
-						Name:  scalarSourceCol.Name,
-						Type:  scalarSourceCol.Type,
-					}},
-					Op: "=",
-					Right: ColumnExpr{Ref: ColumnRef{
-						Table: "dt",
-						Name:  "tie0",
-						Type:  tieAliasRef.Type,
-					}},
-				},
-			},
-			Op: "AND",
-			Right: BinaryExpr{
-				Left: ColumnExpr{Ref: ColumnRef{
-					Table: "post",
-					Name:  innerScoreCol.Name,
-					Type:  innerScoreCol.Type,
-				}},
-				Op:    ">=",
-				Right: ColumnExpr{Ref: siblingOuterCol},
-			},
-		},
-	}}
 	query.OrderBy = []OrderBy{
 		{
 			Expr: FuncExpr{

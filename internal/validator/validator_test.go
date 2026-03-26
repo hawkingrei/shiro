@@ -44,7 +44,7 @@ func TestValidateLateralProjectedOrderLimitSQL(t *testing.T) {
 
 func TestValidateLateralScalarSubqueryProjectedOrderLimitSQL(t *testing.T) {
 	v := New()
-	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON (1 = 1) WHERE EXISTS (SELECT 1 AS probe0 FROM t2 AS post WHERE (((post.id = t0.id) AND (post.v0 = dt.tie0)) AND (post.c2 >= t1.c1))) ORDER BY ABS((dt.tie0 - t1.c1)), dt.score0, t0.id"
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON ((dt.tie0 >= t1.c1) AND (dt.score0 <= ABS((t0.c0 - t1.c1)))) ORDER BY ABS((dt.tie0 - t1.c1)), dt.score0, t0.id"
 	if err := v.Validate(sql); err != nil {
 		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL SQL to parse, got %v", err)
 	}
