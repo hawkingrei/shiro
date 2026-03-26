@@ -896,6 +896,131 @@ func TestValidateQueryScopeLateralJoinAllowsNestedCaseCorrelatedGroupKeyReferenc
 	}
 }
 
+func TestValidateQueryScopeLateralJoinAllowsWrappedNestedCaseCorrelatedGroupKeyReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+					{Name: "v0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	diffInnerOuter := BinaryExpr{
+		Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}},
+		Op:    "-",
+		Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+	}
+	diffOuterInner := BinaryExpr{
+		Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+		Op:    "-",
+		Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}},
+	}
+	innerCase := CaseExpr{
+		Whens: []CaseWhen{
+			{
+				When: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "v0", Type: schema.TypeInt}},
+					Op:    ">=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+				},
+				Then: diffInnerOuter,
+			},
+		},
+		Else: diffOuterInner,
+	}
+	outerElse := CaseExpr{
+		Whens: []CaseWhen{
+			{
+				When: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "v0", Type: schema.TypeInt}},
+					Op:    ">=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+				},
+				Then: diffOuterInner,
+			},
+		},
+		Else: diffInnerOuter,
+	}
+	groupExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{
+			CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+						},
+						Then: innerCase,
+					},
+				},
+				Else: outerElse,
+			},
+		},
+	}
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: groupExpr, Alias: "g0"},
+			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
+			{Expr: FuncExpr{Name: "SUM", Args: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "v0", Type: schema.TypeInt}}}}, Alias: "sum1"},
+		},
+		From:    FromClause{BaseTable: "t2"},
+		Where:   BinaryExpr{Left: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Op: "=", Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
+		GroupBy: []Expr{groupExpr},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+						Op:    "=",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "id", Type: schema.TypeInt}},
+					},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "g0", Type: schema.TypeInt}}, Alias: "g0"},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "sum1", Type: schema.TypeInt}}, Alias: "sum1"},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected wrapped-nested-case-correlated grouped key to see outer tables")
+	}
+}
+
 func TestValidateQueryScopeLateralJoinAllowsAggregateValuedHavingReferences(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

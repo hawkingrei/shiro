@@ -27,6 +27,7 @@ const (
 	groupedAggregateLateralModeOuterCorrelatedGroupKey
 	groupedAggregateLateralModeCaseCorrelatedGroupKey
 	groupedAggregateLateralModeNestedCaseCorrelatedGroupKey
+	groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey
 	groupedAggregateLateralModeGroupKeyHaving
 	groupedAggregateLateralModeAggregateValueHaving
 )
@@ -454,6 +455,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 		groupedAggregateLateralModeOuterCorrelatedGroupKey,
 		groupedAggregateLateralModeCaseCorrelatedGroupKey,
 		groupedAggregateLateralModeNestedCaseCorrelatedGroupKey,
+		groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey,
 	}
 	if g.Config.Features.Having {
 		variantOrder = append(variantOrder,
@@ -508,7 +510,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 
 	groupExpr := Expr(ColumnExpr{Ref: groupInnerCol})
 	groupExprType := groupInnerCol.Type
-	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey || mode == groupedAggregateLateralModeCaseCorrelatedGroupKey || mode == groupedAggregateLateralModeNestedCaseCorrelatedGroupKey {
+	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey || mode == groupedAggregateLateralModeCaseCorrelatedGroupKey || mode == groupedAggregateLateralModeNestedCaseCorrelatedGroupKey || mode == groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey {
 		if !g.isNumericType(groupInnerCol.Type) || !g.isNumericType(siblingOuterCol.Type) || !compatibleColumnType(groupInnerCol.Type, siblingOuterCol.Type) {
 			return nil
 		}
@@ -576,6 +578,65 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 					},
 				},
 				Else: outerElse,
+			}
+		case groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey:
+			filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name)
+			if !ok || !g.isNumericType(filterInnerRef.Type) || !compatibleColumnType(filterInnerRef.Type, siblingOuterCol.Type) {
+				return nil
+			}
+			diffInnerOuter := BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "-",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			}
+			diffOuterInner := BinaryExpr{
+				Left:  ColumnExpr{Ref: siblingOuterCol},
+				Op:    "-",
+				Right: ColumnExpr{Ref: groupInnerCol},
+			}
+			innerCase := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: diffInnerOuter,
+					},
+				},
+				Else: diffOuterInner,
+			}
+			outerElse := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: diffOuterInner,
+					},
+				},
+				Else: diffInnerOuter,
+			}
+			groupExpr = FuncExpr{
+				Name: "ABS",
+				Args: []Expr{
+					CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: BinaryExpr{
+									Left:  ColumnExpr{Ref: groupInnerCol},
+									Op:    ">=",
+									Right: ColumnExpr{Ref: siblingOuterCol},
+								},
+								Then: innerCase,
+							},
+						},
+						Else: outerElse,
+					},
+				},
 			}
 		}
 	}
@@ -666,6 +727,8 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		// Keep the base equality anchor in WHERE and route sibling dependency through a non-linear grouped key expression.
 	case groupedAggregateLateralModeNestedCaseCorrelatedGroupKey:
 		// Keep the base equality anchor in WHERE and route sibling dependency through nested CASE branches in the grouped key.
+	case groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and route sibling dependency through nested CASE branches wrapped by a value-domain-changing function.
 	}
 
 	lateralQuery := &SelectQuery{
