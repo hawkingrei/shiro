@@ -740,7 +740,7 @@ func exprUsesAggregateSourceColumn(expr Expr, items []SelectItem) bool {
 }
 
 func aggregateSourceColumns(items []SelectItem) []ColumnRef {
-	var cols []ColumnRef
+	cols := make([]ColumnRef, 0, len(items))
 	for _, item := range items {
 		cols = append(cols, aggregateSourceColumnsFromExpr(item.Expr)...)
 	}
@@ -753,13 +753,13 @@ func aggregateSourceColumnsFromExpr(expr Expr) []ColumnRef {
 		return nil
 	case FuncExpr:
 		if isAggregateFunc(e.Name) {
-			var cols []ColumnRef
+			cols := make([]ColumnRef, 0, len(e.Args))
 			for _, arg := range e.Args {
 				cols = append(cols, arg.Columns()...)
 			}
 			return cols
 		}
-		var cols []ColumnRef
+		cols := make([]ColumnRef, 0, len(e.Args))
 		for _, arg := range e.Args {
 			cols = append(cols, aggregateSourceColumnsFromExpr(arg)...)
 		}
@@ -772,7 +772,7 @@ func aggregateSourceColumnsFromExpr(expr Expr) []ColumnRef {
 	case GroupByOrdinalExpr:
 		return aggregateSourceColumnsFromExpr(e.Expr)
 	case CaseExpr:
-		var cols []ColumnRef
+		cols := make([]ColumnRef, 0, len(e.Whens)*2)
 		for _, when := range e.Whens {
 			cols = append(cols, aggregateSourceColumnsFromExpr(when.When)...)
 			cols = append(cols, aggregateSourceColumnsFromExpr(when.Then)...)
@@ -787,7 +787,7 @@ func aggregateSourceColumnsFromExpr(expr Expr) []ColumnRef {
 	case CompareSubqueryExpr:
 		return aggregateSourceColumnsFromExpr(e.Left)
 	case WindowExpr:
-		var cols []ColumnRef
+		cols := make([]ColumnRef, 0, len(e.Args)+len(e.PartitionBy)+len(e.OrderBy))
 		for _, arg := range e.Args {
 			cols = append(cols, aggregateSourceColumnsFromExpr(arg)...)
 		}
