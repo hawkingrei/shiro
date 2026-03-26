@@ -539,6 +539,92 @@ func TestGenerateSelectQueryExercisesAggregateValuedHavingLateralHook(t *testing
 	t.Fatalf("expected generator to exercise aggregate-valued HAVING lateral hook")
 }
 
+func TestBuildGroupedOutputAliasLateralHookQueryUsing(t *testing.T) {
+	gen := newGroupedOutputAliasLateralTestGenerator(t)
+	gen.Config.Features.NaturalJoins = false
+	query := gen.buildGroupedOutputAliasLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	if query == nil {
+		t.Fatalf("expected grouped-output-alias LATERAL hook query for USING")
+	}
+	if len(query.From.Joins) != 2 || len(query.From.Joins[0].Using) == 0 {
+		t.Fatalf("expected USING join before grouped-output-alias LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped-output-alias hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped derived table inside grouped-output-alias LATERAL hook")
+	}
+	agg := lateral.TableQuery.From.BaseQuery
+	if len(agg.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped derived table")
+	}
+	if !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
+		t.Fatalf("expected grouped derived table to expose g0/cnt aliases")
+	}
+	usingCol := query.From.Joins[0].Using[0]
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
+		t.Fatalf("expected grouped-output-alias LATERAL predicate to reference merged USING column %q", usingCol)
+	}
+	if !exprUsesQualifiedColumnName(lateral.TableQuery.Where, lateral.TableQuery.From.baseName(), "g0") {
+		t.Fatalf("expected grouped-output-alias LATERAL predicate to reference grouped output alias")
+	}
+	if len(lateral.TableQuery.OrderBy) == 0 || !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName(), "g0") {
+		t.Fatalf("expected grouped-output-alias LATERAL hook to order by grouped output alias")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped-output-alias USING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestBuildGroupedOutputAliasLateralHookQueryNatural(t *testing.T) {
+	gen := newGroupedOutputAliasLateralTestGenerator(t)
+	query := gen.buildGroupedOutputAliasLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], true)
+	if query == nil {
+		t.Fatalf("expected grouped-output-alias LATERAL hook query for NATURAL join")
+	}
+	if len(query.From.Joins) != 2 || !query.From.Joins[0].Natural {
+		t.Fatalf("expected NATURAL join before grouped-output-alias LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped-output-alias NATURAL hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped derived table inside grouped-output-alias NATURAL hook")
+	}
+	if len(lateral.TableQuery.From.BaseQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped derived table for NATURAL hook")
+	}
+	if !exprHasUnqualifiedColumn(lateral.TableQuery.Where) {
+		t.Fatalf("expected grouped-output-alias NATURAL hook to reference merged column unqualified")
+	}
+	if !exprUsesQualifiedColumnName(lateral.TableQuery.Where, lateral.TableQuery.From.baseName(), "g0") {
+		t.Fatalf("expected grouped-output-alias NATURAL hook to reference grouped output alias")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped-output-alias NATURAL LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestGenerateSelectQueryExercisesGroupedOutputAliasLateralHook(t *testing.T) {
+	gen := newGroupedOutputAliasLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasGroupedOutputAliasLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated grouped-output-alias lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise grouped-output-alias LATERAL hook")
+}
+
 func newGroupedAggregateLateralTestGenerator(t *testing.T) *Generator {
 	t.Helper()
 	gen := newTestGenerator(t)
@@ -583,6 +669,14 @@ func newGroupedAggregateLateralTestGenerator(t *testing.T) *Generator {
 			},
 		},
 	}
+	return gen
+}
+
+func newGroupedOutputAliasLateralTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newMergedVisibilityTestGenerator(t)
+	gen.Config.Features.Aggregates = true
+	gen.Config.Features.GroupBy = true
 	return gen
 }
 
@@ -1015,6 +1109,34 @@ func queryHasAggregateValuedHavingLateralHook(query *SelectQuery) bool {
 	return false
 }
 
+func queryHasGroupedOutputAliasLateralHook(query *SelectQuery) bool {
+	if query == nil || len(query.From.Joins) < 2 {
+		return false
+	}
+	mergedJoin := query.From.Joins[0]
+	if !mergedJoin.Natural && len(mergedJoin.Using) == 0 {
+		return false
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
+		return false
+	}
+	agg := lateral.TableQuery.From.BaseQuery
+	if len(agg.GroupBy) == 0 || !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
+		return false
+	}
+	if !exprUsesTable(lateral.TableQuery.Where, lateral.TableQuery.From.baseName()) {
+		return false
+	}
+	if !exprHasUnqualifiedColumn(lateral.TableQuery.Where) {
+		return false
+	}
+	if len(lateral.TableQuery.OrderBy) == 0 || !exprUsesTable(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName()) {
+		return false
+	}
+	return true
+}
+
 func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
 	if query == nil || len(query.From.Joins) < 2 {
 		return false
@@ -1062,6 +1184,18 @@ func countVisibleTables(expr Expr, visible map[string]struct{}) int {
 	return len(seen)
 }
 
+func exprUsesQualifiedColumnName(expr Expr, table string, name string) bool {
+	if expr == nil || table == "" || name == "" {
+		return false
+	}
+	for _, col := range expr.Columns() {
+		if col.Table == table && col.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func exprHasUnqualifiedColumn(expr Expr) bool {
 	if expr == nil {
 		return false
@@ -1084,6 +1218,25 @@ func exprUsesUnqualifiedColumnName(expr Expr, name string) bool {
 		}
 	}
 	return false
+}
+
+func selectItemsHaveAliases(items []SelectItem, names ...string) bool {
+	if len(names) == 0 {
+		return true
+	}
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.Alias == "" {
+			continue
+		}
+		seen[item.Alias] = struct{}{}
+	}
+	for _, name := range names {
+		if _, ok := seen[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func exprContainsAggregate(expr Expr) bool {

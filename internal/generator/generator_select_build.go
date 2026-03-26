@@ -29,6 +29,14 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		subqueryDisallowReason = "scalar_subquery_off"
 	}
 
+	if query := g.buildGroupedOutputAliasLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
+		return query
+	}
+
 	if query := g.buildGroupedAggregateLateralHookQuery(baseTables); query != nil {
 		if !g.validateQueryScope(query) {
 			return nil

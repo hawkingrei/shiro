@@ -103,6 +103,28 @@ func TestSelectCandidatesHandleMergedColumnLateralJoin(t *testing.T) {
 	}
 }
 
+func TestSelectCandidatesHandleGroupedOutputAliasLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT agg.g0 AS g0, agg.cnt AS cnt FROM (SELECT t2.id AS g0, COUNT(1) AS cnt FROM t2 GROUP BY t2.id) AS agg WHERE (agg.g0 = id) ORDER BY agg.g0) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for grouped-output-alias LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized grouped-output-alias LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesHandleAggregateLateralJoin(t *testing.T) {
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 = t1.c1))) AS dt ON (1 = 1) ORDER BY 1, 2"
 	p := parser.New()
