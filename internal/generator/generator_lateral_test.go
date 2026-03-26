@@ -78,6 +78,9 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if len(lateral.TableQuery.GroupBy) == 0 {
 		t.Fatalf("expected GROUP BY inside grouped-output-order-limit LATERAL hook")
 	}
+	if !exprContainsCase(lateral.TableQuery.GroupBy[0]) {
+		t.Fatalf("expected grouped-output-order-limit GROUP BY to use a branchy CASE-correlated key")
+	}
 	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
 		t.Fatalf("expected grouped-output-order-limit GROUP BY to depend on the inner grouped source")
 	}
@@ -129,6 +132,9 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
 	}
 	if len(lateral.TableQuery.GroupBy) == 0 || !exprHasUnqualifiedColumn(lateral.TableQuery.GroupBy[0]) {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a merged column inside GROUP BY")
+	}
+	if !exprContainsCase(lateral.TableQuery.GroupBy[0]) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a branchy CASE-correlated key")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
@@ -1267,6 +1273,9 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	if len(lateral.TableQuery.GroupBy) == 0 || !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
+		return false
+	}
+	if !exprContainsCase(lateral.TableQuery.GroupBy[0]) {
 		return false
 	}
 	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {

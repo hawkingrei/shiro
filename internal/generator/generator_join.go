@@ -936,14 +936,25 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
 	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
 	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
-	groupExpr := FuncExpr{
-		Name: "ABS",
-		Args: []Expr{
-			BinaryExpr{
-				Left:  ColumnExpr{Ref: innerRef},
-				Op:    "-",
-				Right: ColumnExpr{Ref: mergedRef},
+	groupExpr := CaseExpr{
+		Whens: []CaseWhen{
+			{
+				When: BinaryExpr{
+					Left:  ColumnExpr{Ref: innerRef},
+					Op:    ">=",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
+				Then: BinaryExpr{
+					Left:  ColumnExpr{Ref: innerRef},
+					Op:    "-",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
 			},
+		},
+		Else: BinaryExpr{
+			Left:  ColumnExpr{Ref: mergedRef},
+			Op:    "-",
+			Right: ColumnExpr{Ref: innerRef},
 		},
 	}
 	limit := 1
@@ -961,7 +972,7 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 		From: FromClause{BaseTable: inner.Name},
 		Where: BinaryExpr{
 			Left:  ColumnExpr{Ref: innerRef},
-			Op:    ">=",
+			Op:    "<>",
 			Right: ColumnExpr{Ref: mergedRef},
 		},
 		GroupBy: []Expr{groupExpr},

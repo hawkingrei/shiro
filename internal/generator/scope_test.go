@@ -1337,14 +1337,25 @@ func TestValidateQueryScopeLateralJoinAllowsGroupedOutputOrderLimitVisibility(t 
 	limit := 1
 	lateral := &SelectQuery{
 		Items: []SelectItem{
-			{Expr: FuncExpr{
-				Name: "ABS",
-				Args: []Expr{
-					BinaryExpr{
-						Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+			{Expr: CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
 					},
+				},
+				Else: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+					Op:    "-",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
 				},
 			}, Alias: "g0"},
 			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
@@ -1352,18 +1363,29 @@ func TestValidateQueryScopeLateralJoinAllowsGroupedOutputOrderLimitVisibility(t 
 		From: FromClause{BaseTable: "t2"},
 		Where: BinaryExpr{
 			Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-			Op:    ">=",
+			Op:    "<>",
 			Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
 		},
 		GroupBy: []Expr{
-			FuncExpr{
-				Name: "ABS",
-				Args: []Expr{
-					BinaryExpr{
-						Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+			CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						},
 					},
+				},
+				Else: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+					Op:    "-",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
 				},
 			},
 		},

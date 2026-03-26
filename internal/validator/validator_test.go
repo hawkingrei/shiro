@@ -28,7 +28,7 @@ func TestValidateLateralGroupedOutputAliasSQL(t *testing.T) {
 
 func TestValidateLateralGroupedOutputOrderLimitSQL(t *testing.T) {
 	v := New()
-	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT ABS((t2.id - id)) AS g0, COUNT(1) AS cnt FROM t2 WHERE (t2.id >= id) GROUP BY ABS((t2.id - id)) ORDER BY g0, cnt DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT CASE WHEN (t2.id >= id) THEN (t2.id - id) ELSE (id - t2.id) END AS g0, COUNT(1) AS cnt FROM t2 WHERE (t2.id <> id) GROUP BY CASE WHEN (t2.id >= id) THEN (t2.id - id) ELSE (id - t2.id) END ORDER BY g0, cnt DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
 	if err := v.Validate(sql); err != nil {
 		t.Fatalf("expected grouped-output-order-limit LATERAL SQL to parse, got %v", err)
 	}
