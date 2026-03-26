@@ -621,14 +621,7 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 				Alias: "score0",
 			},
 			{
-				Expr: FuncExpr{
-					Name: "ABS",
-					Args: []Expr{BinaryExpr{
-						Left:  SubqueryExpr{Query: buildScalar()},
-						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-					}},
-				},
+				Expr:  SubqueryExpr{Query: buildScalar()},
 				Alias: "tie0",
 			},
 		},

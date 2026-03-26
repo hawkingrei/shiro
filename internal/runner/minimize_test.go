@@ -170,7 +170,7 @@ func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
 }
 
 func TestSelectCandidatesHandleScalarSubqueryProjectedOrderLimitLateralJoin(t *testing.T) {
-	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, ABS(((SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) - t1.c1)) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
 	p := parser.New()
 	node, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {

@@ -1032,16 +1032,9 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			Right: SubqueryExpr{Query: buildScalarSubquery()},
 		}},
 	}
-	tieExpr := FuncExpr{
-		Name: "ABS",
-		Args: []Expr{BinaryExpr{
-			Left:  SubqueryExpr{Query: buildScalarSubquery()},
-			Op:    "-",
-			Right: ColumnExpr{Ref: siblingOuterCol},
-		}},
-	}
+	tieExpr := SubqueryExpr{Query: buildScalarSubquery()}
 	scoreAliasRef := ColumnRef{Name: "score0", Type: innerScoreCol.Type}
-	tieAliasRef := ColumnRef{Name: "tie0", Type: innerScoreCol.Type}
+	tieAliasRef := ColumnRef{Name: "tie0", Type: scalarSourceCol.Type}
 	limit := 1
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{

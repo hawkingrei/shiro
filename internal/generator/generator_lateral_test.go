@@ -98,11 +98,16 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if !exprHasOrderedLimitedScalarSubquery(scoreExpr) || !exprHasScalarSubqueryUsingVisibleTables(scoreExpr, visible, 2) {
 		t.Fatalf("expected scalar-subquery projected-order-limit score0 to keep correlated ORDER BY + LIMIT visibility")
 	}
-	if !exprContainsFuncName(tieExpr, "ABS") || !exprContainsScalarSubquery(tieExpr) {
-		t.Fatalf("expected scalar-subquery projected-order-limit tie0 to wrap a scalar subquery")
+	if !exprContainsScalarSubquery(tieExpr) {
+		t.Fatalf("expected scalar-subquery projected-order-limit tie0 to project the scalar subquery directly")
 	}
 	if !exprHasOrderedLimitedScalarSubquery(tieExpr) || !exprHasScalarSubqueryUsingVisibleTables(tieExpr, visible, 2) {
 		t.Fatalf("expected scalar-subquery projected-order-limit tie0 to keep correlated ORDER BY + LIMIT visibility")
+	}
+	scoreSubs := scalarSubquerySignatures(scoreExpr)
+	tieSubs := scalarSubquerySignatures(tieExpr)
+	if len(scoreSubs) == 0 || len(tieSubs) != 1 || scoreSubs[0] != tieSubs[0] {
+		t.Fatalf("expected scalar-subquery projected-order-limit score0 and tie0 to share the same correlated scalar subquery")
 	}
 	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 {
 		t.Fatalf("expected scalar-subquery projected-order-limit WHERE to keep a direct left-side anchor")
@@ -1658,10 +1663,15 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 		return false
 	}
 	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
-	if !ok || !exprContainsFuncName(tieExpr, "ABS") || !exprContainsScalarSubquery(tieExpr) {
+	if !ok || !exprContainsScalarSubquery(tieExpr) {
 		return false
 	}
 	if !exprHasOrderedLimitedScalarSubquery(tieExpr) || !exprHasScalarSubqueryUsingVisibleTables(tieExpr, visible, 2) {
+		return false
+	}
+	scoreSubs := scalarSubquerySignatures(scoreExpr)
+	tieSubs := scalarSubquerySignatures(tieExpr)
+	if len(scoreSubs) == 0 || len(tieSubs) != 1 || scoreSubs[0] != tieSubs[0] {
 		return false
 	}
 	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 || len(lateral.TableQuery.OrderBy) < 3 {
@@ -2309,6 +2319,12 @@ func exprHasScalarSubqueryUsingVisibleTables(expr Expr, visible map[string]struc
 	}
 }
 
+func scalarSubquerySignatures(expr Expr) []string {
+	out := make([]string, 0, 2)
+	collectScalarSubquerySignatures(expr, &out)
+	return out
+}
+
 func caseExprDepth(expr Expr) int {
 	switch e := expr.(type) {
 	case nil:
@@ -2497,6 +2513,51 @@ func collectVisibleTablesInExpr(expr Expr, visible map[string]struct{}, seen map
 		}
 		for _, ob := range e.OrderBy {
 			collectVisibleTablesInExpr(ob.Expr, visible, seen)
+		}
+	}
+}
+
+func collectScalarSubquerySignatures(expr Expr, out *[]string) {
+	switch e := expr.(type) {
+	case nil:
+		return
+	case UnaryExpr:
+		collectScalarSubquerySignatures(e.Expr, out)
+	case BinaryExpr:
+		collectScalarSubquerySignatures(e.Left, out)
+		collectScalarSubquerySignatures(e.Right, out)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			collectScalarSubquerySignatures(arg, out)
+		}
+	case GroupByOrdinalExpr:
+		collectScalarSubquerySignatures(e.Expr, out)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			collectScalarSubquerySignatures(when.When, out)
+			collectScalarSubquerySignatures(when.Then, out)
+		}
+		collectScalarSubquerySignatures(e.Else, out)
+	case InExpr:
+		collectScalarSubquerySignatures(e.Left, out)
+		for _, item := range e.List {
+			collectScalarSubquerySignatures(item, out)
+		}
+	case CompareSubqueryExpr:
+		collectScalarSubquerySignatures(e.Left, out)
+	case WindowExpr:
+		for _, arg := range e.Args {
+			collectScalarSubquerySignatures(arg, out)
+		}
+		for _, expr := range e.PartitionBy {
+			collectScalarSubquerySignatures(expr, out)
+		}
+		for _, ob := range e.OrderBy {
+			collectScalarSubquerySignatures(ob.Expr, out)
+		}
+	case SubqueryExpr:
+		if e.Query != nil {
+			*out = append(*out, e.Query.SQLString())
 		}
 	}
 }
