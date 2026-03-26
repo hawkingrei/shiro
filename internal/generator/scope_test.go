@@ -1337,7 +1337,16 @@ func TestValidateQueryScopeLateralJoinAllowsGroupedOutputOrderLimitVisibility(t 
 	limit := 1
 	lateral := &SelectQuery{
 		Items: []SelectItem{
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Alias: "g0"},
+			{Expr: FuncExpr{
+				Name: "ABS",
+				Args: []Expr{
+					BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+					},
+				},
+			}, Alias: "g0"},
 			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
 		},
 		From: FromClause{BaseTable: "t2"},
@@ -1346,26 +1355,28 @@ func TestValidateQueryScopeLateralJoinAllowsGroupedOutputOrderLimitVisibility(t 
 			Op:    ">=",
 			Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
 		},
-		GroupBy: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}},
-		OrderBy: []OrderBy{
-			{
-				Expr: FuncExpr{
-					Name: "ABS",
-					Args: []Expr{
-						BinaryExpr{
-							Left:  ColumnExpr{Ref: ColumnRef{Name: "g0", Type: schema.TypeInt}},
-							Op:    "-",
-							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
-						},
+		GroupBy: []Expr{
+			FuncExpr{
+				Name: "ABS",
+				Args: []Expr{
+					BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
 					},
 				},
+			},
+		},
+		OrderBy: []OrderBy{
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "g0", Type: schema.TypeInt}},
 			},
 			{
 				Expr: ColumnExpr{Ref: ColumnRef{Name: "cnt", Type: schema.TypeBigInt}},
 				Desc: true,
 			},
 			{
-				Expr: ColumnExpr{Ref: ColumnRef{Name: "g0", Type: schema.TypeInt}},
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
 			},
 		},
 		Limit: &limit,

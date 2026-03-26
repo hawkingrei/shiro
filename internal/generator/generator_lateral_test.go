@@ -78,6 +78,9 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if len(lateral.TableQuery.GroupBy) == 0 {
 		t.Fatalf("expected GROUP BY inside grouped-output-order-limit LATERAL hook")
 	}
+	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
+		t.Fatalf("expected grouped-output-order-limit GROUP BY to depend on the inner grouped source")
+	}
 	if !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
 		t.Fatalf("expected grouped-output-order-limit LATERAL hook to expose g0/cnt aliases directly")
 	}
@@ -88,17 +91,20 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected grouped-output-order-limit WHERE to reference merged USING column %q before aggregation", usingCol)
 	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.GroupBy[0], usingCol) {
+		t.Fatalf("expected grouped-output-order-limit GROUP BY to reference merged USING column %q", usingCol)
+	}
 	if len(lateral.TableQuery.OrderBy) == 0 {
 		t.Fatalf("expected ORDER BY inside grouped-output-order-limit hook")
 	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference grouped output alias")
 	}
-	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, usingCol) {
-		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference merged USING column %q", usingCol)
-	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "cnt") {
 		t.Fatalf("expected grouped-output-order-limit ORDER BY to rank by grouped count alias")
+	}
+	if len(lateral.TableQuery.OrderBy) < 3 || !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[2].Expr, usingCol) {
+		t.Fatalf("expected grouped-output-order-limit ORDER BY to keep merged USING column %q visible as a tie breaker", usingCol)
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected grouped-output-order-limit USING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
@@ -121,17 +127,23 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if lateral.TableQuery.From.BaseQuery != nil {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to group directly inside the LATERAL body")
 	}
+	if len(lateral.TableQuery.GroupBy) == 0 || !exprHasUnqualifiedColumn(lateral.TableQuery.GroupBy[0]) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a merged column inside GROUP BY")
+	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
 	}
 	if !exprHasUnqualifiedColumn(lateral.TableQuery.Where) {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified before aggregation")
 	}
-	if len(lateral.TableQuery.OrderBy) == 0 || !exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.OrderBy[0].Expr, "g0") {
-		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified in ORDER BY")
+	if len(lateral.TableQuery.OrderBy) == 0 {
+		t.Fatalf("expected ORDER BY inside grouped-output-order-limit NATURAL hook")
 	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "g0") {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference grouped output alias in ORDER BY")
+	}
+	if len(lateral.TableQuery.OrderBy) < 3 || !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[2].Expr) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep merged column unqualified in ORDER BY tie breaker")
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected grouped-output-order-limit NATURAL LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
@@ -1257,6 +1269,9 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 	if len(lateral.TableQuery.GroupBy) == 0 || !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
 		return false
 	}
+	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
+		return false
+	}
 	if lateral.TableQuery.Limit == nil || lateral.TableQuery.Where == nil {
 		return false
 	}
@@ -1271,11 +1286,15 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 	}
 	if mergedJoin.Natural {
 		return exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.Where) &&
-			exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.OrderBy[0].Expr, "g0")
+			exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.GroupBy[0]) &&
+			len(lateral.TableQuery.OrderBy) > 2 &&
+			exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[2].Expr)
 	}
 	for _, name := range mergedJoin.Using {
 		if exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, name) &&
-			exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, name) {
+			exprUsesUnqualifiedColumnName(lateral.TableQuery.GroupBy[0], name) &&
+			len(lateral.TableQuery.OrderBy) > 2 &&
+			exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[2].Expr, name) {
 			return true
 		}
 	}

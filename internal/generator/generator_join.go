@@ -936,11 +936,11 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
 	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
 	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
-	orderExpr := FuncExpr{
+	groupExpr := FuncExpr{
 		Name: "ABS",
 		Args: []Expr{
 			BinaryExpr{
-				Left:  ColumnExpr{Ref: groupAliasRef},
+				Left:  ColumnExpr{Ref: innerRef},
 				Op:    "-",
 				Right: ColumnExpr{Ref: mergedRef},
 			},
@@ -950,7 +950,7 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: innerRef},
+				Expr:  groupExpr,
 				Alias: "g0",
 			},
 			{
@@ -964,11 +964,11 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 			Op:    ">=",
 			Right: ColumnExpr{Ref: mergedRef},
 		},
-		GroupBy: []Expr{ColumnExpr{Ref: innerRef}},
+		GroupBy: []Expr{groupExpr},
 		OrderBy: []OrderBy{
-			{Expr: orderExpr},
-			{Expr: ColumnExpr{Ref: countAliasRef}, Desc: true},
 			{Expr: ColumnExpr{Ref: groupAliasRef}},
+			{Expr: ColumnExpr{Ref: countAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: mergedRef}},
 		},
 		Limit: &limit,
 	}
