@@ -241,6 +241,43 @@ func TestBuildGroupedAggregateLateralHookQueryOuterCorrelatedGroupKey(t *testing
 	}
 }
 
+func TestBuildGroupedAggregateLateralHookQueryCaseCorrelatedGroupKey(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeCaseCorrelatedGroupKey)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL case-correlated group-key hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate case-correlated group-key hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate case-correlated group-key hook")
+	}
+	if lateral.TableQuery.Having != nil {
+		t.Fatalf("expected case-correlated group-key variant to keep correlation out of HAVING")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 {
+		t.Fatalf("expected grouped aggregate case-correlated group-key hook to keep base correlation in WHERE")
+	}
+	if !exprContainsCase(lateral.TableQuery.GroupBy[0]) {
+		t.Fatalf("expected grouped aggregate case-correlated group key to use CASE")
+	}
+	if countVisibleTables(lateral.TableQuery.GroupBy[0], visible) == 0 {
+		t.Fatalf("expected grouped aggregate case-correlated group key to reference left-side tables")
+	}
+	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
+		t.Fatalf("expected grouped aggregate case-correlated group key to still reference the inner table")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate case-correlated group-key LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
 func TestBuildGroupedAggregateLateralHookQueryAggregateValuedHaving(t *testing.T) {
 	gen := newGroupedAggregateLateralTestGenerator(t)
 	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeAggregateValueHaving)
@@ -355,6 +392,23 @@ func TestGenerateSelectQueryExercisesOuterCorrelatedGroupKeyLateralHook(t *testi
 	}
 
 	t.Fatalf("expected generator to exercise outer-correlated grouped-key lateral hook")
+}
+
+func TestGenerateSelectQueryExercisesCaseCorrelatedGroupKeyLateralHook(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 800; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasCaseCorrelatedGroupKeyLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated case-correlated grouped-key lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise case-correlated grouped-key lateral hook")
 }
 
 func TestGenerateSelectQueryExercisesAggregateValuedHavingLateralHook(t *testing.T) {
@@ -724,6 +778,41 @@ func queryHasOuterCorrelatedGroupKeyLateralHook(query *SelectQuery) bool {
 	return false
 }
 
+func queryHasCaseCorrelatedGroupKeyLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && len(join.TableQuery.GroupBy) > 0 && join.TableQuery.Having == nil {
+			caseGroupKey := false
+			outerGroupKey := false
+			innerGroupKey := false
+			for _, expr := range join.TableQuery.GroupBy {
+				if exprContainsCase(expr) {
+					caseGroupKey = true
+				}
+				if countVisibleTables(expr, visible) > 0 {
+					outerGroupKey = true
+				}
+				if exprUsesTable(expr, join.TableQuery.From.baseName()) {
+					innerGroupKey = true
+				}
+			}
+			if caseGroupKey && outerGroupKey && innerGroupKey {
+				return true
+			}
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 func queryHasAggregateValuedHavingLateralHook(query *SelectQuery) bool {
 	if query == nil {
 		return false
@@ -926,6 +1015,30 @@ func exprUsesTable(expr Expr, table string) bool {
 		}
 	}
 	return false
+}
+
+func exprContainsCase(expr Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case CaseExpr:
+		return true
+	case UnaryExpr:
+		return exprContainsCase(e.Expr)
+	case BinaryExpr:
+		return exprContainsCase(e.Left) || exprContainsCase(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprContainsCase(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprContainsCase(e.Expr)
+	default:
+		return false
+	}
 }
 
 func aggregateSourceColumns(items []SelectItem) []ColumnRef {

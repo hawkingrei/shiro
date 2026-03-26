@@ -25,6 +25,7 @@ const (
 	groupedAggregateLateralModeOuterFilteredWhere
 	groupedAggregateLateralModeMultiFilteredWhere
 	groupedAggregateLateralModeOuterCorrelatedGroupKey
+	groupedAggregateLateralModeCaseCorrelatedGroupKey
 	groupedAggregateLateralModeGroupKeyHaving
 	groupedAggregateLateralModeAggregateValueHaving
 )
@@ -450,6 +451,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 		groupedAggregateLateralModeOuterFilteredWhere,
 		groupedAggregateLateralModeMultiFilteredWhere,
 		groupedAggregateLateralModeOuterCorrelatedGroupKey,
+		groupedAggregateLateralModeCaseCorrelatedGroupKey,
 	}
 	if g.Config.Features.Having {
 		variantOrder = append(variantOrder,
@@ -503,14 +505,31 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 
 	groupExpr := Expr(ColumnExpr{Ref: groupInnerCol})
 	groupExprType := groupInnerCol.Type
-	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey {
+	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey || mode == groupedAggregateLateralModeCaseCorrelatedGroupKey {
 		if !g.isNumericType(groupInnerCol.Type) || !g.isNumericType(siblingOuterCol.Type) || !compatibleColumnType(groupInnerCol.Type, siblingOuterCol.Type) {
 			return nil
 		}
-		groupExpr = BinaryExpr{
-			Left:  ColumnExpr{Ref: groupInnerCol},
-			Op:    "+",
-			Right: ColumnExpr{Ref: siblingOuterCol},
+		switch mode {
+		case groupedAggregateLateralModeOuterCorrelatedGroupKey:
+			groupExpr = BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "+",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			}
+		case groupedAggregateLateralModeCaseCorrelatedGroupKey:
+			groupExpr = CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: groupInnerCol},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: ColumnExpr{Ref: groupInnerCol},
+					},
+				},
+				Else: ColumnExpr{Ref: siblingOuterCol},
+			}
 		}
 	}
 
@@ -597,6 +616,8 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		}
 	case groupedAggregateLateralModeOuterCorrelatedGroupKey:
 		// Keep the base equality anchor in WHERE and move sibling dependency into the grouped key itself.
+	case groupedAggregateLateralModeCaseCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and route sibling dependency through a non-linear grouped key expression.
 	}
 
 	lateralQuery := &SelectQuery{
