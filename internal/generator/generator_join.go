@@ -1074,10 +1074,16 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	postBaseRef := ColumnRef{Table: "post", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
 	postScoreRef := ColumnRef{Table: "post", Name: innerScoreCol.Name, Type: innerScoreCol.Type}
 	postTieRef := ColumnRef{Table: "post", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
+	derivedMatchRef := ColumnRef{Table: "postd", Name: "match0", Type: scalarSourceCol.Type}
+	derivedProbeRef := ColumnRef{Table: "postd", Name: "probe0", Type: innerScoreCol.Type}
 	probeAliasRef := ColumnRef{Name: "probe0", Type: innerScoreCol.Type}
 	siblingLimit := 1
-	siblingQuery := &SelectQuery{
+	siblingDerivedQuery := &SelectQuery{
 		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: postTieRef},
+				Alias: "match0",
+			},
 			{
 				Expr: FuncExpr{
 					Name: "ABS",
@@ -1093,17 +1099,9 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		From: FromClause{BaseTable: inner.Name, BaseAlias: "post"},
 		Where: BinaryExpr{
 			Left: BinaryExpr{
-				Left: BinaryExpr{
-					Left:  ColumnExpr{Ref: postBaseRef},
-					Op:    "=",
-					Right: ColumnExpr{Ref: baseOuterCol},
-				},
-				Op: "AND",
-				Right: BinaryExpr{
-					Left:  ColumnExpr{Ref: postTieRef},
-					Op:    "=",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
-				},
+				Left:  ColumnExpr{Ref: postBaseRef},
+				Op:    "=",
+				Right: ColumnExpr{Ref: baseOuterCol},
 			},
 			Op: "AND",
 			Right: BinaryExpr{
@@ -1111,6 +1109,20 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 				Op:    ">=",
 				Right: ColumnExpr{Ref: siblingOuterCol},
 			},
+		},
+	}
+	siblingQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: derivedProbeRef},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{BaseQuery: siblingDerivedQuery, BaseAlias: "postd"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: derivedMatchRef},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: probeAliasRef}},

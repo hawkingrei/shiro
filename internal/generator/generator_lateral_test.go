@@ -131,14 +131,21 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
 		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY tie breaker to keep left-side visibility")
 	}
-	if sibling.TableQuery.From.BaseQuery != nil {
-		t.Fatalf("expected sibling scalar-subquery consumer to stay direct inside the second LATERAL body")
+	if sibling.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected sibling scalar-subquery consumer to route the post scan through a derived base")
 	}
 	if len(sibling.TableQuery.GroupBy) != 0 || sibling.TableQuery.Having != nil {
 		t.Fatalf("expected sibling scalar-subquery consumer to avoid GROUP BY/HAVING")
 	}
+	derived := sibling.TableQuery.From.BaseQuery
+	if len(derived.GroupBy) != 0 || derived.Having != nil {
+		t.Fatalf("expected sibling scalar-subquery consumer derived base to avoid GROUP BY/HAVING")
+	}
 	if !selectItemsHaveAliases(sibling.TableQuery.Items, "probe0") {
 		t.Fatalf("expected sibling scalar-subquery consumer to expose probe0 alias")
+	}
+	if !selectItemsHaveAliases(derived.Items, "match0", "probe0") {
+		t.Fatalf("expected sibling scalar-subquery consumer derived base to expose match0/probe0 aliases")
 	}
 	siblingVisible := map[string]struct{}{
 		query.From.BaseTable:            {},
@@ -149,14 +156,24 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sibling scalar-subquery consumer to project probe0")
 	}
-	if !exprContainsFuncName(probeExpr, "ABS") || !exprUsesQualifiedColumnName(probeExpr, "dt", "tie0") {
-		t.Fatalf("expected sibling scalar-subquery consumer to reuse dt.tie0 inside probe0")
+	if !exprUsesQualifiedColumnName(probeExpr, "postd", "probe0") {
+		t.Fatalf("expected sibling scalar-subquery consumer to project probe0 from the derived base")
+	}
+	derivedProbeExpr, ok := selectItemExprByAlias(derived.Items, "probe0")
+	if !ok {
+		t.Fatalf("expected sibling scalar-subquery consumer derived base to project probe0")
+	}
+	if !exprContainsFuncName(derivedProbeExpr, "ABS") || !exprUsesQualifiedColumnName(derivedProbeExpr, "dt", "tie0") {
+		t.Fatalf("expected sibling scalar-subquery consumer derived base to reuse dt.tie0 inside probe0")
 	}
 	if countVisibleTablesRecursive(sibling.TableQuery, siblingVisible) < 3 {
 		t.Fatalf("expected sibling scalar-subquery consumer to keep base, sibling, and prior-lateral visibility")
 	}
-	if countVisibleTables(sibling.TableQuery.Where, siblingVisible) < 3 {
-		t.Fatalf("expected sibling scalar-subquery consumer WHERE to see base, sibling, and prior-lateral aliases")
+	if countVisibleTablesRecursive(derived, siblingVisible) < 3 || countVisibleTables(derived.Where, siblingVisible) < 2 {
+		t.Fatalf("expected sibling scalar-subquery consumer derived base to keep base, sibling, and prior-lateral visibility")
+	}
+	if countVisibleTables(sibling.TableQuery.Where, siblingVisible) == 0 || !exprUsesQualifiedColumnName(sibling.TableQuery.Where, "dt", "tie0") {
+		t.Fatalf("expected sibling scalar-subquery consumer outer WHERE to keep reusing dt.tie0 after the derived boundary")
 	}
 	if sibling.TableQuery.Limit == nil || *sibling.TableQuery.Limit != 1 {
 		t.Fatalf("expected sibling scalar-subquery consumer to keep LIMIT 1 inside the second LATERAL")
@@ -1760,13 +1777,20 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 		return false
 	}
 	sibling := query.From.Joins[2]
-	if !sibling.Lateral || sibling.TableQuery == nil || sibling.TableQuery.From.BaseQuery != nil {
+	if !sibling.Lateral || sibling.TableQuery == nil || sibling.TableQuery.From.BaseQuery == nil {
 		return false
 	}
 	if len(sibling.TableQuery.GroupBy) != 0 || sibling.TableQuery.Having != nil || sibling.TableQuery.Where == nil || sibling.TableQuery.Limit == nil {
 		return false
 	}
 	if !selectItemsHaveAliases(sibling.TableQuery.Items, "probe0") {
+		return false
+	}
+	derived := sibling.TableQuery.From.BaseQuery
+	if len(derived.GroupBy) != 0 || derived.Having != nil || derived.Where == nil {
+		return false
+	}
+	if !selectItemsHaveAliases(derived.Items, "match0", "probe0") {
 		return false
 	}
 	siblingVisible := map[string]struct{}{}
@@ -1780,10 +1804,17 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 		siblingVisible[name] = struct{}{}
 	}
 	probeExpr, ok := selectItemExprByAlias(sibling.TableQuery.Items, "probe0")
-	if !ok || !exprContainsFuncName(probeExpr, "ABS") || !exprUsesQualifiedColumnName(probeExpr, "dt", "tie0") {
+	if !ok || !exprUsesQualifiedColumnName(probeExpr, "postd", "probe0") {
 		return false
 	}
-	if countVisibleTablesRecursive(sibling.TableQuery, siblingVisible) < 3 || countVisibleTables(sibling.TableQuery.Where, siblingVisible) < 3 || len(sibling.TableQuery.OrderBy) < 3 {
+	derivedProbeExpr, ok := selectItemExprByAlias(derived.Items, "probe0")
+	if !ok || !exprContainsFuncName(derivedProbeExpr, "ABS") || !exprUsesQualifiedColumnName(derivedProbeExpr, "dt", "tie0") {
+		return false
+	}
+	if countVisibleTablesRecursive(sibling.TableQuery, siblingVisible) < 3 || countVisibleTablesRecursive(derived, siblingVisible) < 3 || countVisibleTables(derived.Where, siblingVisible) < 2 || len(sibling.TableQuery.OrderBy) < 3 {
+		return false
+	}
+	if countVisibleTables(sibling.TableQuery.Where, siblingVisible) == 0 || !exprUsesQualifiedColumnName(sibling.TableQuery.Where, "dt", "tie0") {
 		return false
 	}
 	if !exprUsesUnqualifiedColumnName(sibling.TableQuery.OrderBy[0].Expr, "probe0") {

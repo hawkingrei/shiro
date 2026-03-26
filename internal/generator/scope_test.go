@@ -639,8 +639,12 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 		Limit: &limit,
 	}
 	siblingLimit := 1
-	siblingLateral := &SelectQuery{
+	siblingDerived := &SelectQuery{
 		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}},
+				Alias: "match0",
+			},
 			{
 				Expr: FuncExpr{
 					Name: "ABS",
@@ -656,17 +660,9 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 		From: FromClause{BaseTable: "t2", BaseAlias: "post"},
 		Where: BinaryExpr{
 			Left: BinaryExpr{
-				Left: BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "id", Type: schema.TypeInt}},
-					Op:    "=",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
-				},
-				Op: "AND",
-				Right: BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}},
-					Op:    "=",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-				},
+				Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "id", Type: schema.TypeInt}},
+				Op:    "=",
+				Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
 			},
 			Op: "AND",
 			Right: BinaryExpr{
@@ -674,6 +670,20 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 				Op:    ">=",
 				Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
 			},
+		},
+	}
+	siblingLateral := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "probe0", Type: schema.TypeInt}},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{BaseQuery: siblingDerived, BaseAlias: "postd"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "match0", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: ColumnRef{Name: "probe0", Type: schema.TypeInt}}},
