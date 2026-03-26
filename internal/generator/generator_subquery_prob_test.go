@@ -86,3 +86,206 @@ func TestPickInnerTableForTypeFallsBackWhenOnlyOuterExists(t *testing.T) {
 		t.Fatalf("expected fallback to t0, got %s", picked.Name)
 	}
 }
+
+func TestGenerateSelectQueryKeepsPredicateSubqueriesWhenScalarSubqueriesDisabled(t *testing.T) {
+	gen := newTestGenerator(t)
+	gen.Config.TQS.Enabled = true
+	gen.Config.Features.CTE = false
+	gen.Config.Features.Aggregates = false
+	gen.Config.Features.GroupBy = false
+	gen.Config.Features.Having = false
+	gen.Config.Features.Distinct = false
+	gen.Config.Features.OrderBy = false
+	gen.Config.Features.Limit = false
+	gen.Config.Features.WindowFuncs = false
+	gen.Config.Features.SetOperations = false
+	gen.Config.Features.DerivedTables = false
+	gen.SetDisallowScalarSubquery(true)
+	gen.SetAdaptiveWeights(AdaptiveWeights{SubqCount: 100})
+
+	for i := 0; i < 200; i++ {
+		query := gen.GenerateSelectQuery()
+		if query == nil || query.Where == nil {
+			continue
+		}
+		if !exprHasPredicateSubquery(query.Where) {
+			continue
+		}
+		if exprHasScalarSubquery(query.Where) {
+			t.Fatalf("unexpected scalar subquery in predicate: %s", exprSQLForTest(query.Where))
+		}
+		for _, item := range query.Items {
+			if exprHasScalarSubquery(item.Expr) {
+				t.Fatalf("unexpected scalar subquery in select item: %s", exprSQLForTest(item.Expr))
+			}
+		}
+		if gen.LastFeatures == nil {
+			t.Fatalf("expected last features to be recorded")
+		}
+		if !gen.LastFeatures.SubqueryAllowed {
+			t.Fatalf("expected predicate subqueries to remain allowed")
+		}
+		if gen.LastFeatures.SubqueryDisallowReason != "scalar_subquery_off" {
+			t.Fatalf("unexpected disallow reason: %q", gen.LastFeatures.SubqueryDisallowReason)
+		}
+		return
+	}
+
+	t.Fatalf("expected a predicate subquery after repeated attempts")
+}
+
+func exprHasPredicateSubquery(expr Expr) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case ExistsExpr:
+		return true
+	case *ExistsExpr:
+		return e != nil
+	case CompareSubqueryExpr:
+		return true
+	case *CompareSubqueryExpr:
+		return e != nil
+	case InExpr:
+		for _, item := range e.List {
+			switch item.(type) {
+			case SubqueryExpr, *SubqueryExpr:
+				return true
+			}
+			if exprHasPredicateSubquery(item) {
+				return true
+			}
+		}
+		return exprHasPredicateSubquery(e.Left)
+	case *InExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasPredicateSubquery(*e)
+	case UnaryExpr:
+		return exprHasPredicateSubquery(e.Expr)
+	case *UnaryExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasPredicateSubquery(e.Expr)
+	case BinaryExpr:
+		return exprHasPredicateSubquery(e.Left) || exprHasPredicateSubquery(e.Right)
+	case *BinaryExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasPredicateSubquery(e.Left) || exprHasPredicateSubquery(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasPredicateSubquery(arg) {
+				return true
+			}
+		}
+	case *FuncExpr:
+		if e == nil {
+			return false
+		}
+		for _, arg := range e.Args {
+			if exprHasPredicateSubquery(arg) {
+				return true
+			}
+		}
+	case GroupByOrdinalExpr:
+		return exprHasPredicateSubquery(e.Expr)
+	case *GroupByOrdinalExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasPredicateSubquery(e.Expr)
+	}
+	return false
+}
+
+func exprHasScalarSubquery(expr Expr) bool {
+	if expr == nil {
+		return false
+	}
+	switch e := expr.(type) {
+	case SubqueryExpr:
+		return true
+	case *SubqueryExpr:
+		return e != nil
+	case ExistsExpr:
+		return false
+	case *ExistsExpr:
+		return false
+	case CompareSubqueryExpr:
+		return exprHasScalarSubquery(e.Left)
+	case *CompareSubqueryExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasScalarSubquery(e.Left)
+	case InExpr:
+		if exprHasScalarSubquery(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			switch item.(type) {
+			case SubqueryExpr, *SubqueryExpr:
+				continue
+			}
+			if exprHasScalarSubquery(item) {
+				return true
+			}
+		}
+		return false
+	case *InExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasScalarSubquery(*e)
+	case UnaryExpr:
+		return exprHasScalarSubquery(e.Expr)
+	case *UnaryExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasScalarSubquery(e.Expr)
+	case BinaryExpr:
+		return exprHasScalarSubquery(e.Left) || exprHasScalarSubquery(e.Right)
+	case *BinaryExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasScalarSubquery(e.Left) || exprHasScalarSubquery(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasScalarSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case *FuncExpr:
+		if e == nil {
+			return false
+		}
+		for _, arg := range e.Args {
+			if exprHasScalarSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprHasScalarSubquery(e.Expr)
+	case *GroupByOrdinalExpr:
+		if e == nil {
+			return false
+		}
+		return exprHasScalarSubquery(e.Expr)
+	}
+	return false
+}
+
+func exprSQLForTest(expr Expr) string {
+	var b SQLBuilder
+	expr.Build(&b)
+	return b.String()
+}

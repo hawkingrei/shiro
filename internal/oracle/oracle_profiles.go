@@ -265,8 +265,9 @@ var Profiles = map[string]Profile{
 			NotExists:            BoolPtr(false),
 			NotIn:                BoolPtr(false),
 		},
-		AllowSubquery: BoolPtr(true),
-		PredicateMode: PredicateModePtr(generator.PredicateModeNone),
+		AllowSubquery:          BoolPtr(true),
+		DisallowScalarSubquery: BoolPtr(true),
+		PredicateMode:          PredicateModePtr(generator.PredicateModeNone),
 	},
 	"CERT": {
 		Features: FeatureOverrides{
