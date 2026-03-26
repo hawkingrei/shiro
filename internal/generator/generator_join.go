@@ -18,6 +18,14 @@ const (
 	joinShapeSnowflake
 )
 
+type groupedAggregateLateralMode int
+
+const (
+	groupedAggregateLateralModeWhere groupedAggregateLateralMode = iota
+	groupedAggregateLateralModeGroupKeyHaving
+	groupedAggregateLateralModeAggregateValueHaving
+)
+
 type columnPair struct {
 	Left  ColumnRef
 	Right ColumnRef
@@ -434,13 +442,17 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 	if !util.Chance(g.Rand, LateralJoinGroupedAggregateProb) {
 		return nil
 	}
-	variantOrder := []bool{false, true}
-	if !g.Config.Features.Having {
-		variantOrder = []bool{false}
-	} else if util.Chance(g.Rand, 50) {
-		variantOrder = []bool{true, false}
+	variantOrder := []groupedAggregateLateralMode{groupedAggregateLateralModeWhere}
+	if g.Config.Features.Having {
+		variantOrder = append(variantOrder,
+			groupedAggregateLateralModeGroupKeyHaving,
+			groupedAggregateLateralModeAggregateValueHaving,
+		)
+		g.Rand.Shuffle(len(variantOrder), func(i, j int) {
+			variantOrder[i], variantOrder[j] = variantOrder[j], variantOrder[i]
+		})
 	}
-	for _, useHaving := range variantOrder {
+	for _, mode := range variantOrder {
 		for i := 0; i < len(tables); i++ {
 			for j := 0; j < len(tables); j++ {
 				if j == i {
@@ -450,7 +462,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 					if k == i || k == j {
 						continue
 					}
-					if query := g.buildGroupedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k], useHaving); query != nil {
+					if query := g.buildGroupedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k], mode); query != nil {
 						return query
 					}
 				}
@@ -460,7 +472,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 	return nil
 }
 
-func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, useHaving bool) *SelectQuery {
+func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, mode groupedAggregateLateralMode) *SelectQuery {
 	if g == nil {
 		return nil
 	}
@@ -507,7 +519,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		Op:    "=",
 		Right: ColumnExpr{Ref: baseOuterCol},
 	})
-	if !useHaving {
+	if mode == groupedAggregateLateralModeWhere {
 		where = BinaryExpr{
 			Left: where,
 			Op:   "AND",
@@ -525,11 +537,26 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		Where:   where,
 		GroupBy: []Expr{ColumnExpr{Ref: groupInnerCol}},
 	}
-	if useHaving {
+	switch mode {
+	case groupedAggregateLateralModeGroupKeyHaving:
 		lateralQuery.Having = BinaryExpr{
 			Left:  ColumnExpr{Ref: groupInnerCol},
 			Op:    "=",
 			Right: ColumnExpr{Ref: siblingOuterCol},
+		}
+	case groupedAggregateLateralModeAggregateValueHaving:
+		havingOuterRef, ok := g.pickGroupedAggregateHavingOuterRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		havingAgg, ok := g.pickGroupedAggregateHavingExpr(sumRef, hasSum)
+		if !ok {
+			return nil
+		}
+		lateralQuery.Having = BinaryExpr{
+			Left:  havingAgg,
+			Op:    ">=",
+			Right: ColumnExpr{Ref: havingOuterRef},
 		}
 	}
 
@@ -777,6 +804,22 @@ func (g *Generator) pickAggregateValueColumnRef(tbl schema.Table, excludeNames .
 		return ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, true
 	}
 	return ColumnRef{}, false
+}
+
+func (g *Generator) pickGroupedAggregateHavingOuterRef(base schema.Table, sibling schema.Table, excludeNames ...string) (ColumnRef, bool) {
+	if ref, ok := g.pickAggregateValueColumnRef(sibling, excludeNames...); ok {
+		return ref, true
+	}
+	return g.pickAggregateValueColumnRef(base, excludeNames...)
+}
+
+func (g *Generator) pickGroupedAggregateHavingExpr(sumRef ColumnRef, hasSum bool) (Expr, bool) {
+	if hasSum && util.Chance(g.Rand, 50) {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		return FuncExpr{Name: "SUM", Args: []Expr{sumExpr}}, true
+	}
+	return FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, true
 }
 
 func (g *Generator) buildMergedColumnVisibilityLateralHookQuery(tables []schema.Table) *SelectQuery {

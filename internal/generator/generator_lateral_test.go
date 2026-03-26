@@ -88,7 +88,7 @@ func TestBuildCorrelatedAggregateLateralHookQuery(t *testing.T) {
 
 func TestBuildGroupedAggregateLateralHookQueryGroupBy(t *testing.T) {
 	gen := newGroupedAggregateLateralTestGenerator(t)
-	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeWhere)
 	if query == nil {
 		t.Fatalf("expected grouped aggregate LATERAL hook query")
 	}
@@ -116,7 +116,7 @@ func TestBuildGroupedAggregateLateralHookQueryGroupBy(t *testing.T) {
 
 func TestBuildGroupedAggregateLateralHookQueryHaving(t *testing.T) {
 	gen := newGroupedAggregateLateralTestGenerator(t)
-	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], true)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeGroupKeyHaving)
 	if query == nil {
 		t.Fatalf("expected grouped aggregate LATERAL HAVING hook query")
 	}
@@ -139,6 +139,37 @@ func TestBuildGroupedAggregateLateralHookQueryHaving(t *testing.T) {
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected grouped aggregate HAVING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestBuildGroupedAggregateLateralHookQueryAggregateValuedHaving(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeAggregateValueHaving)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL aggregate-valued HAVING hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate aggregate-valued HAVING hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate aggregate-valued HAVING hook")
+	}
+	if lateral.TableQuery.Having == nil {
+		t.Fatalf("expected HAVING inside grouped aggregate aggregate-valued hook")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if !exprContainsAggregate(lateral.TableQuery.Having) {
+		t.Fatalf("expected aggregate-valued HAVING expression")
+	}
+	if countVisibleTables(lateral.TableQuery.Having, visible) == 0 {
+		t.Fatalf("expected aggregate-valued HAVING to reference left-side tables")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate aggregate-valued HAVING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
 	}
 }
 
@@ -174,6 +205,23 @@ func TestGenerateSelectQueryExercisesGroupedAggregateLateralHook(t *testing.T) {
 	}
 
 	t.Fatalf("expected generator to exercise grouped aggregate LATERAL hook")
+}
+
+func TestGenerateSelectQueryExercisesAggregateValuedHavingLateralHook(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 800; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasAggregateValuedHavingLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated aggregate-valued HAVING lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise aggregate-valued HAVING lateral hook")
 }
 
 func newGroupedAggregateLateralTestGenerator(t *testing.T) *Generator {
@@ -451,6 +499,27 @@ func queryHasGroupedAggregateLateralHook(query *SelectQuery) bool {
 	return false
 }
 
+func queryHasAggregateValuedHavingLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && len(join.TableQuery.GroupBy) > 0 && join.TableQuery.Having != nil {
+			if exprContainsAggregate(join.TableQuery.Having) && countVisibleTables(join.TableQuery.Having, visible) > 0 {
+				return true
+			}
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
 	if query == nil || len(query.From.Joins) < 2 {
 		return false
@@ -520,4 +589,65 @@ func exprUsesUnqualifiedColumnName(expr Expr, name string) bool {
 		}
 	}
 	return false
+}
+
+func exprContainsAggregate(expr Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case FuncExpr:
+		if isAggregateFunc(e.Name) {
+			return true
+		}
+		for _, arg := range e.Args {
+			if exprContainsAggregate(arg) {
+				return true
+			}
+		}
+		return false
+	case UnaryExpr:
+		return exprContainsAggregate(e.Expr)
+	case BinaryExpr:
+		return exprContainsAggregate(e.Left) || exprContainsAggregate(e.Right)
+	case GroupByOrdinalExpr:
+		return exprContainsAggregate(e.Expr)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprContainsAggregate(when.When) || exprContainsAggregate(when.Then) {
+				return true
+			}
+		}
+		return exprContainsAggregate(e.Else)
+	case InExpr:
+		if exprContainsAggregate(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprContainsAggregate(item) {
+				return true
+			}
+		}
+		return false
+	case CompareSubqueryExpr:
+		return exprContainsAggregate(e.Left)
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprContainsAggregate(arg) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprContainsAggregate(expr) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprContainsAggregate(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
