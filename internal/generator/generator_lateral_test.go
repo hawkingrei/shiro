@@ -78,14 +78,11 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if len(lateral.TableQuery.GroupBy) == 0 {
 		t.Fatalf("expected GROUP BY inside grouped-output-order-limit LATERAL hook")
 	}
-	if caseExprDepth(lateral.TableQuery.GroupBy[0]) < 2 {
-		t.Fatalf("expected grouped-output-order-limit GROUP BY to use a nested CASE-correlated key")
-	}
-	if !exprContainsFuncName(lateral.TableQuery.GroupBy[0], "ABS") {
-		t.Fatalf("expected grouped-output-order-limit GROUP BY to wrap the CASE-correlated key with ABS")
-	}
 	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
 		t.Fatalf("expected grouped-output-order-limit GROUP BY to depend on the inner grouped source")
+	}
+	if exprHasUnqualifiedColumn(lateral.TableQuery.GroupBy[0]) {
+		t.Fatalf("expected grouped-output-order-limit GROUP BY to stop depending on merged USING columns directly")
 	}
 	if !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
 		t.Fatalf("expected grouped-output-order-limit LATERAL hook to expose g0/cnt aliases directly")
@@ -97,8 +94,17 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected grouped-output-order-limit WHERE to reference merged USING column %q before aggregation", usingCol)
 	}
-	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.GroupBy[0], usingCol) {
-		t.Fatalf("expected grouped-output-order-limit GROUP BY to reference merged USING column %q", usingCol)
+	if lateral.TableQuery.Having == nil {
+		t.Fatalf("expected grouped-output-order-limit HAVING to carry merged USING visibility")
+	}
+	if !exprContainsCase(lateral.TableQuery.Having) {
+		t.Fatalf("expected grouped-output-order-limit HAVING to use a branchy CASE-correlated filter")
+	}
+	if !exprContainsAggregate(lateral.TableQuery.Having) {
+		t.Fatalf("expected grouped-output-order-limit HAVING to include aggregate visibility before TopN")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Having, usingCol) {
+		t.Fatalf("expected grouped-output-order-limit HAVING to reference merged USING column %q", usingCol)
 	}
 	if len(lateral.TableQuery.OrderBy) == 0 {
 		t.Fatalf("expected ORDER BY inside grouped-output-order-limit hook")
@@ -133,14 +139,20 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if lateral.TableQuery.From.BaseQuery != nil {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to group directly inside the LATERAL body")
 	}
-	if len(lateral.TableQuery.GroupBy) == 0 || !exprHasUnqualifiedColumn(lateral.TableQuery.GroupBy[0]) {
-		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a merged column inside GROUP BY")
+	if len(lateral.TableQuery.GroupBy) == 0 || !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep a direct inner grouped key")
 	}
-	if caseExprDepth(lateral.TableQuery.GroupBy[0]) < 2 {
-		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a nested CASE-correlated key")
+	if lateral.TableQuery.Having == nil {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use HAVING before TopN")
 	}
-	if !exprContainsFuncName(lateral.TableQuery.GroupBy[0], "ABS") {
-		t.Fatalf("expected grouped-output-order-limit NATURAL hook to wrap the CASE-correlated key with ABS")
+	if !exprContainsCase(lateral.TableQuery.Having) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to use a branchy CASE HAVING")
+	}
+	if !exprContainsAggregate(lateral.TableQuery.Having) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to include aggregate visibility in HAVING")
+	}
+	if !exprHasUnqualifiedColumn(lateral.TableQuery.Having) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified in HAVING")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
@@ -1281,16 +1293,16 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 	if len(lateral.TableQuery.GroupBy) == 0 || !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
 		return false
 	}
-	if caseExprDepth(lateral.TableQuery.GroupBy[0]) < 2 {
-		return false
-	}
-	if !exprContainsFuncName(lateral.TableQuery.GroupBy[0], "ABS") {
+	if exprHasUnqualifiedColumn(lateral.TableQuery.GroupBy[0]) {
 		return false
 	}
 	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
 		return false
 	}
-	if lateral.TableQuery.Limit == nil || lateral.TableQuery.Where == nil {
+	if lateral.TableQuery.Limit == nil || lateral.TableQuery.Where == nil || lateral.TableQuery.Having == nil {
+		return false
+	}
+	if !exprContainsCase(lateral.TableQuery.Having) || !exprContainsAggregate(lateral.TableQuery.Having) {
 		return false
 	}
 	if len(lateral.TableQuery.OrderBy) == 0 {
@@ -1304,13 +1316,13 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 	}
 	if mergedJoin.Natural {
 		return exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.Where) &&
-			exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.GroupBy[0]) &&
+			exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.Having) &&
 			len(lateral.TableQuery.OrderBy) > 2 &&
 			exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[2].Expr)
 	}
 	for _, name := range mergedJoin.Using {
 		if exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, name) &&
-			exprUsesUnqualifiedColumnName(lateral.TableQuery.GroupBy[0], name) &&
+			exprUsesUnqualifiedColumnName(lateral.TableQuery.Having, name) &&
 			len(lateral.TableQuery.OrderBy) > 2 &&
 			exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[2].Expr, name) {
 			return true

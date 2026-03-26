@@ -936,51 +936,40 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
 	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
 	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
-	positiveInnerExpr := BinaryExpr{
-		Left:  ColumnExpr{Ref: innerRef},
-		Op:    ">=",
-		Right: LiteralExpr{Value: 0},
-	}
-	groupExpr := FuncExpr{
-		Name: "ABS",
-		Args: []Expr{CaseExpr{
-			Whens: []CaseWhen{
-				{
-					When: BinaryExpr{
-						Left:  ColumnExpr{Ref: innerRef},
-						Op:    ">=",
-						Right: ColumnExpr{Ref: mergedRef},
-					},
-					Then: CaseExpr{
-						Whens: []CaseWhen{
-							{
-								When: positiveInnerExpr,
-								Then: BinaryExpr{
-									Left:  ColumnExpr{Ref: innerRef},
-									Op:    "-",
-									Right: ColumnExpr{Ref: mergedRef},
-								},
-							},
-						},
-						Else: ColumnExpr{Ref: mergedRef},
-					},
-				},
-			},
-			Else: CaseExpr{
+	countExpr := FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}
+	havingExpr := BinaryExpr{
+		Left: FuncExpr{
+			Name: "ABS",
+			Args: []Expr{CaseExpr{
 				Whens: []CaseWhen{
 					{
-						When: positiveInnerExpr,
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: innerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: mergedRef},
+						},
 						Then: BinaryExpr{
-							Left:  ColumnExpr{Ref: mergedRef},
+							Left:  countExpr,
 							Op:    "-",
-							Right: ColumnExpr{Ref: innerRef},
+							Right: ColumnExpr{Ref: mergedRef},
 						},
 					},
 				},
-				Else: ColumnExpr{Ref: innerRef},
-			},
-		}},
+				Else: BinaryExpr{
+					Left: BinaryExpr{
+						Left:  countExpr,
+						Op:    "+",
+						Right: ColumnExpr{Ref: innerRef},
+					},
+					Op:    "-",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
+			}},
+		},
+		Op:    ">=",
+		Right: LiteralExpr{Value: 1},
 	}
+	groupExpr := ColumnExpr{Ref: innerRef}
 	limit := 1
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{
@@ -989,7 +978,7 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 				Alias: "g0",
 			},
 			{
-				Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
+				Expr:  countExpr,
 				Alias: "cnt",
 			},
 		},
@@ -1000,6 +989,7 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 			Right: ColumnExpr{Ref: mergedRef},
 		},
 		GroupBy: []Expr{groupExpr},
+		Having:  havingExpr,
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: groupAliasRef}},
 			{Expr: ColumnExpr{Ref: countAliasRef}, Desc: true},
