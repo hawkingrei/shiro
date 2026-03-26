@@ -427,6 +427,181 @@ func (g *Generator) buildCorrelatedOrderLimitLateralQuery(outerTables []schema.T
 	return query
 }
 
+func (g *Generator) buildCorrelatedAggregateLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinAggregateProb) {
+		return nil
+	}
+	for i := 0; i < len(tables); i++ {
+		for j := 0; j < len(tables); j++ {
+			if j == i {
+				continue
+			}
+			for k := 0; k < len(tables); k++ {
+				if k == i || k == j {
+					continue
+				}
+				if query := g.buildCorrelatedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k]); query != nil {
+					return query
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildCorrelatedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, siblingInnerCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok {
+		return nil
+	}
+
+	lateralItems := []SelectItem{
+		{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
+	}
+	sumRef, ok := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, siblingInnerCol.Name)
+	if ok {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		lateralItems = append(lateralItems, SelectItem{
+			Expr:  FuncExpr{Name: "SUM", Args: []Expr{sumExpr}},
+			Alias: "sum1",
+		})
+	}
+
+	lateralQuery := &SelectQuery{
+		Items: lateralItems,
+		From:  FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left:  ColumnExpr{Ref: baseInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: baseOuterCol},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: siblingInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+	}
+
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+
+	items := []SelectItem{
+		{
+			Expr:  ColumnExpr{Ref: baseOuterCol},
+			Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
+		},
+		{
+			Expr:  ColumnExpr{Ref: siblingOuterCol},
+			Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
+		},
+		{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "cnt",
+				Type:  schema.TypeBigInt,
+			}},
+			Alias: "lateral_cnt",
+		},
+	}
+	if ok {
+		items = append(items, SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "sum1",
+				Type:  sumRef.Type,
+			}},
+			Alias: "lateral_sum1",
+		})
+	}
+
+	query := &SelectQuery{
+		Items: items,
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+			},
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) pickAggregateValueColumnRef(tbl schema.Table, excludeNames ...string) (ColumnRef, bool) {
+	if g == nil || len(tbl.Columns) == 0 {
+		return ColumnRef{}, false
+	}
+	exclude := make(map[string]struct{}, len(excludeNames))
+	for _, name := range excludeNames {
+		if name == "" {
+			continue
+		}
+		exclude[name] = struct{}{}
+	}
+	preferred := make([]schema.Column, 0, len(tbl.Columns))
+	fallback := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if _, skip := exclude[col.Name]; skip {
+			continue
+		}
+		if !g.isNumericType(col.Type) {
+			continue
+		}
+		fallback = append(fallback, col)
+		if col.Type != schema.TypeDouble {
+			preferred = append(preferred, col)
+		}
+	}
+	if len(preferred) > 0 {
+		col := preferred[g.Rand.Intn(len(preferred))]
+		return ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, true
+	}
+	if len(fallback) > 0 {
+		col := fallback[g.Rand.Intn(len(fallback))]
+		return ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, true
+	}
+	return ColumnRef{}, false
+}
+
 func (g *Generator) buildMergedColumnVisibilityLateralHookQuery(tables []schema.Table) *SelectQuery {
 	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || g.Config.Features.DSG || len(tables) < 3 {
 		return nil

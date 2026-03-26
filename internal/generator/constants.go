@@ -61,6 +61,9 @@ const (
 	// LateralJoinMergedVisibilityProb biases lateral bug-mining toward merged-column
 	// visibility after USING/NATURAL joins.
 	LateralJoinMergedVisibilityProb = 70
+	// LateralJoinAggregateProb biases lateral bug-mining toward correlated aggregates
+	// over multi-table left inputs.
+	LateralJoinAggregateProb = 70
 	// LateralJoinOrderLimitProb biases lateral bug-mining toward correlated TopN/Limit shapes.
 	LateralJoinOrderLimitProb = 70
 	// LateralJoinLimitMax caps the LIMIT used inside generated LATERAL subqueries.

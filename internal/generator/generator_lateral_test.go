@@ -58,6 +58,51 @@ func TestGenerateSelectQueryExercisesLateralOrderLimitHook(t *testing.T) {
 	t.Fatalf("expected generator to exercise correlated lateral ORDER BY + LIMIT hook")
 }
 
+func TestBuildCorrelatedAggregateLateralHookQuery(t *testing.T) {
+	gen := newAggregateLateralTestGenerator(t)
+	query := gen.buildCorrelatedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2])
+	if query == nil {
+		t.Fatalf("expected correlated aggregate LATERAL hook query")
+	}
+	if len(query.From.Joins) != 2 {
+		t.Fatalf("expected join plus LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in aggregate hook query")
+	}
+	if !selectItemsContainAggregate(lateral.TableQuery.Items) {
+		t.Fatalf("expected aggregate select list inside lateral query")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) < 2 {
+		t.Fatalf("expected lateral aggregate predicate to reference two left-side tables")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected correlated aggregate LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestGenerateSelectQueryExercisesCorrelatedAggregateLateralHook(t *testing.T) {
+	gen := newAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasCorrelatedAggregateLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated aggregate lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise correlated aggregate LATERAL hook")
+}
+
 func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
 	gen := newMergedVisibilityTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -117,6 +162,53 @@ func TestGenerateSelectQueryExercisesMergedColumnLateralHook(t *testing.T) {
 	}
 
 	t.Fatalf("expected generator to exercise merged-column LATERAL hook")
+}
+
+func newAggregateLateralTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newTestGenerator(t)
+	gen.Config.Features.LateralJoins = true
+	gen.Config.Features.Limit = false
+	gen.Config.Features.CTE = false
+	gen.Config.Features.Aggregates = true
+	gen.Config.Features.GroupBy = false
+	gen.Config.Features.Having = false
+	gen.Config.Features.Distinct = false
+	gen.Config.Features.WindowFuncs = false
+	gen.Config.Features.SetOperations = false
+	gen.Config.Features.DerivedTables = false
+	gen.Config.Features.FullJoinEmulation = false
+	gen.Config.Features.NaturalJoins = false
+	gen.Config.MaxJoinTables = 3
+	gen.SetMinJoinTables(3)
+	gen.SetJoinTypeOverride(JoinInner)
+	gen.State = &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c2", Type: schema.TypeInt},
+					{Name: "v0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	return gen
 }
 
 func newMergedVisibilityTestGenerator(t *testing.T) *Generator {
@@ -196,6 +288,25 @@ func exprUsesVisibleTable(expr Expr, visible map[string]struct{}) bool {
 	return false
 }
 
+func queryHasCorrelatedAggregateLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && selectItemsContainAggregate(join.TableQuery.Items) && countVisibleTables(join.TableQuery.Where, visible) >= 2 {
+			return true
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
 	if query == nil || len(query.From.Joins) < 2 {
 		return false
@@ -217,6 +328,30 @@ func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
 		}
 	}
 	return false
+}
+
+func selectItemsContainAggregate(items []SelectItem) bool {
+	for _, item := range items {
+		fn, ok := item.Expr.(FuncExpr)
+		if ok && isAggregateFunc(fn.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func countVisibleTables(expr Expr, visible map[string]struct{}) int {
+	if expr == nil {
+		return 0
+	}
+	seen := make(map[string]struct{}, len(visible))
+	for _, col := range expr.Columns() {
+		if _, ok := visible[col.Table]; !ok {
+			continue
+		}
+		seen[col.Table] = struct{}{}
+	}
+	return len(seen)
 }
 
 func exprHasUnqualifiedColumn(expr Expr) bool {
