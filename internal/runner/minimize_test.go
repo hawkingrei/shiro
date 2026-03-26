@@ -191,6 +191,28 @@ func TestSelectCandidatesHandleMultiFilteredGroupedAggregateLateralJoin(t *testi
 	}
 }
 
+func TestSelectCandidatesHandleOuterCorrelatedGroupKeyLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT (t2.c2 + t1.c1) AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY (t2.c2 + t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for outer-correlated group-key LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized outer-correlated group-key LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesHandleAggregateValuedHavingLateralJoin(t *testing.T) {
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY t2.c2 HAVING (SUM(t2.v0) >= t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
 	p := parser.New()

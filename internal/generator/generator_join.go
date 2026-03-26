@@ -24,6 +24,7 @@ const (
 	groupedAggregateLateralModeWhere groupedAggregateLateralMode = iota
 	groupedAggregateLateralModeOuterFilteredWhere
 	groupedAggregateLateralModeMultiFilteredWhere
+	groupedAggregateLateralModeOuterCorrelatedGroupKey
 	groupedAggregateLateralModeGroupKeyHaving
 	groupedAggregateLateralModeAggregateValueHaving
 )
@@ -448,6 +449,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table)
 		groupedAggregateLateralModeWhere,
 		groupedAggregateLateralModeOuterFilteredWhere,
 		groupedAggregateLateralModeMultiFilteredWhere,
+		groupedAggregateLateralModeOuterCorrelatedGroupKey,
 	}
 	if g.Config.Features.Having {
 		variantOrder = append(variantOrder,
@@ -499,10 +501,23 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 		return nil
 	}
 
+	groupExpr := Expr(ColumnExpr{Ref: groupInnerCol})
+	groupExprType := groupInnerCol.Type
+	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey {
+		if !g.isNumericType(groupInnerCol.Type) || !g.isNumericType(siblingOuterCol.Type) || !compatibleColumnType(groupInnerCol.Type, siblingOuterCol.Type) {
+			return nil
+		}
+		groupExpr = BinaryExpr{
+			Left:  ColumnExpr{Ref: groupInnerCol},
+			Op:    "+",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		}
+	}
+
 	lateralItems := make([]SelectItem, 0, 3)
 	lateralItems = append(lateralItems,
 		SelectItem{
-			Expr:  ColumnExpr{Ref: groupInnerCol},
+			Expr:  groupExpr,
 			Alias: "g0",
 		},
 		SelectItem{
@@ -580,13 +595,15 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 				Right: ColumnExpr{Ref: filterOuterRef},
 			},
 		}
+	case groupedAggregateLateralModeOuterCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and move sibling dependency into the grouped key itself.
 	}
 
 	lateralQuery := &SelectQuery{
 		Items:   lateralItems,
 		From:    FromClause{BaseTable: inner.Name},
 		Where:   where,
-		GroupBy: []Expr{ColumnExpr{Ref: groupInnerCol}},
+		GroupBy: []Expr{groupExpr},
 	}
 	switch mode {
 	case groupedAggregateLateralModeGroupKeyHaving:
@@ -636,7 +653,7 @@ func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.T
 			Expr: ColumnExpr{Ref: ColumnRef{
 				Table: "dt",
 				Name:  "g0",
-				Type:  groupInnerCol.Type,
+				Type:  groupExprType,
 			}},
 			Alias: "lateral_g0",
 		},

@@ -207,6 +207,40 @@ func TestBuildGroupedAggregateLateralHookQueryMultiFilteredWhere(t *testing.T) {
 	}
 }
 
+func TestBuildGroupedAggregateLateralHookQueryOuterCorrelatedGroupKey(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeOuterCorrelatedGroupKey)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL outer-correlated group-key hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate outer-correlated group-key hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate outer-correlated group-key hook")
+	}
+	if lateral.TableQuery.Having != nil {
+		t.Fatalf("expected outer-correlated group-key variant to keep correlation out of HAVING")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 {
+		t.Fatalf("expected grouped aggregate outer-correlated group-key hook to keep base correlation in WHERE")
+	}
+	if countVisibleTables(lateral.TableQuery.GroupBy[0], visible) == 0 {
+		t.Fatalf("expected grouped aggregate outer-correlated group key to reference left-side tables")
+	}
+	if !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
+		t.Fatalf("expected grouped aggregate outer-correlated group key to still reference the inner table")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate outer-correlated group-key LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
 func TestBuildGroupedAggregateLateralHookQueryAggregateValuedHaving(t *testing.T) {
 	gen := newGroupedAggregateLateralTestGenerator(t)
 	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], groupedAggregateLateralModeAggregateValueHaving)
@@ -304,6 +338,23 @@ func TestGenerateSelectQueryExercisesMultiFilteredGroupedAggregateLateralHook(t 
 	}
 
 	t.Fatalf("expected generator to exercise multi-filtered grouped aggregate lateral hook")
+}
+
+func TestGenerateSelectQueryExercisesOuterCorrelatedGroupKeyLateralHook(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 800; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasOuterCorrelatedGroupKeyLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated outer-correlated grouped-key lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise outer-correlated grouped-key lateral hook")
 }
 
 func TestGenerateSelectQueryExercisesAggregateValuedHavingLateralHook(t *testing.T) {
@@ -642,6 +693,37 @@ func queryHasMultiFilteredGroupedAggregateLateralHook(query *SelectQuery) bool {
 	return false
 }
 
+func queryHasOuterCorrelatedGroupKeyLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && len(join.TableQuery.GroupBy) > 0 && join.TableQuery.Having == nil {
+			outerGroupKey := false
+			innerGroupKey := false
+			for _, expr := range join.TableQuery.GroupBy {
+				if countVisibleTables(expr, visible) > 0 {
+					outerGroupKey = true
+				}
+				if exprUsesTable(expr, join.TableQuery.From.baseName()) {
+					innerGroupKey = true
+				}
+			}
+			if outerGroupKey && innerGroupKey {
+				return true
+			}
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
 func queryHasAggregateValuedHavingLateralHook(query *SelectQuery) bool {
 	if query == nil {
 		return false
@@ -829,6 +911,18 @@ func exprUsesGroupByColumn(expr Expr, groupBy []Expr) bool {
 			if used.Table == groupCol.Table && used.Name == groupCol.Name {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func exprUsesTable(expr Expr, table string) bool {
+	if expr == nil || table == "" {
+		return false
+	}
+	for _, col := range expr.Columns() {
+		if col.Table == table {
+			return true
 		}
 	}
 	return false
