@@ -169,6 +169,28 @@ func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
 	}
 }
 
+func TestSelectCandidatesHandleScalarSubqueryProjectedOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, ABS(((SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) - t1.c1)) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for scalar-subquery projected-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized scalar-subquery projected-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesHandleMultiOuterProjectedOrderLimitLateralJoin(t *testing.T) {
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t0.c0) THEN (t2.c2 - t1.c1) ELSE t0.c0 END ELSE CASE WHEN (t2.v0 >= t0.c0) THEN (t1.c1 - t2.c2) ELSE t2.v0 END END) AS score0, ABS(CASE WHEN (t2.v0 >= t0.c0) THEN (t2.v0 + t0.c0) ELSE (t1.c1 - t2.v0) END) AS tie0 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 <> t1.c1)) ORDER BY score0, tie0 DESC, t1.c1 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
 	p := parser.New()

@@ -540,6 +540,145 @@ func TestValidateQueryScopeLateralJoinAllowsMultiOuterProjectedOrderLimitReferen
 	}
 }
 
+func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "c2", Type: schema.TypeInt},
+					{Name: "v0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	subLimit := 1
+	buildScalar := func() *SelectQuery {
+		return &SelectQuery{
+			Items: []SelectItem{
+				{Expr: ColumnExpr{Ref: ColumnRef{Table: "sq", Name: "v0", Type: schema.TypeInt}}, Alias: "sv0"},
+			},
+			From: FromClause{BaseTable: "t2", BaseAlias: "sq"},
+			Where: BinaryExpr{
+				Left: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "sq", Name: "id", Type: schema.TypeInt}},
+					Op:    "=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "sq", Name: "c2", Type: schema.TypeInt}},
+					Op:    "<>",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+				},
+			},
+			OrderBy: []OrderBy{
+				{
+					Expr: FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "sq", Name: "c2", Type: schema.TypeInt}},
+							Op:    "-",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+						}},
+					},
+				},
+				{Expr: ColumnExpr{Ref: ColumnRef{Table: "sq", Name: "v0", Type: schema.TypeInt}}, Desc: true},
+				{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+			},
+			Limit: &subLimit,
+		}
+	}
+
+	limit := 1
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "c2", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: SubqueryExpr{Query: buildScalar()},
+					}},
+				},
+				Alias: "score0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  SubqueryExpr{Query: buildScalar()},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+					}},
+				},
+				Alias: "tie0",
+			},
+		},
+		From: FromClause{BaseTable: "t2"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "score0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "tie0", Type: schema.TypeInt}}, Desc: true},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+		},
+		Limit: &limit,
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+						Op:    "=",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "id", Type: schema.TypeInt}},
+					},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "score0"},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery")
+	}
+}
+
 func TestValidateQueryScopeLateralJoinAllowsGroupedAggregateHavingReferences(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

@@ -58,6 +58,92 @@ func TestGenerateSelectQueryExercisesLateralOrderLimitHook(t *testing.T) {
 	t.Fatalf("expected generator to exercise correlated lateral ORDER BY + LIMIT hook")
 }
 
+func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
+	gen := newScalarSubqueryOrderLimitTestGenerator(t)
+	query := gen.buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2])
+	if query == nil {
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL hook query")
+	}
+	if len(query.From.Joins) != 2 {
+		t.Fatalf("expected join plus LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in scalar-subquery projected-order-limit hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery != nil {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to stay direct inside the LATERAL body")
+	}
+	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to avoid GROUP BY/HAVING")
+	}
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to expose score0/tie0 aliases")
+	}
+	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
+	if !ok {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to project score0")
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to project tie0")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if !exprContainsFuncName(scoreExpr, "ABS") || !exprContainsScalarSubquery(scoreExpr) {
+		t.Fatalf("expected scalar-subquery projected-order-limit score0 to wrap a scalar subquery")
+	}
+	if !exprHasOrderedLimitedScalarSubquery(scoreExpr) || !exprHasScalarSubqueryUsingVisibleTables(scoreExpr, visible, 2) {
+		t.Fatalf("expected scalar-subquery projected-order-limit score0 to keep correlated ORDER BY + LIMIT visibility")
+	}
+	if !exprContainsFuncName(tieExpr, "ABS") || !exprContainsScalarSubquery(tieExpr) {
+		t.Fatalf("expected scalar-subquery projected-order-limit tie0 to wrap a scalar subquery")
+	}
+	if !exprHasOrderedLimitedScalarSubquery(tieExpr) || !exprHasScalarSubqueryUsingVisibleTables(tieExpr, visible, 2) {
+		t.Fatalf("expected scalar-subquery projected-order-limit tie0 to keep correlated ORDER BY + LIMIT visibility")
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 {
+		t.Fatalf("expected scalar-subquery projected-order-limit WHERE to keep a direct left-side anchor")
+	}
+	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to keep LIMIT 1 inside LATERAL")
+	}
+	if len(lateral.TableQuery.OrderBy) < 3 {
+		t.Fatalf("expected scalar-subquery projected-order-limit hook to keep ORDER BY inside LATERAL")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
+		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY to rank by score0 alias")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY to rank by descending tie0 alias")
+	}
+	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
+		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY tie breaker to keep left-side visibility")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestGenerateSelectQueryExercisesScalarSubqueryProjectedOrderLimitLateralHook(t *testing.T) {
+	gen := newScalarSubqueryOrderLimitTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasScalarSubqueryProjectedOrderLimitLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated scalar-subquery projected-order-limit lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise scalar-subquery projected-order-limit LATERAL hook")
+}
+
 func TestBuildMultiOuterProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	gen := newMultiOuterOrderLimitTestGenerator(t)
 	query := gen.buildMultiOuterProjectedOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2])
@@ -1078,6 +1164,14 @@ func newMultiOuterOrderLimitTestGenerator(t *testing.T) *Generator {
 	return gen
 }
 
+func newScalarSubqueryOrderLimitTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newMultiOuterOrderLimitTestGenerator(t)
+	gen.Config.Features.Subqueries = true
+	gen.SetDisallowScalarSubquery(false)
+	return gen
+}
+
 func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
 	gen := newMergedVisibilityTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -1535,6 +1629,53 @@ func queryHasGroupedOutputAliasLateralHook(query *SelectQuery) bool {
 	return true
 }
 
+func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bool {
+	if query == nil || len(query.From.Joins) < 2 {
+		return false
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery != nil {
+		return false
+	}
+	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil || lateral.TableQuery.Where == nil || lateral.TableQuery.Limit == nil {
+		return false
+	}
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	if name := query.From.Joins[0].tableName(); name != "" {
+		visible[name] = struct{}{}
+	}
+	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
+	if !ok || !exprContainsFuncName(scoreExpr, "ABS") || !exprContainsScalarSubquery(scoreExpr) {
+		return false
+	}
+	if !exprHasOrderedLimitedScalarSubquery(scoreExpr) || !exprHasScalarSubqueryUsingVisibleTables(scoreExpr, visible, 2) {
+		return false
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok || !exprContainsFuncName(tieExpr, "ABS") || !exprContainsScalarSubquery(tieExpr) {
+		return false
+	}
+	if !exprHasOrderedLimitedScalarSubquery(tieExpr) || !exprHasScalarSubqueryUsingVisibleTables(tieExpr, visible, 2) {
+		return false
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) == 0 || len(lateral.TableQuery.OrderBy) < 3 {
+		return false
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
+		return false
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		return false
+	}
+	return countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) > 0
+}
+
 func queryHasMultiOuterProjectedOrderLimitLateralHook(query *SelectQuery) bool {
 	if query == nil || len(query.From.Joins) < 2 {
 		return false
@@ -1728,6 +1869,15 @@ func countVisibleTables(expr Expr, visible map[string]struct{}) int {
 		}
 		seen[col.Table] = struct{}{}
 	}
+	return len(seen)
+}
+
+func countVisibleTablesRecursive(query *SelectQuery, visible map[string]struct{}) int {
+	if query == nil {
+		return 0
+	}
+	seen := make(map[string]struct{}, len(visible))
+	collectVisibleTablesInQuery(query, visible, seen)
 	return len(seen)
 }
 
@@ -1983,6 +2133,182 @@ func exprContainsFuncName(expr Expr, name string) bool {
 	}
 }
 
+func exprContainsScalarSubquery(expr Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case SubqueryExpr:
+		return true
+	case UnaryExpr:
+		return exprContainsScalarSubquery(e.Expr)
+	case BinaryExpr:
+		return exprContainsScalarSubquery(e.Left) || exprContainsScalarSubquery(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprContainsScalarSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprContainsScalarSubquery(e.Expr)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprContainsScalarSubquery(when.When) || exprContainsScalarSubquery(when.Then) {
+				return true
+			}
+		}
+		return exprContainsScalarSubquery(e.Else)
+	case InExpr:
+		if exprContainsScalarSubquery(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprContainsScalarSubquery(item) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprContainsScalarSubquery(arg) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprContainsScalarSubquery(expr) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprContainsScalarSubquery(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func exprHasOrderedLimitedScalarSubquery(expr Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case SubqueryExpr:
+		return e.Query != nil && len(e.Query.OrderBy) > 0 && e.Query.Limit != nil
+	case UnaryExpr:
+		return exprHasOrderedLimitedScalarSubquery(e.Expr)
+	case BinaryExpr:
+		return exprHasOrderedLimitedScalarSubquery(e.Left) || exprHasOrderedLimitedScalarSubquery(e.Right)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasOrderedLimitedScalarSubquery(arg) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprHasOrderedLimitedScalarSubquery(e.Expr)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprHasOrderedLimitedScalarSubquery(when.When) || exprHasOrderedLimitedScalarSubquery(when.Then) {
+				return true
+			}
+		}
+		return exprHasOrderedLimitedScalarSubquery(e.Else)
+	case InExpr:
+		if exprHasOrderedLimitedScalarSubquery(e.Left) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasOrderedLimitedScalarSubquery(item) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasOrderedLimitedScalarSubquery(arg) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprHasOrderedLimitedScalarSubquery(expr) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasOrderedLimitedScalarSubquery(ob.Expr) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func exprHasScalarSubqueryUsingVisibleTables(expr Expr, visible map[string]struct{}, minCount int) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case SubqueryExpr:
+		return countVisibleTablesRecursive(e.Query, visible) >= minCount
+	case UnaryExpr:
+		return exprHasScalarSubqueryUsingVisibleTables(e.Expr, visible, minCount)
+	case BinaryExpr:
+		return exprHasScalarSubqueryUsingVisibleTables(e.Left, visible, minCount) ||
+			exprHasScalarSubqueryUsingVisibleTables(e.Right, visible, minCount)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			if exprHasScalarSubqueryUsingVisibleTables(arg, visible, minCount) {
+				return true
+			}
+		}
+		return false
+	case GroupByOrdinalExpr:
+		return exprHasScalarSubqueryUsingVisibleTables(e.Expr, visible, minCount)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			if exprHasScalarSubqueryUsingVisibleTables(when.When, visible, minCount) ||
+				exprHasScalarSubqueryUsingVisibleTables(when.Then, visible, minCount) {
+				return true
+			}
+		}
+		return exprHasScalarSubqueryUsingVisibleTables(e.Else, visible, minCount)
+	case InExpr:
+		if exprHasScalarSubqueryUsingVisibleTables(e.Left, visible, minCount) {
+			return true
+		}
+		for _, item := range e.List {
+			if exprHasScalarSubqueryUsingVisibleTables(item, visible, minCount) {
+				return true
+			}
+		}
+		return false
+	case WindowExpr:
+		for _, arg := range e.Args {
+			if exprHasScalarSubqueryUsingVisibleTables(arg, visible, minCount) {
+				return true
+			}
+		}
+		for _, expr := range e.PartitionBy {
+			if exprHasScalarSubqueryUsingVisibleTables(expr, visible, minCount) {
+				return true
+			}
+		}
+		for _, ob := range e.OrderBy {
+			if exprHasScalarSubqueryUsingVisibleTables(ob.Expr, visible, minCount) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 func caseExprDepth(expr Expr) int {
 	switch e := expr.(type) {
 	case nil:
@@ -2086,5 +2412,91 @@ func aggregateSourceColumnsFromExpr(expr Expr) []ColumnRef {
 		return cols
 	default:
 		return nil
+	}
+}
+
+func collectVisibleTablesInQuery(query *SelectQuery, visible map[string]struct{}, seen map[string]struct{}) {
+	if query == nil {
+		return
+	}
+	for _, cte := range query.With {
+		collectVisibleTablesInQuery(cte.Query, visible, seen)
+	}
+	for _, op := range query.SetOps {
+		collectVisibleTablesInQuery(op.Query, visible, seen)
+	}
+	collectVisibleTablesInQuery(query.From.BaseQuery, visible, seen)
+	for _, item := range query.Items {
+		collectVisibleTablesInExpr(item.Expr, visible, seen)
+	}
+	collectVisibleTablesInExpr(query.Where, visible, seen)
+	for _, expr := range query.GroupBy {
+		collectVisibleTablesInExpr(expr, visible, seen)
+	}
+	collectVisibleTablesInExpr(query.Having, visible, seen)
+	for _, def := range query.WindowDefs {
+		for _, expr := range def.PartitionBy {
+			collectVisibleTablesInExpr(expr, visible, seen)
+		}
+		for _, ob := range def.OrderBy {
+			collectVisibleTablesInExpr(ob.Expr, visible, seen)
+		}
+	}
+	for _, ob := range query.OrderBy {
+		collectVisibleTablesInExpr(ob.Expr, visible, seen)
+	}
+	for _, join := range query.From.Joins {
+		collectVisibleTablesInExpr(join.On, visible, seen)
+		collectVisibleTablesInQuery(join.TableQuery, visible, seen)
+	}
+}
+
+func collectVisibleTablesInExpr(expr Expr, visible map[string]struct{}, seen map[string]struct{}) {
+	switch e := expr.(type) {
+	case nil:
+		return
+	case ColumnExpr:
+		if _, ok := visible[e.Ref.Table]; ok {
+			seen[e.Ref.Table] = struct{}{}
+		}
+	case UnaryExpr:
+		collectVisibleTablesInExpr(e.Expr, visible, seen)
+	case BinaryExpr:
+		collectVisibleTablesInExpr(e.Left, visible, seen)
+		collectVisibleTablesInExpr(e.Right, visible, seen)
+	case FuncExpr:
+		for _, arg := range e.Args {
+			collectVisibleTablesInExpr(arg, visible, seen)
+		}
+	case GroupByOrdinalExpr:
+		collectVisibleTablesInExpr(e.Expr, visible, seen)
+	case CaseExpr:
+		for _, when := range e.Whens {
+			collectVisibleTablesInExpr(when.When, visible, seen)
+			collectVisibleTablesInExpr(when.Then, visible, seen)
+		}
+		collectVisibleTablesInExpr(e.Else, visible, seen)
+	case InExpr:
+		collectVisibleTablesInExpr(e.Left, visible, seen)
+		for _, item := range e.List {
+			collectVisibleTablesInExpr(item, visible, seen)
+		}
+	case CompareSubqueryExpr:
+		collectVisibleTablesInExpr(e.Left, visible, seen)
+		collectVisibleTablesInQuery(e.Query, visible, seen)
+	case SubqueryExpr:
+		collectVisibleTablesInQuery(e.Query, visible, seen)
+	case ExistsExpr:
+		collectVisibleTablesInQuery(e.Query, visible, seen)
+	case WindowExpr:
+		for _, arg := range e.Args {
+			collectVisibleTablesInExpr(arg, visible, seen)
+		}
+		for _, expr := range e.PartitionBy {
+			collectVisibleTablesInExpr(expr, visible, seen)
+		}
+		for _, ob := range e.OrderBy {
+			collectVisibleTablesInExpr(ob.Expr, visible, seen)
+		}
 	}
 }
