@@ -58,6 +58,98 @@ func TestGenerateSelectQueryExercisesLateralOrderLimitHook(t *testing.T) {
 	t.Fatalf("expected generator to exercise correlated lateral ORDER BY + LIMIT hook")
 }
 
+func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
+	gen := newGroupedOutputOrderLimitTestGenerator(t)
+	gen.Config.Features.NaturalJoins = false
+	query := gen.buildGroupedOutputOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	if query == nil {
+		t.Fatalf("expected grouped-output-order-limit LATERAL hook query for USING")
+	}
+	if len(query.From.Joins) != 2 || len(query.From.Joins[0].Using) == 0 {
+		t.Fatalf("expected USING join before grouped-output-order-limit LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped derived table inside grouped-output-order-limit LATERAL hook")
+	}
+	agg := lateral.TableQuery.From.BaseQuery
+	if len(agg.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped derived table")
+	}
+	if !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
+		t.Fatalf("expected grouped derived table to expose g0/cnt aliases")
+	}
+	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
+		t.Fatalf("expected grouped-output-order-limit hook to keep LIMIT 1 inside LATERAL")
+	}
+	usingCol := query.From.Joins[0].Using[0]
+	if len(lateral.TableQuery.OrderBy) == 0 {
+		t.Fatalf("expected ORDER BY inside grouped-output-order-limit hook")
+	}
+	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName(), "g0") {
+		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference grouped output alias")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, usingCol) {
+		t.Fatalf("expected grouped-output-order-limit ORDER BY to reference merged USING column %q", usingCol)
+	}
+	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, lateral.TableQuery.From.baseName(), "cnt") {
+		t.Fatalf("expected grouped-output-order-limit ORDER BY to rank by grouped count alias")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped-output-order-limit USING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
+	gen := newGroupedOutputOrderLimitTestGenerator(t)
+	query := gen.buildGroupedOutputOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], true)
+	if query == nil {
+		t.Fatalf("expected grouped-output-order-limit LATERAL hook query for NATURAL join")
+	}
+	if len(query.From.Joins) != 2 || !query.From.Joins[0].Natural {
+		t.Fatalf("expected NATURAL join before grouped-output-order-limit LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit NATURAL hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped derived table inside grouped-output-order-limit NATURAL hook")
+	}
+	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
+	}
+	if len(lateral.TableQuery.OrderBy) == 0 || !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[0].Expr) {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference merged column unqualified in ORDER BY")
+	}
+	if !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName(), "g0") {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to reference grouped output alias in ORDER BY")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped-output-order-limit NATURAL LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestGenerateSelectQueryExercisesGroupedOutputOrderLimitLateralHook(t *testing.T) {
+	gen := newGroupedOutputOrderLimitTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasGroupedOutputOrderLimitLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated grouped-output-order-limit lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise grouped-output-order-limit LATERAL hook")
+}
+
 func TestBuildCorrelatedAggregateLateralHookQuery(t *testing.T) {
 	gen := newAggregateLateralTestGenerator(t)
 	query := gen.buildCorrelatedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2])
@@ -680,6 +772,14 @@ func newGroupedOutputAliasLateralTestGenerator(t *testing.T) *Generator {
 	return gen
 }
 
+func newGroupedOutputOrderLimitTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newGroupedOutputAliasLateralTestGenerator(t)
+	gen.Config.Features.Limit = true
+	gen.Config.Features.OrderBy = true
+	return gen
+}
+
 func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
 	gen := newMergedVisibilityTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -1132,6 +1232,40 @@ func queryHasGroupedOutputAliasLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	if len(lateral.TableQuery.OrderBy) == 0 || !exprUsesTable(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName()) {
+		return false
+	}
+	return true
+}
+
+func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
+	if query == nil || len(query.From.Joins) < 2 {
+		return false
+	}
+	mergedJoin := query.From.Joins[0]
+	if !mergedJoin.Natural && len(mergedJoin.Using) == 0 {
+		return false
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
+		return false
+	}
+	agg := lateral.TableQuery.From.BaseQuery
+	if len(agg.GroupBy) == 0 || !selectItemsHaveAliases(agg.Items, "g0", "cnt") {
+		return false
+	}
+	if lateral.TableQuery.Limit == nil {
+		return false
+	}
+	if len(lateral.TableQuery.OrderBy) == 0 {
+		return false
+	}
+	if !exprUsesTable(lateral.TableQuery.OrderBy[0].Expr, lateral.TableQuery.From.baseName()) {
+		return false
+	}
+	if !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[0].Expr) {
+		return false
+	}
+	if len(lateral.TableQuery.OrderBy) > 1 && !exprUsesQualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, lateral.TableQuery.From.baseName(), "cnt") {
 		return false
 	}
 	return true

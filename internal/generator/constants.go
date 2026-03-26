@@ -70,6 +70,9 @@ const (
 	// LateralJoinGroupedOutputAliasProb biases lateral bug-mining toward grouped
 	// derived outputs that are consumed later inside the same LATERAL subtree.
 	LateralJoinGroupedOutputAliasProb = 70
+	// LateralJoinGroupedOutputOrderLimitProb biases lateral bug-mining toward
+	// keep-order interactions over grouped derived outputs inside LATERAL.
+	LateralJoinGroupedOutputOrderLimitProb = 70
 	// LateralJoinOrderLimitProb biases lateral bug-mining toward correlated TopN/Limit shapes.
 	LateralJoinOrderLimitProb = 70
 	// LateralJoinLimitMax caps the LIMIT used inside generated LATERAL subqueries.
