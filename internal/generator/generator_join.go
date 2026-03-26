@@ -427,6 +427,183 @@ func (g *Generator) buildCorrelatedOrderLimitLateralQuery(outerTables []schema.T
 	return query
 }
 
+func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || !g.Config.Features.GroupBy || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinGroupedAggregateProb) {
+		return nil
+	}
+	variantOrder := []bool{false, true}
+	if !g.Config.Features.Having {
+		variantOrder = []bool{false}
+	} else if util.Chance(g.Rand, 50) {
+		variantOrder = []bool{true, false}
+	}
+	for _, useHaving := range variantOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildGroupedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k], useHaving); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, useHaving bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, groupInnerCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok {
+		return nil
+	}
+
+	lateralItems := make([]SelectItem, 0, 3)
+	lateralItems = append(lateralItems,
+		SelectItem{
+			Expr:  ColumnExpr{Ref: groupInnerCol},
+			Alias: "g0",
+		},
+		SelectItem{
+			Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
+			Alias: "cnt",
+		},
+	)
+	sumRef, hasSum := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, groupInnerCol.Name)
+	if hasSum {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		lateralItems = append(lateralItems, SelectItem{
+			Expr:  FuncExpr{Name: "SUM", Args: []Expr{sumExpr}},
+			Alias: "sum1",
+		})
+	}
+
+	where := Expr(BinaryExpr{
+		Left:  ColumnExpr{Ref: baseInnerCol},
+		Op:    "=",
+		Right: ColumnExpr{Ref: baseOuterCol},
+	})
+	if !useHaving {
+		where = BinaryExpr{
+			Left: where,
+			Op:   "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		}
+	}
+
+	lateralQuery := &SelectQuery{
+		Items:   lateralItems,
+		From:    FromClause{BaseTable: inner.Name},
+		Where:   where,
+		GroupBy: []Expr{ColumnExpr{Ref: groupInnerCol}},
+	}
+	if useHaving {
+		lateralQuery.Having = BinaryExpr{
+			Left:  ColumnExpr{Ref: groupInnerCol},
+			Op:    "=",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		}
+	}
+
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+
+	items := make([]SelectItem, 0, 5)
+	items = append(items,
+		SelectItem{
+			Expr:  ColumnExpr{Ref: baseOuterCol},
+			Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
+		},
+		SelectItem{
+			Expr:  ColumnExpr{Ref: siblingOuterCol},
+			Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
+		},
+		SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "g0",
+				Type:  groupInnerCol.Type,
+			}},
+			Alias: "lateral_g0",
+		},
+		SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "cnt",
+				Type:  schema.TypeBigInt,
+			}},
+			Alias: "lateral_cnt",
+		},
+	)
+	if hasSum {
+		items = append(items, SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "sum1",
+				Type:  sumRef.Type,
+			}},
+			Alias: "lateral_sum1",
+		})
+	}
+
+	query := &SelectQuery{
+		Items: items,
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+			},
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
 func (g *Generator) buildCorrelatedAggregateLateralHookQuery(tables []schema.Table) *SelectQuery {
 	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || g.Config.Features.DSG || len(tables) < 3 {
 		return nil
@@ -473,11 +650,10 @@ func (g *Generator) buildCorrelatedAggregateLateralHookQueryForTables(base schem
 		return nil
 	}
 
-	lateralItems := []SelectItem{
-		{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
-	}
-	sumRef, ok := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, siblingInnerCol.Name)
-	if ok {
+	lateralItems := make([]SelectItem, 0, 2)
+	lateralItems = append(lateralItems, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
+	sumRef, hasSum := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, siblingInnerCol.Name)
+	if hasSum {
 		sumExpr := ColumnExpr{Ref: sumRef}
 		g.warnAggOnDouble("SUM", sumExpr)
 		lateralItems = append(lateralItems, SelectItem{
@@ -515,16 +691,17 @@ func (g *Generator) buildCorrelatedAggregateLateralHookQueryForTables(base schem
 		lateralJoin.On = g.trueExpr()
 	}
 
-	items := []SelectItem{
-		{
+	items := make([]SelectItem, 0, 4)
+	items = append(items,
+		SelectItem{
 			Expr:  ColumnExpr{Ref: baseOuterCol},
 			Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
 		},
-		{
+		SelectItem{
 			Expr:  ColumnExpr{Ref: siblingOuterCol},
 			Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
 		},
-		{
+		SelectItem{
 			Expr: ColumnExpr{Ref: ColumnRef{
 				Table: "dt",
 				Name:  "cnt",
@@ -532,8 +709,8 @@ func (g *Generator) buildCorrelatedAggregateLateralHookQueryForTables(base schem
 			}},
 			Alias: "lateral_cnt",
 		},
-	}
-	if ok {
+	)
+	if hasSum {
 		items = append(items, SelectItem{
 			Expr: ColumnExpr{Ref: ColumnRef{
 				Table: "dt",
@@ -679,10 +856,11 @@ func (g *Generator) buildMergedColumnVisibilityLateralHookQueryForTables(base sc
 			Right: ColumnExpr{Ref: mergedRef},
 		},
 	}
-	joins := []Join{{
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
 		Type:  JoinInner,
 		Table: sibling.Name,
-	}}
+	})
 	if pick.merged.Natural {
 		joins[0].Natural = true
 	} else {

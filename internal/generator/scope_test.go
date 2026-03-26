@@ -381,6 +381,77 @@ func TestValidateQueryScopeLateralJoinAllowsMultiTableAggregateReferences(t *tes
 	}
 }
 
+func TestValidateQueryScopeLateralJoinAllowsGroupedAggregateHavingReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+					{Name: "k1", Type: schema.TypeInt},
+					{Name: "v0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}}, Alias: "g0"},
+			{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"},
+		},
+		From:    FromClause{BaseTable: "t2"},
+		Where:   BinaryExpr{Left: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Op: "=", Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
+		GroupBy: []Expr{ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}}},
+		Having:  BinaryExpr{Left: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k1", Type: schema.TypeInt}}, Op: "=", Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k1", Type: schema.TypeInt}}},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+						Op:    "=",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "id", Type: schema.TypeInt}},
+					},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "g0", Type: schema.TypeInt}}, Alias: "g0"},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "cnt", Type: schema.TypeBigInt}}, Alias: "cnt"},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected grouped aggregate HAVING to see outer tables")
+	}
+}
+
 func TestValidateQueryScopeLateralJoinRejectsFutureTableReferences(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

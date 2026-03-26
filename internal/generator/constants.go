@@ -64,6 +64,9 @@ const (
 	// LateralJoinAggregateProb biases lateral bug-mining toward correlated aggregates
 	// over multi-table left inputs.
 	LateralJoinAggregateProb = 70
+	// LateralJoinGroupedAggregateProb biases lateral bug-mining toward grouped
+	// aggregates plus outer references inside LATERAL subqueries.
+	LateralJoinGroupedAggregateProb = 70
 	// LateralJoinOrderLimitProb biases lateral bug-mining toward correlated TopN/Limit shapes.
 	LateralJoinOrderLimitProb = 70
 	// LateralJoinLimitMax caps the LIMIT used inside generated LATERAL subqueries.

@@ -86,6 +86,62 @@ func TestBuildCorrelatedAggregateLateralHookQuery(t *testing.T) {
 	}
 }
 
+func TestBuildGroupedAggregateLateralHookQueryGroupBy(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate hook")
+	}
+	if lateral.TableQuery.Having != nil {
+		t.Fatalf("expected pure GROUP BY variant without HAVING")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) < 2 {
+		t.Fatalf("expected grouped aggregate WHERE to reference two left-side tables")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestBuildGroupedAggregateLateralHookQueryHaving(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	query := gen.buildGroupedAggregateLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], true)
+	if query == nil {
+		t.Fatalf("expected grouped aggregate LATERAL HAVING hook query")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in grouped aggregate HAVING hook query")
+	}
+	if len(lateral.TableQuery.GroupBy) == 0 {
+		t.Fatalf("expected GROUP BY inside grouped aggregate HAVING hook")
+	}
+	if lateral.TableQuery.Having == nil {
+		t.Fatalf("expected HAVING inside grouped aggregate hook")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Having, visible) == 0 {
+		t.Fatalf("expected HAVING to reference left-side tables")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected grouped aggregate HAVING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
 func TestGenerateSelectQueryExercisesCorrelatedAggregateLateralHook(t *testing.T) {
 	gen := newAggregateLateralTestGenerator(t)
 	v := validator.New()
@@ -101,6 +157,70 @@ func TestGenerateSelectQueryExercisesCorrelatedAggregateLateralHook(t *testing.T
 	}
 
 	t.Fatalf("expected generator to exercise correlated aggregate LATERAL hook")
+}
+
+func TestGenerateSelectQueryExercisesGroupedAggregateLateralHook(t *testing.T) {
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasGroupedAggregateLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated grouped aggregate lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise grouped aggregate LATERAL hook")
+}
+
+func newGroupedAggregateLateralTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newTestGenerator(t)
+	gen.Config.Features.LateralJoins = true
+	gen.Config.Features.Limit = false
+	gen.Config.Features.CTE = false
+	gen.Config.Features.Aggregates = true
+	gen.Config.Features.GroupBy = true
+	gen.Config.Features.Having = true
+	gen.Config.Features.Distinct = false
+	gen.Config.Features.WindowFuncs = false
+	gen.Config.Features.SetOperations = false
+	gen.Config.Features.DerivedTables = false
+	gen.Config.Features.FullJoinEmulation = false
+	gen.Config.Features.NaturalJoins = false
+	gen.Config.MaxJoinTables = 3
+	gen.SetMinJoinTables(3)
+	gen.SetJoinTypeOverride(JoinInner)
+	gen.State = &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c1", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "c2", Type: schema.TypeInt},
+					{Name: "v0", Type: schema.TypeInt},
+				},
+			},
+		},
+	}
+	return gen
 }
 
 func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
@@ -299,6 +419,30 @@ func queryHasCorrelatedAggregateLateralHook(query *SelectQuery) bool {
 	for _, join := range query.From.Joins {
 		if join.Lateral && join.TableQuery != nil && selectItemsContainAggregate(join.TableQuery.Items) && countVisibleTables(join.TableQuery.Where, visible) >= 2 {
 			return true
+		}
+		if name := join.tableName(); name != "" {
+			visible[name] = struct{}{}
+		}
+	}
+	return false
+}
+
+func queryHasGroupedAggregateLateralHook(query *SelectQuery) bool {
+	if query == nil {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	for _, join := range query.From.Joins {
+		if join.Lateral && join.TableQuery != nil && len(join.TableQuery.GroupBy) > 0 && selectItemsContainAggregate(join.TableQuery.Items) {
+			if join.TableQuery.Having != nil && countVisibleTables(join.TableQuery.Having, visible) > 0 {
+				return true
+			}
+			if countVisibleTables(join.TableQuery.Where, visible) >= 2 {
+				return true
+			}
 		}
 		if name := join.tableName(); name != "" {
 			visible[name] = struct{}{}
