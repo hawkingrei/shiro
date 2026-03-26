@@ -1113,7 +1113,39 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			},
 		},
 	}
-	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	query.Where = BinaryExpr{
+		Left: ColumnExpr{Ref: ColumnRef{
+			Table: "dt",
+			Name:  "tie0",
+			Type:  tieAliasRef.Type,
+		}},
+		Op:    ">=",
+		Right: ColumnExpr{Ref: siblingOuterCol},
+	}
+	query.OrderBy = []OrderBy{
+		{
+			Expr: FuncExpr{
+				Name: "ABS",
+				Args: []Expr{BinaryExpr{
+					Left: ColumnExpr{Ref: ColumnRef{
+						Table: "dt",
+						Name:  "tie0",
+						Type:  tieAliasRef.Type,
+					}},
+					Op:    "-",
+					Right: ColumnExpr{Ref: siblingOuterCol},
+				}},
+			},
+		},
+		{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "score0",
+				Type:  scoreAliasRef.Type,
+			}},
+		},
+		{Expr: ColumnExpr{Ref: baseOuterCol}},
+	}
 	return query
 }
 

@@ -665,10 +665,29 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "score0"},
 		},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+			Op:    ">=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+		},
+		OrderBy: []OrderBy{
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+					}},
+				},
+			},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
+		},
 	}
 
 	if !gen.validateQueryScope(query) {
-		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery")
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through both the nested scalar subquery and the outer post-lateral consumer")
 	}
 }
 

@@ -127,6 +127,26 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
 		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY tie breaker to keep left-side visibility")
 	}
+	outerVisible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+		query.From.Joins[1].tableName(): {},
+	}
+	if query.Where == nil || !exprUsesQualifiedColumnName(query.Where, "dt", "tie0") || countVisibleTables(query.Where, outerVisible) < 2 {
+		t.Fatalf("expected outer query WHERE to consume the reused scalar-subquery value after lateral projection")
+	}
+	if len(query.OrderBy) < 3 {
+		t.Fatalf("expected outer query ORDER BY to consume post-lateral projected values")
+	}
+	if !exprContainsFuncName(query.OrderBy[0].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[0].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[0].Expr, outerVisible) < 2 {
+		t.Fatalf("expected outer query ORDER BY to rank by a post-lateral expression over tie0 and the sibling outer table")
+	}
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "score0") {
+		t.Fatalf("expected outer query ORDER BY to keep consuming the lateral projected score alias")
+	}
+	if countVisibleTables(query.OrderBy[2].Expr, outerVisible) == 0 {
+		t.Fatalf("expected outer query ORDER BY tie breaker to keep base-table visibility")
+	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
 	}
@@ -1683,7 +1703,32 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
 		return false
 	}
-	return countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) > 0
+	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
+		return false
+	}
+	outerVisible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		outerVisible[base] = struct{}{}
+	}
+	if name := query.From.Joins[0].tableName(); name != "" {
+		outerVisible[name] = struct{}{}
+	}
+	if name := query.From.Joins[1].tableName(); name != "" {
+		outerVisible[name] = struct{}{}
+	}
+	if query.Where == nil || !exprUsesQualifiedColumnName(query.Where, "dt", "tie0") || countVisibleTables(query.Where, outerVisible) < 2 {
+		return false
+	}
+	if len(query.OrderBy) < 3 {
+		return false
+	}
+	if !exprContainsFuncName(query.OrderBy[0].Expr, "ABS") || !exprUsesQualifiedColumnName(query.OrderBy[0].Expr, "dt", "tie0") || countVisibleTables(query.OrderBy[0].Expr, outerVisible) < 2 {
+		return false
+	}
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "score0") {
+		return false
+	}
+	return countVisibleTables(query.OrderBy[2].Expr, outerVisible) > 0
 }
 
 func queryHasMultiOuterProjectedOrderLimitLateralHook(query *SelectQuery) bool {
