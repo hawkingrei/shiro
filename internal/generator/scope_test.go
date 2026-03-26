@@ -1450,28 +1450,78 @@ func TestValidateQueryScopeLateralJoinAllowsProjectedOrderLimitVisibility(t *tes
 	limit := 1
 	lateral := &SelectQuery{
 		Items: []SelectItem{
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Alias: "inner0"},
-			{Expr: CaseExpr{
-				Whens: []CaseWhen{
-					{
-						When: BinaryExpr{
-							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-							Op:    ">=",
-							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
-						},
-						Then: BinaryExpr{
-							Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-							Op:    "-",
-							Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+			{Expr: FuncExpr{
+				Name: "ABS",
+				Args: []Expr{CaseExpr{
+					Whens: []CaseWhen{
+						{
+							When: BinaryExpr{
+								Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+								Op:    ">=",
+								Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+							},
+							Then: CaseExpr{
+								Whens: []CaseWhen{
+									{
+										When: BinaryExpr{
+											Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+											Op:    ">=",
+											Right: LiteralExpr{Value: 0},
+										},
+										Then: BinaryExpr{
+											Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+											Op:    "-",
+											Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+										},
+									},
+								},
+								Else: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+							},
 						},
 					},
-				},
-				Else: BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
-					Op:    "-",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
-				},
+					Else: CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: BinaryExpr{
+									Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+									Op:    ">=",
+									Right: LiteralExpr{Value: 0},
+								},
+								Then: BinaryExpr{
+									Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+									Op:    "-",
+									Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+								},
+							},
+						},
+						Else: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+					},
+				}},
 			}, Alias: "score0"},
+			{Expr: FuncExpr{
+				Name: "ABS",
+				Args: []Expr{CaseExpr{
+					Whens: []CaseWhen{
+						{
+							When: BinaryExpr{
+								Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+								Op:    ">=",
+								Right: LiteralExpr{Value: 0},
+							},
+							Then: BinaryExpr{
+								Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+								Op:    "+",
+								Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+							},
+						},
+					},
+					Else: BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+					},
+				}},
+			}, Alias: "tie0"},
 		},
 		From: FromClause{BaseTable: "t2"},
 		Where: BinaryExpr{
@@ -1484,7 +1534,7 @@ func TestValidateQueryScopeLateralJoinAllowsProjectedOrderLimitVisibility(t *tes
 				Expr: ColumnExpr{Ref: ColumnRef{Name: "score0", Type: schema.TypeInt}},
 			},
 			{
-				Expr: ColumnExpr{Ref: ColumnRef{Name: "inner0", Type: schema.TypeInt}},
+				Expr: ColumnExpr{Ref: ColumnRef{Name: "tie0", Type: schema.TypeInt}},
 				Desc: true,
 			},
 			{

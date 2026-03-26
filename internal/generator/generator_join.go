@@ -934,39 +934,83 @@ func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schem
 	pick := pairs[g.Rand.Intn(len(pairs))]
 	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
 	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
-	scoreExpr := CaseExpr{
-		Whens: []CaseWhen{
-			{
-				When: BinaryExpr{
-					Left:  ColumnExpr{Ref: innerRef},
-					Op:    ">=",
-					Right: ColumnExpr{Ref: mergedRef},
-				},
-				Then: BinaryExpr{
-					Left:  ColumnExpr{Ref: innerRef},
-					Op:    "-",
-					Right: ColumnExpr{Ref: mergedRef},
+	positiveInnerExpr := BinaryExpr{
+		Left:  ColumnExpr{Ref: innerRef},
+		Op:    ">=",
+		Right: LiteralExpr{Value: 0},
+	}
+	scoreExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: BinaryExpr{
+						Left:  ColumnExpr{Ref: innerRef},
+						Op:    ">=",
+						Right: ColumnExpr{Ref: mergedRef},
+					},
+					Then: CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: positiveInnerExpr,
+								Then: BinaryExpr{
+									Left:  ColumnExpr{Ref: innerRef},
+									Op:    "-",
+									Right: ColumnExpr{Ref: mergedRef},
+								},
+							},
+						},
+						Else: ColumnExpr{Ref: mergedRef},
+					},
 				},
 			},
-		},
-		Else: BinaryExpr{
-			Left:  ColumnExpr{Ref: mergedRef},
-			Op:    "-",
-			Right: ColumnExpr{Ref: innerRef},
-		},
+			Else: CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: positiveInnerExpr,
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: mergedRef},
+							Op:    "-",
+							Right: ColumnExpr{Ref: innerRef},
+						},
+					},
+				},
+				Else: ColumnExpr{Ref: innerRef},
+			},
+		}},
+	}
+	tieExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: positiveInnerExpr,
+					Then: BinaryExpr{
+						Left:  ColumnExpr{Ref: innerRef},
+						Op:    "+",
+						Right: ColumnExpr{Ref: mergedRef},
+					},
+				},
+			},
+			Else: BinaryExpr{
+				Left:  ColumnExpr{Ref: mergedRef},
+				Op:    "-",
+				Right: ColumnExpr{Ref: innerRef},
+			},
+		}},
 	}
 	scoreAliasRef := ColumnRef{Name: "score0", Type: pick.inner.Type}
-	innerAliasRef := ColumnRef{Name: "inner0", Type: pick.inner.Type}
+	tieAliasRef := ColumnRef{Name: "tie0", Type: pick.inner.Type}
 	limit := 1
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: innerRef},
-				Alias: "inner0",
-			},
-			{
 				Expr:  scoreExpr,
 				Alias: "score0",
+			},
+			{
+				Expr:  tieExpr,
+				Alias: "tie0",
 			},
 		},
 		From: FromClause{BaseTable: inner.Name},
@@ -977,7 +1021,7 @@ func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schem
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: scoreAliasRef}},
-			{Expr: ColumnExpr{Ref: innerAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: tieAliasRef}, Desc: true},
 			{Expr: ColumnExpr{Ref: mergedRef}},
 		},
 		Limit: &limit,
@@ -1020,10 +1064,10 @@ func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schem
 			{
 				Expr: ColumnExpr{Ref: ColumnRef{
 					Table: "dt",
-					Name:  "inner0",
+					Name:  "tie0",
 					Type:  pick.inner.Type,
 				}},
-				Alias: "lateral_inner0",
+				Alias: "lateral_tie0",
 			},
 		},
 		From: FromClause{

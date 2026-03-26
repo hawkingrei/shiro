@@ -81,15 +81,22 @@ func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if lateral.TableQuery.Having != nil {
 		t.Fatalf("expected projected-order-limit hook to avoid HAVING")
 	}
-	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "inner0") {
-		t.Fatalf("expected projected-order-limit hook to expose score0/inner0 aliases")
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
+		t.Fatalf("expected projected-order-limit hook to expose score0/tie0 aliases")
 	}
 	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
 	if !ok {
 		t.Fatalf("expected projected-order-limit hook to project score0")
 	}
-	if !exprContainsCase(scoreExpr) {
-		t.Fatalf("expected projected-order-limit score0 to use CASE correlation")
+	if !exprContainsCase(scoreExpr) || !exprContainsFuncName(scoreExpr, "ABS") || caseExprDepth(scoreExpr) < 2 {
+		t.Fatalf("expected projected-order-limit score0 to use ABS-wrapped nested CASE correlation")
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok {
+		t.Fatalf("expected projected-order-limit hook to project tie0")
+	}
+	if !exprContainsCase(tieExpr) || !exprContainsFuncName(tieExpr, "ABS") {
+		t.Fatalf("expected projected-order-limit tie0 to keep an outer-sensitive wrapped CASE signal")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected projected-order-limit hook to keep LIMIT 1 inside LATERAL")
@@ -97,6 +104,9 @@ func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	usingCol := query.From.Joins[0].Using[0]
 	if !exprUsesUnqualifiedColumnName(scoreExpr, usingCol) {
 		t.Fatalf("expected projected-order-limit score0 to reference merged USING column %q", usingCol)
+	}
+	if !exprUsesUnqualifiedColumnName(tieExpr, usingCol) {
+		t.Fatalf("expected projected-order-limit tie0 to reference merged USING column %q", usingCol)
 	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected projected-order-limit WHERE to reference merged USING column %q", usingCol)
@@ -107,8 +117,8 @@ func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
 		t.Fatalf("expected projected-order-limit ORDER BY to rank by score0 alias")
 	}
-	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "inner0") || !lateral.TableQuery.OrderBy[1].Desc {
-		t.Fatalf("expected projected-order-limit ORDER BY to use descending inner0 tie breaker")
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		t.Fatalf("expected projected-order-limit ORDER BY to use descending tie0 secondary key")
 	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[2].Expr, usingCol) {
 		t.Fatalf("expected projected-order-limit ORDER BY to keep merged USING column %q visible", usingCol)
@@ -144,11 +154,21 @@ func TestBuildProjectedOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected projected-order-limit NATURAL hook to project score0")
 	}
-	if !exprContainsCase(scoreExpr) {
-		t.Fatalf("expected projected-order-limit NATURAL score0 to use CASE correlation")
+	if !exprContainsCase(scoreExpr) || !exprContainsFuncName(scoreExpr, "ABS") || caseExprDepth(scoreExpr) < 2 {
+		t.Fatalf("expected projected-order-limit NATURAL score0 to use ABS-wrapped nested CASE correlation")
 	}
 	if !exprHasUnqualifiedColumn(scoreExpr) {
 		t.Fatalf("expected projected-order-limit NATURAL score0 to reference merged column unqualified")
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok {
+		t.Fatalf("expected projected-order-limit NATURAL hook to project tie0")
+	}
+	if !exprContainsCase(tieExpr) || !exprContainsFuncName(tieExpr, "ABS") {
+		t.Fatalf("expected projected-order-limit NATURAL tie0 to keep a wrapped CASE signal")
+	}
+	if !exprHasUnqualifiedColumn(tieExpr) {
+		t.Fatalf("expected projected-order-limit NATURAL tie0 to reference merged column unqualified")
 	}
 	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
 		t.Fatalf("expected projected-order-limit NATURAL hook to keep LIMIT 1 inside LATERAL")
@@ -162,8 +182,8 @@ func TestBuildProjectedOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
 		t.Fatalf("expected projected-order-limit NATURAL hook to rank by score0 alias")
 	}
-	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "inner0") || !lateral.TableQuery.OrderBy[1].Desc {
-		t.Fatalf("expected projected-order-limit NATURAL hook to use descending inner0 tie breaker")
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		t.Fatalf("expected projected-order-limit NATURAL hook to use descending tie0 secondary key")
 	}
 	if !exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[2].Expr) {
 		t.Fatalf("expected projected-order-limit NATURAL hook to keep merged column unqualified in ORDER BY")
@@ -1433,11 +1453,15 @@ func queryHasProjectedOrderLimitLateralHook(query *SelectQuery) bool {
 	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil || lateral.TableQuery.Where == nil || lateral.TableQuery.Limit == nil {
 		return false
 	}
-	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "inner0") {
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
 		return false
 	}
 	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
-	if !ok || !exprContainsCase(scoreExpr) {
+	if !ok || !exprContainsCase(scoreExpr) || !exprContainsFuncName(scoreExpr, "ABS") {
+		return false
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok || !exprContainsCase(tieExpr) || !exprContainsFuncName(tieExpr, "ABS") {
 		return false
 	}
 	if len(lateral.TableQuery.OrderBy) < 3 {
@@ -1446,17 +1470,19 @@ func queryHasProjectedOrderLimitLateralHook(query *SelectQuery) bool {
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
 		return false
 	}
-	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "inner0") || !lateral.TableQuery.OrderBy[1].Desc {
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
 		return false
 	}
 	if mergedJoin.Natural {
 		return exprUsesUnqualifiedColumnOtherThan(lateral.TableQuery.Where) &&
-			exprUsesUnqualifiedColumnOtherThan(scoreExpr, "score0", "inner0") &&
+			exprUsesUnqualifiedColumnOtherThan(scoreExpr, "score0", "tie0") &&
+			exprUsesUnqualifiedColumnOtherThan(tieExpr, "score0", "tie0") &&
 			exprHasUnqualifiedColumn(lateral.TableQuery.OrderBy[2].Expr)
 	}
 	for _, name := range mergedJoin.Using {
 		if exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, name) &&
 			exprUsesUnqualifiedColumnName(scoreExpr, name) &&
+			exprUsesUnqualifiedColumnName(tieExpr, name) &&
 			exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[2].Expr, name) {
 			return true
 		}

@@ -148,7 +148,7 @@ func TestSelectCandidatesHandleGroupedOutputOrderLimitLateralJoin(t *testing.T) 
 }
 
 func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
-	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.inner0 AS lateral_inner0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT t2.id AS inner0, CASE WHEN (t2.id >= id) THEN (t2.id - id) ELSE (id - t2.id) END AS score0 FROM t2 WHERE (t2.id <> id) ORDER BY score0, inner0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.id >= id) THEN CASE WHEN (t2.id >= 0) THEN (t2.id - id) ELSE id END ELSE CASE WHEN (t2.id >= 0) THEN (id - t2.id) ELSE t2.id END END) AS score0, ABS(CASE WHEN (t2.id >= 0) THEN (t2.id + id) ELSE (id - t2.id) END) AS tie0 FROM t2 WHERE (t2.id <> id) ORDER BY score0, tie0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
 	p := parser.New()
 	node, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {
