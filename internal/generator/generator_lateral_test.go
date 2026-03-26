@@ -58,6 +58,92 @@ func TestGenerateSelectQueryExercisesLateralOrderLimitHook(t *testing.T) {
 	t.Fatalf("expected generator to exercise correlated lateral ORDER BY + LIMIT hook")
 }
 
+func TestBuildMultiOuterProjectedOrderLimitLateralHookQuery(t *testing.T) {
+	gen := newMultiOuterOrderLimitTestGenerator(t)
+	query := gen.buildMultiOuterProjectedOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2])
+	if query == nil {
+		t.Fatalf("expected multi-outer projected-order-limit LATERAL hook query")
+	}
+	if len(query.From.Joins) != 2 {
+		t.Fatalf("expected join plus LATERAL hook")
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil {
+		t.Fatalf("expected LATERAL derived table in multi-outer projected-order-limit hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery != nil {
+		t.Fatalf("expected multi-outer projected-order-limit hook to stay direct inside the LATERAL body")
+	}
+	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil {
+		t.Fatalf("expected multi-outer projected-order-limit hook to avoid GROUP BY/HAVING")
+	}
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
+		t.Fatalf("expected multi-outer projected-order-limit hook to expose score0/tie0 aliases")
+	}
+	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
+	if !ok {
+		t.Fatalf("expected multi-outer projected-order-limit hook to project score0")
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok {
+		t.Fatalf("expected multi-outer projected-order-limit hook to project tie0")
+	}
+	visible := map[string]struct{}{
+		query.From.BaseTable:            {},
+		query.From.Joins[0].tableName(): {},
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) < 2 {
+		t.Fatalf("expected multi-outer projected-order-limit WHERE to reference both left-side tables")
+	}
+	if countVisibleTables(scoreExpr, visible) < 2 {
+		t.Fatalf("expected multi-outer projected-order-limit score0 to reference both left-side tables")
+	}
+	if countVisibleTables(tieExpr, visible) < 2 {
+		t.Fatalf("expected multi-outer projected-order-limit tie0 to reference both left-side tables")
+	}
+	if !exprContainsCase(scoreExpr) || !exprContainsFuncName(scoreExpr, "ABS") || caseExprDepth(scoreExpr) < 2 {
+		t.Fatalf("expected multi-outer projected-order-limit score0 to use ABS-wrapped nested CASE correlation")
+	}
+	if !exprContainsCase(tieExpr) || !exprContainsFuncName(tieExpr, "ABS") {
+		t.Fatalf("expected multi-outer projected-order-limit tie0 to use wrapped CASE correlation")
+	}
+	if lateral.TableQuery.Limit == nil || *lateral.TableQuery.Limit != 1 {
+		t.Fatalf("expected multi-outer projected-order-limit hook to keep LIMIT 1 inside LATERAL")
+	}
+	if len(lateral.TableQuery.OrderBy) < 3 {
+		t.Fatalf("expected multi-outer projected-order-limit hook to keep ORDER BY inside LATERAL")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
+		t.Fatalf("expected multi-outer projected-order-limit ORDER BY to rank by score0 alias")
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		t.Fatalf("expected multi-outer projected-order-limit ORDER BY to rank by descending tie0 alias")
+	}
+	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
+		t.Fatalf("expected multi-outer projected-order-limit ORDER BY tie breaker to keep left-side visibility")
+	}
+	if err := validator.New().Validate(query.SQLString()); err != nil {
+		t.Fatalf("expected multi-outer projected-order-limit LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
+	}
+}
+
+func TestGenerateSelectQueryExercisesMultiOuterProjectedOrderLimitLateralHook(t *testing.T) {
+	gen := newMultiOuterOrderLimitTestGenerator(t)
+	v := validator.New()
+	for i := 0; i < 400; i++ {
+		query := gen.GenerateSelectQuery()
+		if !queryHasMultiOuterProjectedOrderLimitLateralHook(query) {
+			continue
+		}
+		if err := v.Validate(query.SQLString()); err != nil {
+			t.Fatalf("expected generated multi-outer projected-order-limit lateral hook SQL to parse: %v\nsql=%s", err, query.SQLString())
+		}
+		return
+	}
+
+	t.Fatalf("expected generator to exercise multi-outer projected-order-limit LATERAL hook")
+}
+
 func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	gen := newProjectedOrderLimitTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -981,6 +1067,17 @@ func newProjectedOrderLimitTestGenerator(t *testing.T) *Generator {
 	return gen
 }
 
+func newMultiOuterOrderLimitTestGenerator(t *testing.T) *Generator {
+	t.Helper()
+	gen := newGroupedAggregateLateralTestGenerator(t)
+	gen.Config.Features.Aggregates = false
+	gen.Config.Features.GroupBy = false
+	gen.Config.Features.Having = false
+	gen.Config.Features.Limit = true
+	gen.Config.Features.OrderBy = true
+	return gen
+}
+
 func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
 	gen := newMergedVisibilityTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -1436,6 +1533,50 @@ func queryHasGroupedOutputAliasLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	return true
+}
+
+func queryHasMultiOuterProjectedOrderLimitLateralHook(query *SelectQuery) bool {
+	if query == nil || len(query.From.Joins) < 2 {
+		return false
+	}
+	lateral := query.From.Joins[1]
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery != nil {
+		return false
+	}
+	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil || lateral.TableQuery.Where == nil || lateral.TableQuery.Limit == nil {
+		return false
+	}
+	if !selectItemsHaveAliases(lateral.TableQuery.Items, "score0", "tie0") {
+		return false
+	}
+	visible := map[string]struct{}{}
+	if base := query.From.baseName(); base != "" {
+		visible[base] = struct{}{}
+	}
+	if name := query.From.Joins[0].tableName(); name != "" {
+		visible[name] = struct{}{}
+	}
+	scoreExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "score0")
+	if !ok || !exprContainsCase(scoreExpr) || !exprContainsFuncName(scoreExpr, "ABS") || countVisibleTables(scoreExpr, visible) < 2 {
+		return false
+	}
+	tieExpr, ok := selectItemExprByAlias(lateral.TableQuery.Items, "tie0")
+	if !ok || !exprContainsCase(tieExpr) || !exprContainsFuncName(tieExpr, "ABS") || countVisibleTables(tieExpr, visible) < 2 {
+		return false
+	}
+	if countVisibleTables(lateral.TableQuery.Where, visible) < 2 {
+		return false
+	}
+	if len(lateral.TableQuery.OrderBy) < 3 {
+		return false
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[0].Expr, "score0") {
+		return false
+	}
+	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.OrderBy[1].Expr, "tie0") || !lateral.TableQuery.OrderBy[1].Desc {
+		return false
+	}
+	return countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) > 0
 }
 
 func queryHasProjectedOrderLimitLateralHook(query *SelectQuery) bool {

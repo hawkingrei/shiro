@@ -42,6 +42,14 @@ func TestValidateLateralProjectedOrderLimitSQL(t *testing.T) {
 	}
 }
 
+func TestValidateLateralMultiOuterProjectedOrderLimitSQL(t *testing.T) {
+	v := New()
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t0.c0) THEN (t2.c2 - t1.c1) ELSE t0.c0 END ELSE CASE WHEN (t2.v0 >= t0.c0) THEN (t1.c1 - t2.c2) ELSE t2.v0 END END) AS score0, ABS(CASE WHEN (t2.v0 >= t0.c0) THEN (t2.v0 + t0.c0) ELSE (t1.c1 - t2.v0) END) AS tie0 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 <> t1.c1)) ORDER BY score0, tie0 DESC, t1.c1 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
+	if err := v.Validate(sql); err != nil {
+		t.Fatalf("expected multi-outer projected-order-limit LATERAL SQL to parse, got %v", err)
+	}
+}
+
 func TestValidateLateralAggregateSQL(t *testing.T) {
 	v := New()
 	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 = t1.c1))) AS dt ON (1 = 1) ORDER BY 1, 2"
