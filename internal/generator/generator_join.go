@@ -927,7 +927,7 @@ func (g *Generator) buildMultiOuterProjectedOrderLimitLateralHookQuery(tables []
 }
 
 func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
-	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || !g.Config.Features.QuantifiedSubqueries || g.Config.Features.DSG || len(tables) < 3 {
 		return nil
 	}
 	if !g.allowScalarSubquery() || !util.Chance(g.Rand, LateralJoinScalarSubqueryOrderLimitProb) {
@@ -955,7 +955,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	if g == nil {
 		return nil
 	}
-	if !g.Config.Features.Aggregates {
+	if !g.Config.Features.QuantifiedSubqueries {
 		return nil
 	}
 	joinType, ok := g.pickSupportedLateralJoinType()
@@ -1077,34 +1077,44 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	postBaseRef := ColumnRef{Table: "post", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
 	postScoreRef := ColumnRef{Table: "post", Name: innerScoreCol.Name, Type: innerScoreCol.Type}
 	postTieRef := ColumnRef{Table: "post", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
-	derivedMatchRef := ColumnRef{Table: "postd", Name: "match0", Type: scalarSourceCol.Type}
-	derivedProbeRef := ColumnRef{Table: "postd", Name: "probe0", Type: innerScoreCol.Type}
-	probeAliasRef := ColumnRef{Name: "probe0", Type: innerScoreCol.Type}
-	siblingLimit := 1
-	siblingDerivedQuery := &SelectQuery{
+	quantifiedRef := ColumnRef{Name: "q0", Type: innerScoreCol.Type}
+	tieDistanceExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+			Op:    "-",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		}},
+	}
+	quantifiedLimit := 2
+	quantifiedQuery := &SelectQuery{
 		Items: []SelectItem{
-			{
-				Expr:  ColumnExpr{Ref: postTieRef},
-				Alias: "match0",
-			},
 			{
 				Expr: FuncExpr{
 					Name: "ABS",
 					Args: []Expr{BinaryExpr{
 						Left:  ColumnExpr{Ref: postScoreRef},
 						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+						Right: ColumnExpr{Ref: siblingOuterCol},
 					}},
 				},
-				Alias: "probe0",
+				Alias: "q0",
 			},
 		},
 		From: FromClause{BaseTable: inner.Name, BaseAlias: "post"},
 		Where: BinaryExpr{
 			Left: BinaryExpr{
-				Left:  ColumnExpr{Ref: postBaseRef},
-				Op:    "=",
-				Right: ColumnExpr{Ref: baseOuterCol},
+				Left: BinaryExpr{
+					Left:  ColumnExpr{Ref: postBaseRef},
+					Op:    "=",
+					Right: ColumnExpr{Ref: baseOuterCol},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: postTieRef},
+					Op:    "<=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+				},
 			},
 			Op: "AND",
 			Right: BinaryExpr{
@@ -1113,97 +1123,38 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 				Right: ColumnExpr{Ref: siblingOuterCol},
 			},
 		},
-	}
-	siblingQuery := &SelectQuery{
-		Items: []SelectItem{
-			{
-				Expr:  ColumnExpr{Ref: derivedProbeRef},
-				Alias: "probe0",
-			},
-		},
-		From: FromClause{BaseQuery: siblingDerivedQuery, BaseAlias: "postd"},
-		Where: BinaryExpr{
-			Left:  ColumnExpr{Ref: derivedMatchRef},
-			Op:    "=",
-			Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
-		},
 		OrderBy: []OrderBy{
-			{Expr: ColumnExpr{Ref: probeAliasRef}},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: scoreAliasRef.Type}}},
-			{Expr: ColumnExpr{Ref: siblingOuterCol}},
+			{Expr: ColumnExpr{Ref: quantifiedRef}},
+			{Expr: ColumnExpr{Ref: postTieRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: baseSignalRef}},
 		},
-		Limit: &siblingLimit,
+		Limit: &quantifiedLimit,
 	}
-	siblingJoin := Join{
-		Type:       joinType,
-		Lateral:    true,
-		Table:      "sx",
-		TableAlias: "sx",
-		TableQuery: siblingQuery,
-		On:         g.trueExpr(),
-	}
-	outerSumRef := ColumnRef{Name: "outer_sum0", Type: probeAliasRef.Type}
-	outerMaxRef := ColumnRef{Name: "outer_max0", Type: tieAliasRef.Type}
-	outerMinRef := ColumnRef{Name: "outer_min0", Type: scoreAliasRef.Type}
 	query := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr: FuncExpr{
-					Name: "SUM",
-					Args: []Expr{FuncExpr{
-						Name: "ABS",
-						Args: []Expr{BinaryExpr{
-							Left: ColumnExpr{Ref: ColumnRef{
-								Table: "sx",
-								Name:  "probe0",
-								Type:  probeAliasRef.Type,
-							}},
-							Op: "-",
-							Right: ColumnExpr{Ref: ColumnRef{
-								Table: "dt",
-								Name:  "tie0",
-								Type:  tieAliasRef.Type,
-							}},
-						}},
-					}},
-				},
-				Alias: "outer_sum0",
+				Expr:  ColumnExpr{Ref: baseOuterCol},
+				Alias: "base0",
 			},
 			{
-				Expr: FuncExpr{
-					Name: "MAX",
-					Args: []Expr{FuncExpr{
-						Name: "ABS",
-						Args: []Expr{BinaryExpr{
-							Left: ColumnExpr{Ref: ColumnRef{
-								Table: "dt",
-								Name:  "tie0",
-								Type:  tieAliasRef.Type,
-							}},
-							Op:    "-",
-							Right: ColumnExpr{Ref: siblingOuterCol},
-						}},
-					}},
-				},
-				Alias: "outer_max0",
+				Expr:  ColumnExpr{Ref: siblingOuterCol},
+				Alias: "sibling0",
 			},
 			{
-				Expr: FuncExpr{
-					Name: "MIN",
-					Args: []Expr{FuncExpr{
-						Name: "ABS",
-						Args: []Expr{BinaryExpr{
-							Left: ColumnExpr{Ref: ColumnRef{
-								Table: "dt",
-								Name:  "score0",
-								Type:  scoreAliasRef.Type,
-							}},
-							Op:    "-",
-							Right: ColumnExpr{Ref: baseSignalRef},
-						}},
-					}},
-				},
-				Alias: "outer_min0",
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "score0",
+					Type:  scoreAliasRef.Type,
+				}},
+				Alias: "lateral_score0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "tie0",
+					Type:  tieAliasRef.Type,
+				}},
+				Alias: "lateral_tie0",
 			},
 		},
 		From: FromClause{
@@ -1219,20 +1170,24 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 					},
 				},
 				lateralJoin,
-				siblingJoin,
 			},
+		},
+		Where: CompareSubqueryExpr{
+			Left:       tieDistanceExpr,
+			Op:         ">=",
+			Quantifier: "ANY",
+			Query:      quantifiedQuery,
 		},
 	}
 	query.OrderBy = []OrderBy{
 		{
-			Expr: ColumnExpr{Ref: outerSumRef},
-			Desc: true,
+			Expr: tieDistanceExpr,
 		},
 		{
-			Expr: ColumnExpr{Ref: outerMaxRef},
+			Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: scoreAliasRef.Type}},
 		},
 		{
-			Expr: ColumnExpr{Ref: outerMinRef},
+			Expr: ColumnExpr{Ref: baseOuterCol},
 		},
 	}
 	return query

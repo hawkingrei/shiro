@@ -64,16 +64,12 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if query == nil {
 		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL hook query")
 	}
-	if len(query.From.Joins) != 3 {
-		t.Fatalf("expected join plus sibling LATERAL hooks")
+	if len(query.From.Joins) != 2 {
+		t.Fatalf("expected join plus quantified-consumer LATERAL hook")
 	}
 	lateral := query.From.Joins[1]
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in scalar-subquery projected-order-limit hook query")
-	}
-	sibling := query.From.Joins[2]
-	if !sibling.Lateral || sibling.TableQuery == nil {
-		t.Fatalf("expected sibling LATERAL consumer in scalar-subquery projected-order-limit hook query")
 	}
 	if lateral.TableQuery.From.BaseQuery != nil {
 		t.Fatalf("expected scalar-subquery projected-order-limit hook to stay direct inside the LATERAL body")
@@ -131,112 +127,69 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
 		t.Fatalf("expected scalar-subquery projected-order-limit ORDER BY tie breaker to keep left-side visibility")
 	}
-	if sibling.TableQuery.From.BaseQuery == nil {
-		t.Fatalf("expected sibling scalar-subquery consumer to route the post scan through a derived base")
-	}
-	if len(sibling.TableQuery.GroupBy) != 0 || sibling.TableQuery.Having != nil {
-		t.Fatalf("expected sibling scalar-subquery consumer to avoid GROUP BY/HAVING")
-	}
-	derived := sibling.TableQuery.From.BaseQuery
-	if len(derived.GroupBy) != 0 || derived.Having != nil {
-		t.Fatalf("expected sibling scalar-subquery consumer derived base to avoid GROUP BY/HAVING")
-	}
-	if !selectItemsHaveAliases(sibling.TableQuery.Items, "probe0") {
-		t.Fatalf("expected sibling scalar-subquery consumer to expose probe0 alias")
-	}
-	if !selectItemsHaveAliases(derived.Items, "match0", "probe0") {
-		t.Fatalf("expected sibling scalar-subquery consumer derived base to expose match0/probe0 aliases")
-	}
-	siblingVisible := map[string]struct{}{
-		query.From.BaseTable:            {},
-		query.From.Joins[0].tableName(): {},
-		query.From.Joins[1].tableName(): {},
-	}
-	probeExpr, ok := selectItemExprByAlias(sibling.TableQuery.Items, "probe0")
-	if !ok {
-		t.Fatalf("expected sibling scalar-subquery consumer to project probe0")
-	}
-	if !exprUsesQualifiedColumnName(probeExpr, "postd", "probe0") {
-		t.Fatalf("expected sibling scalar-subquery consumer to project probe0 from the derived base")
-	}
-	derivedProbeExpr, ok := selectItemExprByAlias(derived.Items, "probe0")
-	if !ok {
-		t.Fatalf("expected sibling scalar-subquery consumer derived base to project probe0")
-	}
-	if !exprContainsFuncName(derivedProbeExpr, "ABS") || !exprUsesQualifiedColumnName(derivedProbeExpr, "dt", "tie0") {
-		t.Fatalf("expected sibling scalar-subquery consumer derived base to reuse dt.tie0 inside probe0")
-	}
-	if countVisibleTablesRecursive(sibling.TableQuery, siblingVisible) < 3 {
-		t.Fatalf("expected sibling scalar-subquery consumer to keep base, sibling, and prior-lateral visibility")
-	}
-	if countVisibleTablesRecursive(derived, siblingVisible) < 3 || countVisibleTables(derived.Where, siblingVisible) < 2 {
-		t.Fatalf("expected sibling scalar-subquery consumer derived base to keep base, sibling, and prior-lateral visibility")
-	}
-	if countVisibleTables(sibling.TableQuery.Where, siblingVisible) == 0 || !exprUsesQualifiedColumnName(sibling.TableQuery.Where, "dt", "tie0") {
-		t.Fatalf("expected sibling scalar-subquery consumer outer WHERE to keep reusing dt.tie0 after the derived boundary")
-	}
-	if sibling.TableQuery.Limit == nil || *sibling.TableQuery.Limit != 1 {
-		t.Fatalf("expected sibling scalar-subquery consumer to keep LIMIT 1 inside the second LATERAL")
-	}
-	if len(sibling.TableQuery.OrderBy) < 3 {
-		t.Fatalf("expected sibling scalar-subquery consumer to keep ORDER BY inside the second LATERAL")
-	}
-	if !exprUsesUnqualifiedColumnName(sibling.TableQuery.OrderBy[0].Expr, "probe0") {
-		t.Fatalf("expected sibling scalar-subquery consumer ORDER BY to rank by probe0 alias")
-	}
-	if !exprUsesQualifiedColumnName(sibling.TableQuery.OrderBy[1].Expr, "dt", "score0") {
-		t.Fatalf("expected sibling scalar-subquery consumer ORDER BY to keep reusing dt.score0")
-	}
-	if countVisibleTables(sibling.TableQuery.OrderBy[2].Expr, siblingVisible) == 0 {
-		t.Fatalf("expected sibling scalar-subquery consumer ORDER BY tie breaker to keep sibling-table visibility")
-	}
 	outerVisible := map[string]struct{}{
 		query.From.BaseTable:            {},
 		query.From.Joins[0].tableName(): {},
 		query.From.Joins[1].tableName(): {},
-		query.From.Joins[2].tableName(): {},
 	}
-	outerSumExpr, ok := selectItemExprByAlias(query.Items, "outer_sum0")
+	if !selectItemsHaveAliases(query.Items, "base0", "sibling0", "lateral_score0", "lateral_tie0") {
+		t.Fatalf("expected outer query to expose base, sibling, and lateral aliases")
+	}
+	quantified, ok := query.Where.(CompareSubqueryExpr)
 	if !ok {
-		t.Fatalf("expected outer query to expose an outer aggregate consumer alias")
+		t.Fatalf("expected outer query WHERE to consume post-lateral aliases through a quantified subquery")
 	}
-	if !exprContainsAggregate(outerSumExpr) || !exprContainsFuncName(outerSumExpr, "ABS") || !exprUsesQualifiedColumnName(outerSumExpr, "sx", "probe0") || !exprUsesQualifiedColumnName(outerSumExpr, "dt", "tie0") {
-		t.Fatalf("expected outer aggregate consumer to sum a post-lateral ABS expression over sx.probe0 and dt.tie0")
+	if quantified.Query == nil || quantified.Query.From.BaseQuery != nil {
+		t.Fatalf("expected quantified consumer to stay direct inside the outer subquery")
 	}
-	outerMaxExpr, ok := selectItemExprByAlias(query.Items, "outer_max0")
+	if len(quantified.Query.GroupBy) != 0 || quantified.Query.Having != nil {
+		t.Fatalf("expected quantified consumer to avoid GROUP BY/HAVING")
+	}
+	if !exprContainsFuncName(quantified.Left, "ABS") || !exprUsesQualifiedColumnName(quantified.Left, "dt", "tie0") || countVisibleTables(quantified.Left, outerVisible) < 2 {
+		t.Fatalf("expected quantified consumer left side to reuse dt.tie0 with sibling visibility")
+	}
+	if !selectItemsHaveAliases(quantified.Query.Items, "q0") {
+		t.Fatalf("expected quantified consumer subquery to expose q0 alias")
+	}
+	q0Expr, ok := selectItemExprByAlias(quantified.Query.Items, "q0")
 	if !ok {
-		t.Fatalf("expected outer query to expose a sibling-sensitive outer aggregate alias")
+		t.Fatalf("expected quantified consumer subquery to project q0")
 	}
-	if !exprContainsAggregate(outerMaxExpr) || !exprContainsFuncName(outerMaxExpr, "ABS") || !exprUsesQualifiedColumnName(outerMaxExpr, "dt", "tie0") || countVisibleTables(outerMaxExpr, outerVisible) < 2 {
-		t.Fatalf("expected outer aggregate consumer to keep sibling-table visibility through dt.tie0 aggregation")
+	if !exprContainsFuncName(q0Expr, "ABS") || countVisibleTables(q0Expr, outerVisible) == 0 {
+		t.Fatalf("expected quantified consumer subquery projection to keep sibling visibility")
 	}
-	outerMinExpr, ok := selectItemExprByAlias(query.Items, "outer_min0")
-	if !ok {
-		t.Fatalf("expected outer query to expose a base-sensitive outer aggregate alias")
+	if countVisibleTablesRecursive(quantified.Query, outerVisible) < 3 || countVisibleTables(quantified.Query.Where, outerVisible) < 3 {
+		t.Fatalf("expected quantified consumer subquery to keep base, sibling, and prior-lateral visibility")
 	}
-	if !exprContainsAggregate(outerMinExpr) || !exprContainsFuncName(outerMinExpr, "ABS") || !exprUsesQualifiedColumnName(outerMinExpr, "dt", "score0") || countVisibleTables(outerMinExpr, outerVisible) < 2 {
-		t.Fatalf("expected outer aggregate consumer to keep base-table visibility through dt.score0 aggregation")
+	if quantified.Query.Limit == nil || *quantified.Query.Limit != 2 {
+		t.Fatalf("expected quantified consumer to keep LIMIT 2 inside the outer subquery")
 	}
-	if query.Where != nil {
-		t.Fatalf("expected scalar-subquery projected-order-limit hook to avoid an extra outer WHERE once reuse moves into the sibling LATERAL and outer aggregate consumer")
+	if len(quantified.Query.OrderBy) < 3 {
+		t.Fatalf("expected quantified consumer to keep ORDER BY inside the outer subquery")
+	}
+	if !exprUsesUnqualifiedColumnName(quantified.Query.OrderBy[0].Expr, "q0") {
+		t.Fatalf("expected quantified consumer ORDER BY to rank by q0 alias")
+	}
+	if !exprUsesTable(quantified.Query.OrderBy[1].Expr, "post") || !quantified.Query.OrderBy[1].Desc {
+		t.Fatalf("expected quantified consumer ORDER BY to keep post-table tie ordering")
+	}
+	if countVisibleTables(quantified.Query.OrderBy[2].Expr, outerVisible) == 0 {
+		t.Fatalf("expected quantified consumer ORDER BY tie breaker to keep base-table visibility")
 	}
 	if countVisibleTables(lateral.On, outerVisible) != 0 {
-		t.Fatalf("expected first LATERAL join predicate to stay trivial once the sibling consumer takes over")
-	}
-	if countVisibleTables(sibling.On, outerVisible) != 0 {
-		t.Fatalf("expected sibling LATERAL join predicate to stay trivial so reuse lives inside the sibling LATERAL body")
+		t.Fatalf("expected LATERAL join predicate to stay trivial so reuse lives in the quantified consumer")
 	}
 	if len(query.OrderBy) < 3 {
-		t.Fatalf("expected outer query ORDER BY to rank by the outer aggregate aliases")
+		t.Fatalf("expected outer query ORDER BY to rank by post-lateral values")
 	}
-	if !exprUsesUnqualifiedColumnName(query.OrderBy[0].Expr, "outer_sum0") || !query.OrderBy[0].Desc {
-		t.Fatalf("expected outer query ORDER BY to rank by the outer sum alias")
+	if !exprContainsFuncName(query.OrderBy[0].Expr, "ABS") || countVisibleTables(query.OrderBy[0].Expr, outerVisible) < 2 {
+		t.Fatalf("expected outer query ORDER BY to rank by a dt.tie0 distance expression")
 	}
-	if !exprUsesUnqualifiedColumnName(query.OrderBy[1].Expr, "outer_max0") {
-		t.Fatalf("expected outer query ORDER BY second key to keep the outer max alias visible")
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "score0") {
+		t.Fatalf("expected outer query ORDER BY second key to keep dt.score0 visible")
 	}
-	if !exprUsesUnqualifiedColumnName(query.OrderBy[2].Expr, "outer_min0") {
-		t.Fatalf("expected outer query ORDER BY tie breaker to keep the outer min alias visible")
+	if countVisibleTables(query.OrderBy[2].Expr, outerVisible) == 0 {
+		t.Fatalf("expected outer query ORDER BY tie breaker to keep base-table visibility")
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
@@ -1284,7 +1237,7 @@ func newScalarSubqueryOrderLimitTestGenerator(t *testing.T) *Generator {
 	t.Helper()
 	gen := newMultiOuterOrderLimitTestGenerator(t)
 	gen.Config.Features.Subqueries = true
-	gen.Config.Features.Aggregates = true
+	gen.Config.Features.QuantifiedSubqueries = true
 	gen.SetDisallowScalarSubquery(false)
 	return gen
 }
@@ -1747,7 +1700,7 @@ func queryHasGroupedOutputAliasLateralHook(query *SelectQuery) bool {
 }
 
 func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bool {
-	if query == nil || len(query.From.Joins) < 3 {
+	if query == nil || len(query.From.Joins) != 2 {
 		return false
 	}
 	lateral := query.From.Joins[1]
@@ -1798,56 +1751,6 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if countVisibleTables(lateral.TableQuery.OrderBy[2].Expr, visible) == 0 {
 		return false
 	}
-	sibling := query.From.Joins[2]
-	if !sibling.Lateral || sibling.TableQuery == nil || sibling.TableQuery.From.BaseQuery == nil {
-		return false
-	}
-	if len(sibling.TableQuery.GroupBy) != 0 || sibling.TableQuery.Having != nil || sibling.TableQuery.Where == nil || sibling.TableQuery.Limit == nil {
-		return false
-	}
-	if !selectItemsHaveAliases(sibling.TableQuery.Items, "probe0") {
-		return false
-	}
-	derived := sibling.TableQuery.From.BaseQuery
-	if len(derived.GroupBy) != 0 || derived.Having != nil || derived.Where == nil {
-		return false
-	}
-	if !selectItemsHaveAliases(derived.Items, "match0", "probe0") {
-		return false
-	}
-	siblingVisible := map[string]struct{}{}
-	if base := query.From.baseName(); base != "" {
-		siblingVisible[base] = struct{}{}
-	}
-	if name := query.From.Joins[0].tableName(); name != "" {
-		siblingVisible[name] = struct{}{}
-	}
-	if name := query.From.Joins[1].tableName(); name != "" {
-		siblingVisible[name] = struct{}{}
-	}
-	probeExpr, ok := selectItemExprByAlias(sibling.TableQuery.Items, "probe0")
-	if !ok || !exprUsesQualifiedColumnName(probeExpr, "postd", "probe0") {
-		return false
-	}
-	derivedProbeExpr, ok := selectItemExprByAlias(derived.Items, "probe0")
-	if !ok || !exprContainsFuncName(derivedProbeExpr, "ABS") || !exprUsesQualifiedColumnName(derivedProbeExpr, "dt", "tie0") {
-		return false
-	}
-	if countVisibleTablesRecursive(sibling.TableQuery, siblingVisible) < 3 || countVisibleTablesRecursive(derived, siblingVisible) < 3 || countVisibleTables(derived.Where, siblingVisible) < 2 || len(sibling.TableQuery.OrderBy) < 3 {
-		return false
-	}
-	if countVisibleTables(sibling.TableQuery.Where, siblingVisible) == 0 || !exprUsesQualifiedColumnName(sibling.TableQuery.Where, "dt", "tie0") {
-		return false
-	}
-	if !exprUsesUnqualifiedColumnName(sibling.TableQuery.OrderBy[0].Expr, "probe0") {
-		return false
-	}
-	if !exprUsesQualifiedColumnName(sibling.TableQuery.OrderBy[1].Expr, "dt", "score0") {
-		return false
-	}
-	if countVisibleTables(sibling.TableQuery.OrderBy[2].Expr, siblingVisible) == 0 {
-		return false
-	}
 	outerVisible := map[string]struct{}{}
 	if base := query.From.baseName(); base != "" {
 		outerVisible[base] = struct{}{}
@@ -1858,40 +1761,54 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if name := query.From.Joins[1].tableName(); name != "" {
 		outerVisible[name] = struct{}{}
 	}
-	if name := query.From.Joins[2].tableName(); name != "" {
-		outerVisible[name] = struct{}{}
-	}
-	outerSumExpr, ok := selectItemExprByAlias(query.Items, "outer_sum0")
-	if !ok {
+	if !selectItemsHaveAliases(query.Items, "base0", "sibling0", "lateral_score0", "lateral_tie0") {
 		return false
 	}
-	if !exprContainsAggregate(outerSumExpr) || !exprContainsFuncName(outerSumExpr, "ABS") || !exprUsesQualifiedColumnName(outerSumExpr, "sx", "probe0") || !exprUsesQualifiedColumnName(outerSumExpr, "dt", "tie0") {
+	quantified, ok := query.Where.(CompareSubqueryExpr)
+	if !ok || quantified.Query == nil || quantified.Query.From.BaseQuery != nil {
 		return false
 	}
-	outerMaxExpr, ok := selectItemExprByAlias(query.Items, "outer_max0")
-	if !ok || !exprContainsAggregate(outerMaxExpr) || !exprContainsFuncName(outerMaxExpr, "ABS") || !exprUsesQualifiedColumnName(outerMaxExpr, "dt", "tie0") || countVisibleTables(outerMaxExpr, outerVisible) < 2 {
+	if len(quantified.Query.GroupBy) != 0 || quantified.Query.Having != nil || quantified.Query.Limit == nil || len(quantified.Query.OrderBy) < 3 {
 		return false
 	}
-	outerMinExpr, ok := selectItemExprByAlias(query.Items, "outer_min0")
-	if !ok || !exprContainsAggregate(outerMinExpr) || !exprContainsFuncName(outerMinExpr, "ABS") || !exprUsesQualifiedColumnName(outerMinExpr, "dt", "score0") || countVisibleTables(outerMinExpr, outerVisible) < 2 {
+	if !exprContainsFuncName(quantified.Left, "ABS") || !exprUsesQualifiedColumnName(quantified.Left, "dt", "tie0") || countVisibleTables(quantified.Left, outerVisible) < 2 {
 		return false
 	}
-	if query.Where != nil {
+	if !selectItemsHaveAliases(quantified.Query.Items, "q0") {
 		return false
 	}
-	if countVisibleTables(lateral.On, outerVisible) != 0 || countVisibleTables(sibling.On, outerVisible) != 0 {
+	q0Expr, ok := selectItemExprByAlias(quantified.Query.Items, "q0")
+	if !ok || !exprContainsFuncName(q0Expr, "ABS") || countVisibleTables(q0Expr, outerVisible) == 0 {
+		return false
+	}
+	if countVisibleTablesRecursive(quantified.Query, outerVisible) < 3 || countVisibleTables(quantified.Query.Where, outerVisible) < 3 {
+		return false
+	}
+	if *quantified.Query.Limit != 2 {
+		return false
+	}
+	if !exprUsesUnqualifiedColumnName(quantified.Query.OrderBy[0].Expr, "q0") {
+		return false
+	}
+	if !exprUsesTable(quantified.Query.OrderBy[1].Expr, "post") || !quantified.Query.OrderBy[1].Desc {
+		return false
+	}
+	if countVisibleTables(quantified.Query.OrderBy[2].Expr, outerVisible) == 0 {
+		return false
+	}
+	if countVisibleTables(lateral.On, outerVisible) != 0 {
 		return false
 	}
 	if len(query.OrderBy) < 3 {
 		return false
 	}
-	if !exprUsesUnqualifiedColumnName(query.OrderBy[0].Expr, "outer_sum0") || !query.OrderBy[0].Desc {
+	if !exprContainsFuncName(query.OrderBy[0].Expr, "ABS") || countVisibleTables(query.OrderBy[0].Expr, outerVisible) < 2 {
 		return false
 	}
-	if !exprUsesUnqualifiedColumnName(query.OrderBy[1].Expr, "outer_max0") {
+	if !exprUsesQualifiedColumnName(query.OrderBy[1].Expr, "dt", "score0") {
 		return false
 	}
-	return exprUsesUnqualifiedColumnName(query.OrderBy[2].Expr, "outer_min0")
+	return countVisibleTables(query.OrderBy[2].Expr, outerVisible) > 0
 }
 
 func queryHasMultiOuterProjectedOrderLimitLateralHook(query *SelectQuery) bool {
