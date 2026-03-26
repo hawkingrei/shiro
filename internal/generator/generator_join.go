@@ -1070,33 +1070,62 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		TableAlias: "dt",
 		TableQuery: lateralQuery,
 	}
-	lateralJoin.On = BinaryExpr{
-		Left: BinaryExpr{
-			Left: ColumnExpr{Ref: ColumnRef{
-				Table: "dt",
-				Name:  "tie0",
-				Type:  tieAliasRef.Type,
-			}},
-			Op:    ">=",
-			Right: ColumnExpr{Ref: siblingOuterCol},
-		},
-		Op: "AND",
-		Right: BinaryExpr{
-			Left: ColumnExpr{Ref: ColumnRef{
-				Table: "dt",
-				Name:  "score0",
-				Type:  scoreAliasRef.Type,
-			}},
-			Op: "<=",
-			Right: FuncExpr{
-				Name: "ABS",
-				Args: []Expr{BinaryExpr{
-					Left:  ColumnExpr{Ref: baseSignalRef},
-					Op:    "-",
-					Right: ColumnExpr{Ref: siblingOuterCol},
-				}},
+	lateralJoin.On = g.trueExpr()
+	postBaseRef := ColumnRef{Table: "post", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
+	postScoreRef := ColumnRef{Table: "post", Name: innerScoreCol.Name, Type: innerScoreCol.Type}
+	postTieRef := ColumnRef{Table: "post", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
+	probeAliasRef := ColumnRef{Name: "probe0", Type: innerScoreCol.Type}
+	siblingLimit := 1
+	siblingQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  ColumnExpr{Ref: postScoreRef},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+					}},
+				},
+				Alias: "probe0",
 			},
 		},
+		From: FromClause{BaseTable: inner.Name, BaseAlias: "post"},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left: BinaryExpr{
+					Left:  ColumnExpr{Ref: postBaseRef},
+					Op:    "=",
+					Right: ColumnExpr{Ref: baseOuterCol},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: postTieRef},
+					Op:    "=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+				},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: postScoreRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: probeAliasRef}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: scoreAliasRef.Type}}},
+			{Expr: ColumnExpr{Ref: siblingOuterCol}},
+		},
+		Limit: &siblingLimit,
+	}
+	siblingJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "sx",
+		TableAlias: "sx",
+		TableQuery: siblingQuery,
+		On:         g.trueExpr(),
 	}
 	query := &SelectQuery{
 		Items: []SelectItem{
@@ -1124,6 +1153,14 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 				}},
 				Alias: "lateral_tie0",
 			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "sx",
+					Name:  "probe0",
+					Type:  probeAliasRef.Type,
+				}},
+				Alias: "sibling_probe0",
+			},
 		},
 		From: FromClause{
 			BaseTable: base.Name,
@@ -1138,10 +1175,18 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 					},
 				},
 				lateralJoin,
+				siblingJoin,
 			},
 		},
 	}
 	query.OrderBy = []OrderBy{
+		{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "sx",
+				Name:  "probe0",
+				Type:  probeAliasRef.Type,
+			}},
+		},
 		{
 			Expr: FuncExpr{
 				Name: "ABS",
@@ -1155,13 +1200,6 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 					Right: ColumnExpr{Ref: siblingOuterCol},
 				}},
 			},
-		},
-		{
-			Expr: ColumnExpr{Ref: ColumnRef{
-				Table: "dt",
-				Name:  "score0",
-				Type:  scoreAliasRef.Type,
-			}},
 		},
 		{Expr: ColumnExpr{Ref: baseOuterCol}},
 	}

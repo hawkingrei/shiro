@@ -638,6 +638,50 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 		},
 		Limit: &limit,
 	}
+	siblingLimit := 1
+	siblingLateral := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "c2", Type: schema.TypeInt}},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+					}},
+				},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{BaseTable: "t2", BaseAlias: "post"},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "id", Type: schema.TypeInt}},
+					Op:    "=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}},
+					Op:    "=",
+					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+				},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "c2", Type: schema.TypeInt}},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "probe0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}}},
+		},
+		Limit: &siblingLimit,
+	}
 	query := &SelectQuery{
 		From: FromClause{
 			BaseTable: "t0",
@@ -657,31 +701,25 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 					Table:      "dt",
 					TableAlias: "dt",
 					TableQuery: lateral,
-					On: BinaryExpr{
-						Left: BinaryExpr{
-							Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-							Op:    ">=",
-							Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-						},
-						Op: "AND",
-						Right: BinaryExpr{
-							Left: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}},
-							Op:   "<=",
-							Right: FuncExpr{Name: "ABS", Args: []Expr{BinaryExpr{
-								Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}},
-								Op:    "-",
-								Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-							}}},
-						},
-					},
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "sx",
+					TableAlias: "sx",
+					TableQuery: siblingLateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
 				},
 			},
 		},
 		Items: []SelectItem{
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "score0"},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}, Alias: "probe0"},
 		},
 		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}},
 			{
 				Expr: FuncExpr{
 					Name: "ABS",
@@ -692,13 +730,12 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 					}},
 				},
 			},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
 		},
 	}
 
 	if !gen.validateQueryScope(query) {
-		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through both the nested scalar subquery and the lateral JOIN ON consumer")
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through both the nested scalar subquery and the sibling LATERAL consumer")
 	}
 }
 
