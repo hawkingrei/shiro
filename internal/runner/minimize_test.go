@@ -59,6 +59,50 @@ func TestSelectCandidatesDropSingleCTEFromWithList(t *testing.T) {
 	}
 }
 
+func TestSelectCandidatesHandleLateralJoin(t *testing.T) {
+	sql := "SELECT * FROM t0 JOIN LATERAL (SELECT t1.c0 FROM t1 WHERE t1.id = t0.id ORDER BY t1.c0 LIMIT 1) AS dt ON (1 = 1)"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleMergedColumnLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.id AS lateral_id FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT t2.id AS id FROM t2 WHERE t2.id = id) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for merged-column LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized merged-column LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesReduceNestedBoolPredicateBranch(t *testing.T) {
 	sql := "SELECT * FROM t WHERE (a > b OR c > d) AND e > f"
 	p := parser.New()

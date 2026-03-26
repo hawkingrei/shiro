@@ -55,6 +55,39 @@ func TestBuildNaturalJoin(t *testing.T) {
 	}
 }
 
+func TestBuildInnerLateralJoin(t *testing.T) {
+	lateral := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "id"}}, Alias: "id"}},
+		From:  FromClause{BaseTable: "t1"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "id"}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id"}},
+		},
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id"}}, Alias: "id"}},
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{{
+				Type:       JoinInner,
+				Lateral:    true,
+				Table:      "dt",
+				TableAlias: "dt",
+				TableQuery: lateral,
+				On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+			}},
+		},
+	}
+	sql := query.SQLString()
+	if !strings.Contains(sql, "JOIN LATERAL (SELECT t1.id AS id FROM t1 WHERE (t1.id = t0.id)) AS dt") {
+		t.Fatalf("expected LATERAL join SQL, got %s", sql)
+	}
+	if !strings.Contains(sql, "ON (1 = 1)") {
+		t.Fatalf("expected ON true for supported INNER LATERAL shape, got %s", sql)
+	}
+}
+
 func TestBuildTableAliases(t *testing.T) {
 	query := &SelectQuery{
 		Items: []SelectItem{{Expr: ColumnExpr{Ref: ColumnRef{Table: "b", Name: "id"}}, Alias: "id"}},

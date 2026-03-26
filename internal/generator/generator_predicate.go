@@ -9,9 +9,6 @@ import (
 
 // GeneratePredicate builds a boolean predicate expression.
 func (g *Generator) GeneratePredicate(tables []schema.Table, depth int, allowSubquery bool, subqDepth int) Expr {
-	if g.disallowScalarSubq {
-		allowSubquery = false
-	}
 	if allowSubquery && subqDepth > 0 && util.Chance(g.Rand, g.subqCount()*PredicateSubqueryScale) {
 		g.subqueryAttempts++
 		sub := g.GenerateSubquery(tables, subqDepth-1)
@@ -171,6 +168,10 @@ func (g *Generator) GenerateScalarExpr(tables []schema.Table, depth int, allowSu
 
 func (g *Generator) falseExpr() Expr {
 	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 0}}
+}
+
+func (g *Generator) trueExpr() Expr {
+	return BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}}
 }
 
 func (g *Generator) pickQuantifiedComparison(quantifier string) string {

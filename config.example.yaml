@@ -54,6 +54,7 @@ features:
   subqueries: false
   set_operations: false
   derived_tables: false
+  lateral_joins: false
   quantified_subqueries: false
   aggregates: false
   group_by: false

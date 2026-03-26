@@ -15,18 +15,26 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		return nil
 	}
 	g.resetPredicateStats()
-	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	allowSubquery := g.allowAnySubquery()
 	subqueryDisallowReason := ""
 	if !allowSubquery {
 		if g.subqueryConstraintDisallow {
 			subqueryDisallowReason = "constraint:subquery"
 		} else if !g.Config.Features.Subqueries {
 			subqueryDisallowReason = "config:subqueries_off"
-		} else if g.disallowScalarSubq {
-			subqueryDisallowReason = "scalar_subquery_off"
 		} else {
 			subqueryDisallowReason = "subquery_disabled"
 		}
+	} else if !g.allowScalarSubquery() {
+		subqueryDisallowReason = "scalar_subquery_off"
+	}
+
+	if query := g.buildMergedColumnVisibilityLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
+		return query
 	}
 
 	if !g.Config.TQS.Enabled {
@@ -307,7 +315,7 @@ func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []sche
 	if len(query.Items) == 0 {
 		return nil
 	}
-	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	allowSubquery := g.allowAnySubquery()
 	if util.Chance(g.Rand, 45) {
 		query.Where = g.GeneratePredicate(rhsTables, min(2, g.maxDepth), allowSubquery, g.maxSubqDepth)
 	}

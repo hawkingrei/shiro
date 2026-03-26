@@ -26,6 +26,7 @@ const (
 type Join struct {
 	Type       JoinType
 	Natural    bool
+	Lateral    bool
 	Table      string
 	TableQuery *SelectQuery
 	TableAlias string
@@ -164,6 +165,9 @@ func (q *SelectQuery) buildQueryBody(b *SQLBuilder) {
 		}
 		b.Write(string(join.Type))
 		b.Write(" ")
+		if join.Lateral {
+			b.Write("LATERAL ")
+		}
 		writeTableFactor(b, join.Table, join.TableAlias, join.TableQuery)
 		if join.Natural {
 			continue

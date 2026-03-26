@@ -2,6 +2,7 @@ package generator
 
 import (
 	"math/rand"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,11 @@ const (
 type columnPair struct {
 	Left  ColumnRef
 	Right ColumnRef
+}
+
+type mergedColumnCandidate struct {
+	Natural bool
+	Column  ColumnRef
 }
 
 func pickJoinShape(r *rand.Rand) joinShape {
@@ -354,6 +360,303 @@ func (g *Generator) joinUsingProb() int {
 	return UsingJoinProb
 }
 
+func (g *Generator) pickSupportedLateralJoinType() (JoinType, bool) {
+	if g.joinTypeOverride != nil {
+		switch *g.joinTypeOverride {
+		case JoinCross, JoinInner:
+			return *g.joinTypeOverride, true
+		default:
+			return "", false
+		}
+	}
+	if util.Chance(g.Rand, 50) {
+		return JoinCross, true
+	}
+	return JoinInner, true
+}
+
+func (g *Generator) buildLateralDerivedTableQuery(outerTables []schema.Table, inner schema.Table) *SelectQuery {
+	query := g.buildDerivedTableQuery(inner)
+	if query == nil {
+		return nil
+	}
+	if outerCol, innerCol, ok := g.pickCorrelatedJoinPair(outerTables, inner); ok {
+		query.Where = BinaryExpr{
+			Left:  ColumnExpr{Ref: innerCol},
+			Op:    "=",
+			Right: ColumnExpr{Ref: outerCol},
+		}
+	} else if util.Chance(g.Rand, 50) {
+		query.Where = g.GenerateSimplePredicateColumns([]schema.Table{inner}, min(2, g.maxDepth))
+	}
+	if g.Config.Features.OrderBy && g.Config.Features.Limit && util.Chance(g.Rand, LateralJoinOrderLimitProb) {
+		query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
+		if len(query.OrderBy) > 0 {
+			limit := g.Rand.Intn(LateralJoinLimitMax) + 1
+			query.Limit = &limit
+			query.OrderBy = g.ensureLimitOrderByTieBreaker(query, []schema.Table{inner})
+		}
+	}
+	return query
+}
+
+func (g *Generator) buildCorrelatedOrderLimitLateralQuery(outerTables []schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.OrderBy || !g.Config.Features.Limit {
+		return nil
+	}
+	outerCol, innerCol, ok := g.pickCorrelatedJoinPair(outerTables, inner)
+	if !ok {
+		return nil
+	}
+	query := g.buildDerivedTableQuery(inner)
+	if query == nil {
+		return nil
+	}
+	query.Where = BinaryExpr{
+		Left:  ColumnExpr{Ref: innerCol},
+		Op:    "=",
+		Right: ColumnExpr{Ref: outerCol},
+	}
+	query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
+	if len(query.OrderBy) == 0 {
+		return nil
+	}
+	limit := g.Rand.Intn(LateralJoinLimitMax) + 1
+	query.Limit = &limit
+	query.OrderBy = g.ensureLimitOrderByTieBreaker(query, []schema.Table{inner})
+	return query
+}
+
+func (g *Generator) buildMergedColumnVisibilityLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinMergedVisibilityProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildMergedColumnVisibilityLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildMergedColumnVisibilityLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{{
+			Expr:  ColumnExpr{Ref: innerRef},
+			Alias: pick.merged.Column.Name,
+		}},
+		From: FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    "=",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+	}
+	joins := []Join{{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	}}
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  pick.merged.Column.Name,
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_" + pick.merged.Column.Name,
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) collectMergedColumnCandidates(left []schema.Table, right schema.Table, natural bool) []mergedColumnCandidate {
+	if natural {
+		if !g.Config.Features.NaturalJoins || !g.naturalJoinAllowed(left, right) {
+			return nil
+		}
+		cols := g.collectNaturalMergedColumns(left, right)
+		out := make([]mergedColumnCandidate, 0, len(cols))
+		for _, col := range cols {
+			out = append(out, mergedColumnCandidate{
+				Natural: true,
+				Column:  col,
+			})
+		}
+		return out
+	}
+	names := g.collectUsingColumnNamesWithMode(left, right, false)
+	if len(names) == 0 {
+		return nil
+	}
+	leftCols := uniqueColumnsByName(g.collectColumns(left))
+	out := make([]mergedColumnCandidate, 0, len(names))
+	for _, name := range names {
+		col, ok := leftCols[name]
+		if !ok {
+			continue
+		}
+		out = append(out, mergedColumnCandidate{
+			Column: ColumnRef{Name: name, Type: col.Type},
+		})
+	}
+	return out
+}
+
+func (g *Generator) collectNaturalMergedColumns(left []schema.Table, right schema.Table) []ColumnRef {
+	leftCols := uniqueColumnsByName(g.collectColumns(left))
+	if len(leftCols) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	out := make([]ColumnRef, 0, len(right.Columns))
+	for _, col := range right.Columns {
+		leftCol, ok := leftCols[col.Name]
+		if !ok || !compatibleColumnType(leftCol.Type, col.Type) {
+			continue
+		}
+		if _, dup := seen[col.Name]; dup {
+			continue
+		}
+		seen[col.Name] = struct{}{}
+		out = append(out, ColumnRef{Name: col.Name, Type: leftCol.Type})
+	}
+	return out
+}
+
+func uniqueColumnsByName(cols []ColumnRef) map[string]ColumnRef {
+	if len(cols) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(cols))
+	first := make(map[string]ColumnRef, len(cols))
+	for _, col := range cols {
+		if col.Name == "" {
+			continue
+		}
+		counts[col.Name]++
+		if _, ok := first[col.Name]; !ok {
+			first[col.Name] = col
+		}
+	}
+	out := make(map[string]ColumnRef, len(first))
+	for name, count := range counts {
+		if count == 1 {
+			out[name] = first[name]
+		}
+	}
+	return out
+}
+
+func (g *Generator) buildLateralJoin(outerTables []schema.Table, inner schema.Table) (Join, bool) {
+	if g == nil || !g.Config.Features.LateralJoins || g.Config.Features.DSG || len(outerTables) == 0 {
+		return Join{}, false
+	}
+	if !util.Chance(g.Rand, LateralJoinProb) {
+		return Join{}, false
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return Join{}, false
+	}
+	query := g.buildCorrelatedOrderLimitLateralQuery(outerTables, inner)
+	if query == nil {
+		query = g.buildLateralDerivedTableQuery(outerTables, inner)
+	}
+	if query == nil {
+		return Join{}, false
+	}
+	join := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      inner.Name,
+		TableQuery: query,
+		TableAlias: inner.Name,
+	}
+	if joinType == JoinInner {
+		join.On = g.trueExpr()
+	}
+	return join, true
+}
+
 func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*SelectQuery) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
@@ -367,6 +670,10 @@ func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*S
 		return from
 	}
 	for i := 1; i < len(tables); i++ {
+		if lateralJoin, ok := g.buildLateralJoin(tables[:i], tables[i]); ok {
+			from.Joins = append(from.Joins, lateralJoin)
+			continue
+		}
 		joinType := JoinInner
 		if g.joinTypeOverride != nil {
 			joinType = *g.joinTypeOverride
@@ -434,7 +741,19 @@ func (g *Generator) randomColumn(tables []schema.Table) ColumnRef {
 }
 
 func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []string {
-	useIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+	names := g.collectUsingColumnNamesWithMode(left, right, util.Chance(g.Rand, g.indexPrefixProb()))
+	if len(names) == 0 {
+		return nil
+	}
+	count := 1
+	if len(names) > 1 && util.Chance(g.Rand, UsingColumnExtraProb) {
+		count = 2
+	}
+	g.Rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+	return names[:count]
+}
+
+func (g *Generator) collectUsingColumnNamesWithMode(left []schema.Table, right schema.Table, useIndexPrefix bool) []string {
 	// USING requires same column names; we only relax type matching by category (number/string/time/bool).
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
@@ -451,6 +770,7 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 		}
 	}
 	names := []string{}
+	seen := map[string]struct{}{}
 	for _, ltbl := range left {
 		pairs := g.collectJoinPairs(ltbl, right, true, useIndexPrefix)
 		for _, pair := range pairs {
@@ -463,18 +783,14 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 			if !compatibleColumnType(leftTypes[pair.Left.Name], pair.Left.Type) {
 				continue
 			}
+			if _, ok := seen[pair.Left.Name]; ok {
+				continue
+			}
+			seen[pair.Left.Name] = struct{}{}
 			names = append(names, pair.Left.Name)
 		}
 	}
-	if len(names) == 0 {
-		return nil
-	}
-	count := 1
-	if len(names) > 1 && util.Chance(g.Rand, UsingColumnExtraProb) {
-		count = 2
-	}
-	g.Rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
-	return names[:count]
+	return names
 }
 
 func (g *Generator) naturalJoinAllowed(left []schema.Table, right schema.Table) bool {
@@ -771,8 +1087,24 @@ func hasCrossOrTrueJoin(from FromClause) bool {
 		if join.Type == JoinCross {
 			return true
 		}
+		if join.Type == JoinInner && isLiteralEqualityTrue(join.On) {
+			return true
+		}
 	}
 	return false
+}
+
+func isLiteralEqualityTrue(expr Expr) bool {
+	bin, ok := expr.(BinaryExpr)
+	if !ok || bin.Op != "=" {
+		return false
+	}
+	left, lok := bin.Left.(LiteralExpr)
+	right, rok := bin.Right.(LiteralExpr)
+	if !lok || !rok {
+		return false
+	}
+	return reflect.DeepEqual(left.Value, right.Value)
 }
 
 func (g *Generator) maybeEmulateFullJoin(query *SelectQuery) {

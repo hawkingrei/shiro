@@ -250,6 +250,252 @@ func TestValidateQueryScopeUsingKeepsNonUsingQualifiedColumns(t *testing.T) {
 	}
 }
 
+func TestValidateQueryScopeLateralJoinAllowsLeftReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0", Type: schema.TypeInt}}, Alias: "k0"},
+		},
+		From: FromClause{BaseTable: "t1"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{{
+				Type:       JoinCross,
+				Lateral:    true,
+				Table:      "t1",
+				TableAlias: "t1",
+				TableQuery: lateral,
+			}},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}}},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected LATERAL derived table to see left-side tables")
+	}
+}
+
+func TestValidateQueryScopeLateralJoinRejectsFutureTableReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0", Type: schema.TypeInt}}, Alias: "k0"},
+		},
+		From: FromClause{BaseTable: "t1"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k0", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k0", Type: schema.TypeInt}},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "t1",
+					TableAlias: "t1",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+				{
+					Type:  JoinInner,
+					Table: "t2",
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}},
+						Op:    "=",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "k0", Type: schema.TypeInt}},
+					},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}}},
+		},
+	}
+
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected LATERAL derived table to reject future/right-side references")
+	}
+}
+
+func TestValidateQueryScopeLateralJoinUsingAllowsUnqualifiedMergedColumn(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+		},
+		From: FromClause{BaseTable: "t2"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					Using: []string{"id"},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+		},
+	}
+
+	if !gen.validateQueryScope(query) {
+		t.Fatalf("expected LATERAL derived table to allow unqualified merged USING column")
+	}
+}
+
+func TestValidateQueryScopeLateralJoinUsingRejectsQualifiedMergedColumn(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	lateral := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+		},
+		From: FromClause{BaseTable: "t2"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t2", Name: "id", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseTable: "t0",
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: "t1",
+					Using: []string{"id"},
+				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
+			},
+		},
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "id", Type: schema.TypeInt}}, Alias: "id"},
+		},
+	}
+
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected LATERAL derived table to reject qualified merged USING column")
+	}
+}
+
 func TestValidateQueryScopeNestedDerivedUsingHidesQualifiedColumns(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

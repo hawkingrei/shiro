@@ -56,6 +56,15 @@ const (
 	SetOperationChainProb = 20
 	// DerivedTableProb is the chance to wrap a table into a derived subquery.
 	DerivedTableProb = 30
+	// LateralJoinProb is the chance to replace an eligible join with a LATERAL derived table.
+	LateralJoinProb = 15
+	// LateralJoinMergedVisibilityProb biases lateral bug-mining toward merged-column
+	// visibility after USING/NATURAL joins.
+	LateralJoinMergedVisibilityProb = 70
+	// LateralJoinOrderLimitProb biases lateral bug-mining toward correlated TopN/Limit shapes.
+	LateralJoinOrderLimitProb = 70
+	// LateralJoinLimitMax caps the LIMIT used inside generated LATERAL subqueries.
+	LateralJoinLimitMax = 3
 	// QuantifiedSubqueryProb is the chance to emit ANY/SOME/ALL subquery predicates.
 	QuantifiedSubqueryProb = 25
 	// QuantifiedAllReduceEqProb is the chance to avoid "=" when quantifier is ALL.
