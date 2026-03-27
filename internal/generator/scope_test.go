@@ -676,6 +676,46 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 			},
 		},
 	}
+	quantifiedLimit := 2
+	quantifiedQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "match0", Type: schema.TypeInt}},
+				Alias: "mq0",
+			},
+		},
+		From: FromClause{
+			BaseTable: "t2",
+			BaseAlias: "postq",
+			Joins: []Join{
+				{
+					Type:       JoinInner,
+					Table:      "probeq",
+					TableAlias: "probeq",
+					TableQuery: siblingDerived,
+					On: BinaryExpr{
+						Left: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "postq", Name: "id", Type: schema.TypeInt}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "join0", Type: schema.TypeInt}},
+						},
+						Op: "AND",
+						Right: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "postq", Name: "v0", Type: schema.TypeInt}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "match0", Type: schema.TypeInt}},
+						},
+					},
+				},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "mq0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "probe0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+		},
+		Limit: &quantifiedLimit,
+	}
 	siblingLateral := &SelectQuery{
 		Items: []SelectItem{
 			{
@@ -708,11 +748,11 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 				},
 			},
 		},
-		Where: InExpr{
-			Left: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-			List: []Expr{
-				ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "match0", Type: schema.TypeInt}},
-			},
+		Where: CompareSubqueryExpr{
+			Left:       ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+			Op:         ">=",
+			Quantifier: "ANY",
+			Query:      quantifiedQuery,
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: ColumnRef{Name: "probe0", Type: schema.TypeInt}}},
@@ -767,7 +807,7 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 	}
 
 	if !gen.validateQueryScope(query) {
-		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery and the sibling derived-right IN consumer")
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery and the sibling derived-right quantified consumer")
 	}
 }
 
