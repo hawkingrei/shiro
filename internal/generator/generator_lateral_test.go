@@ -175,8 +175,8 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 	if quantified, ok := sibling.TableQuery.Where.(CompareSubqueryExpr); !ok {
 		t.Fatalf("expected sibling scalar-subquery consumer WHERE to use a quantified comparator over the derived-right boundary")
 	} else {
-		if !exprUsesQualifiedColumnName(quantified.Left, "dt", "tie0") {
-			t.Fatalf("expected sibling scalar-subquery consumer quantified left side to reuse dt.tie0")
+		if !exprUsesQualifiedColumnName(quantified.Left, "postd", "probe0") {
+			t.Fatalf("expected sibling scalar-subquery consumer quantified left side to consume the derived-right probe value")
 		}
 		if quantified.Query == nil || len(quantified.Query.From.Joins) != 1 || quantified.Query.From.Joins[0].TableQuery == nil {
 			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to keep the derived-right boundary")
@@ -185,8 +185,8 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to expose mq0 alias")
 		}
 		mq0Expr, ok := selectItemExprByAlias(quantified.Query.Items, "mq0")
-		if !ok || !exprUsesQualifiedColumnName(mq0Expr, "probeq", "match0") {
-			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to project probeq.match0")
+		if !ok || !exprUsesQualifiedColumnName(mq0Expr, "probeq", "probe0") {
+			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to project probeq.probe0")
 		}
 		if quantified.Query.Limit == nil || *quantified.Query.Limit != 2 {
 			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to keep LIMIT 2")
@@ -197,8 +197,8 @@ func TestBuildScalarSubqueryProjectedOrderLimitLateralHookQuery(t *testing.T) {
 		if !exprUsesUnqualifiedColumnName(quantified.Query.OrderBy[0].Expr, "mq0") {
 			t.Fatalf("expected sibling scalar-subquery consumer quantified ORDER BY to rank by mq0 alias")
 		}
-		if !exprUsesQualifiedColumnName(quantified.Query.OrderBy[1].Expr, "probeq", "probe0") {
-			t.Fatalf("expected sibling scalar-subquery consumer quantified ORDER BY to keep derived-right probe visibility")
+		if !exprUsesQualifiedColumnName(quantified.Query.OrderBy[1].Expr, "probeq", "match0") {
+			t.Fatalf("expected sibling scalar-subquery consumer quantified ORDER BY to keep derived-right match visibility")
 		}
 		if countVisibleTablesRecursive(quantified.Query, siblingVisible) < 3 {
 			t.Fatalf("expected sibling scalar-subquery consumer quantified subquery to keep base, sibling, and prior-lateral visibility")
@@ -1848,7 +1848,7 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 		return false
 	}
 	quantified, ok := sibling.TableQuery.Where.(CompareSubqueryExpr)
-	if !ok || !exprUsesQualifiedColumnName(quantified.Left, "dt", "tie0") {
+	if !ok || !exprUsesQualifiedColumnName(quantified.Left, "postd", "probe0") {
 		return false
 	}
 	if quantified.Query == nil || len(quantified.Query.From.Joins) != 1 || quantified.Query.From.Joins[0].TableQuery == nil {
@@ -1858,7 +1858,7 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 		return false
 	}
 	mq0Expr, ok := selectItemExprByAlias(quantified.Query.Items, "mq0")
-	if !ok || !exprUsesQualifiedColumnName(mq0Expr, "probeq", "match0") {
+	if !ok || !exprUsesQualifiedColumnName(mq0Expr, "probeq", "probe0") {
 		return false
 	}
 	if quantified.Query.Limit == nil || *quantified.Query.Limit != 2 || len(quantified.Query.OrderBy) < 3 {
@@ -1867,7 +1867,7 @@ func queryHasScalarSubqueryProjectedOrderLimitLateralHook(query *SelectQuery) bo
 	if !exprUsesUnqualifiedColumnName(quantified.Query.OrderBy[0].Expr, "mq0") {
 		return false
 	}
-	if !exprUsesQualifiedColumnName(quantified.Query.OrderBy[1].Expr, "probeq", "probe0") {
+	if !exprUsesQualifiedColumnName(quantified.Query.OrderBy[1].Expr, "probeq", "match0") {
 		return false
 	}
 	if countVisibleTablesRecursive(quantified.Query, siblingVisible) < 3 {

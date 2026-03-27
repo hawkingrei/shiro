@@ -680,7 +680,7 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 	quantifiedQuery := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "match0", Type: schema.TypeInt}},
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "probe0", Type: schema.TypeInt}},
 				Alias: "mq0",
 			},
 		},
@@ -711,7 +711,7 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: ColumnRef{Name: "mq0", Type: schema.TypeInt}}},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "probe0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "probeq", Name: "match0", Type: schema.TypeInt}}},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
 		},
 		Limit: &quantifiedLimit,
@@ -749,7 +749,7 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 			},
 		},
 		Where: CompareSubqueryExpr{
-			Left:       ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+			Left:       ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "probe0", Type: schema.TypeInt}},
 			Op:         ">=",
 			Quantifier: "ANY",
 			Query:      quantifiedQuery,

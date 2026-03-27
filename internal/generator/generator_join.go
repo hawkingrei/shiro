@@ -1085,7 +1085,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	quantifiedMatchRef := ColumnRef{Table: "probeq", Name: "match0", Type: scalarSourceCol.Type}
 	quantifiedJoinRef := ColumnRef{Table: "probeq", Name: "join0", Type: baseInnerCol.Type}
 	quantifiedProbeRef := ColumnRef{Table: "probeq", Name: "probe0", Type: innerScoreCol.Type}
-	quantifiedAliasRef := ColumnRef{Name: "mq0", Type: scalarSourceCol.Type}
+	quantifiedAliasRef := ColumnRef{Name: "mq0", Type: innerScoreCol.Type}
 	probeAliasRef := ColumnRef{Name: "probe0", Type: innerScoreCol.Type}
 	siblingLimit := 1
 	siblingDerivedQuery := &SelectQuery{
@@ -1129,7 +1129,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 	quantifiedQuery := &SelectQuery{
 		Items: []SelectItem{
 			{
-				Expr:  ColumnExpr{Ref: quantifiedMatchRef},
+				Expr:  ColumnExpr{Ref: quantifiedProbeRef},
 				Alias: "mq0",
 			},
 		},
@@ -1160,7 +1160,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 		},
 		OrderBy: []OrderBy{
 			{Expr: ColumnExpr{Ref: quantifiedAliasRef}},
-			{Expr: ColumnExpr{Ref: quantifiedProbeRef}},
+			{Expr: ColumnExpr{Ref: quantifiedMatchRef}},
 			{Expr: ColumnExpr{Ref: baseSignalRef}},
 		},
 		Limit: &quantifiedLimit,
@@ -1198,11 +1198,7 @@ func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTab
 			},
 		},
 		Where: CompareSubqueryExpr{
-			Left: ColumnExpr{Ref: ColumnRef{
-				Table: "dt",
-				Name:  "tie0",
-				Type:  tieAliasRef.Type,
-			}},
+			Left:       ColumnExpr{Ref: derivedProbeRef},
 			Op:         ">=",
 			Quantifier: "ANY",
 			Query:      quantifiedQuery,
