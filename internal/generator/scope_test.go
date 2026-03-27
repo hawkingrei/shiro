@@ -638,49 +638,88 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 		},
 		Limit: &limit,
 	}
-	quantifiedLimit := 2
-	quantified := &SelectQuery{
+	siblingLimit := 1
+	siblingDerived := &SelectQuery{
 		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "postr", Name: "v0", Type: schema.TypeInt}},
+				Alias: "match0",
+			},
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "postr", Name: "id", Type: schema.TypeInt}},
+				Alias: "join0",
+			},
 			{
 				Expr: FuncExpr{
 					Name: "ABS",
 					Args: []Expr{BinaryExpr{
-						Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "c2", Type: schema.TypeInt}},
+						Left:  ColumnExpr{Ref: ColumnRef{Table: "postr", Name: "c2", Type: schema.TypeInt}},
 						Op:    "-",
-						Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
+						Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
 					}},
 				},
-				Alias: "q0",
+				Alias: "probe0",
 			},
 		},
-		From: FromClause{BaseTable: "t2", BaseAlias: "post"},
+		From: FromClause{BaseTable: "t2", BaseAlias: "postr"},
 		Where: BinaryExpr{
 			Left: BinaryExpr{
-				Left: BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "id", Type: schema.TypeInt}},
-					Op:    "=",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
-				},
-				Op: "AND",
-				Right: BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}},
-					Op:    "<=",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-				},
+				Left:  ColumnExpr{Ref: ColumnRef{Table: "postr", Name: "id", Type: schema.TypeInt}},
+				Op:    "=",
+				Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}},
 			},
 			Op: "AND",
 			Right: BinaryExpr{
-				Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "c2", Type: schema.TypeInt}},
+				Left:  ColumnExpr{Ref: ColumnRef{Table: "postr", Name: "c2", Type: schema.TypeInt}},
 				Op:    ">=",
 				Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
 			},
 		},
-		OrderBy: []OrderBy{
-			{Expr: ColumnExpr{Ref: ColumnRef{Name: "q0", Type: schema.TypeInt}}},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}}, Desc: true},
-			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "c0", Type: schema.TypeInt}}},
+	}
+	siblingLateral := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "probe0", Type: schema.TypeInt}},
+				Alias: "probe0",
+			},
 		},
-		Limit: &quantifiedLimit,
+		From: FromClause{
+			BaseTable: "t2",
+			BaseAlias: "post",
+			Joins: []Join{
+				{
+					Type:       JoinInner,
+					Table:      "postd",
+					TableAlias: "postd",
+					TableQuery: siblingDerived,
+					On: BinaryExpr{
+						Left: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "id", Type: schema.TypeInt}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "join0", Type: schema.TypeInt}},
+						},
+						Op: "AND",
+						Right: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "post", Name: "v0", Type: schema.TypeInt}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "match0", Type: schema.TypeInt}},
+						},
+					},
+				},
+			},
+		},
+		Where: InExpr{
+			Left: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
+			List: []Expr{
+				ColumnExpr{Ref: ColumnRef{Table: "postd", Name: "match0", Type: schema.TypeInt}},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "probe0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}}},
+		},
+		Limit: &siblingLimit,
 	}
 	query := &SelectQuery{
 		From: FromClause{
@@ -703,6 +742,14 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 					TableQuery: lateral,
 					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
 				},
+				{
+					Type:       JoinInner,
+					Lateral:    true,
+					Table:      "sx",
+					TableAlias: "sx",
+					TableQuery: siblingLateral,
+					On:         BinaryExpr{Left: LiteralExpr{Value: 1}, Op: "=", Right: LiteralExpr{Value: 1}},
+				},
 			},
 		},
 		Items: []SelectItem{
@@ -710,36 +757,17 @@ func TestValidateQueryScopeLateralJoinAllowsScalarSubqueryProjectedOrderLimitRef
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}}, Alias: "sibling0"},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}, Alias: "lateral_score0"},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}}, Alias: "lateral_tie0"},
-		},
-		Where: CompareSubqueryExpr{
-			Left: FuncExpr{
-				Name: "ABS",
-				Args: []Expr{BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-					Op:    "-",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-				}},
-			},
-			Op:         ">=",
-			Quantifier: "ANY",
-			Query:      quantified,
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "sx", Name: "probe0", Type: schema.TypeInt}}, Alias: "sibling_probe0"},
 		},
 		OrderBy: []OrderBy{
-			{Expr: FuncExpr{
-				Name: "ABS",
-				Args: []Expr{BinaryExpr{
-					Left:  ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: schema.TypeInt}},
-					Op:    "-",
-					Right: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "c1", Type: schema.TypeInt}},
-				}},
-			}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Name: "sibling_probe0", Type: schema.TypeInt}}},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: schema.TypeInt}}},
 			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "id", Type: schema.TypeInt}}},
 		},
 	}
 
 	if !gen.validateQueryScope(query) {
-		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery and the outer quantified consumer")
+		t.Fatalf("expected scalar-subquery projected-order-limit LATERAL query to keep outer references visible through the nested scalar subquery and the sibling derived-right IN consumer")
 	}
 }
 

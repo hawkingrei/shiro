@@ -45,7 +45,7 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 		}
 		for _, join := range query.From.Joins {
 			if join.TableQuery != nil {
-				lateralOuter := tableScope{}
+				lateralOuter := outer
 				if join.Lateral {
 					lateralOuter = mergeTableScopes(scopeForTables(currentScope, visible), outer)
 				}
