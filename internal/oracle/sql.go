@@ -899,9 +899,6 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 }
 
 func unqualifiedColumnAvailable(name string, tableMap map[string]schema.Table) bool {
-	if strings.TrimSpace(name) == "" {
-		return false
-	}
 	for _, tbl := range tableMap {
 		if _, ok := tbl.ColumnByName(name); ok {
 			return true

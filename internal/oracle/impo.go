@@ -270,7 +270,7 @@ func pickImpoSeedQuery(gen *generator.Generator, state *schema.State, metrics ma
 			continue
 		}
 		sanitized := sanitizeQueryColumns(candidate, state)
-		if gen != nil && !gen.ValidateQueryScope(candidate) {
+		if !gen.ValidateQueryScope(candidate) {
 			lastGuardrailReason = "scope_invalid"
 			continue
 		}
