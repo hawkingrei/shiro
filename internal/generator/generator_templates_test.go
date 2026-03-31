@@ -67,7 +67,7 @@ func TestTemplateJoinPredicateStrategyPropagatesToFeatures(t *testing.T) {
 		From:                          FromClause{BaseTable: "t0"},
 		TemplateJoinPredicateStrategy: templateJoinPredicateStrategyJoinFilter,
 	}
-	gen.setLastFeatures(query, false, "")
+	gen.setLastFeatures(query, false, "", false, "")
 	if gen.LastFeatures == nil {
 		t.Fatalf("expected LastFeatures to be set")
 	}

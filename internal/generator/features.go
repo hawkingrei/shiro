@@ -54,15 +54,17 @@ type QueryFeatures struct {
 	FullJoinEmulationAttempted    bool
 	FullJoinEmulationRejectReason string
 	// HasRecursiveCTE is true when the query owns a WITH RECURSIVE clause.
-	HasRecursiveCTE        bool
-	ViewCount              int
-	PredicatePairsTotal    int64
-	PredicatePairsJoin     int64
-	SubqueryAllowed        bool
-	SubqueryDisallowReason string
-	SubqueryAttempts       int64
-	SubqueryBuilt          int64
-	SubqueryFailed         int64
+	HasRecursiveCTE              bool
+	ViewCount                    int
+	PredicatePairsTotal          int64
+	PredicatePairsJoin           int64
+	SubqueryAllowed              bool
+	SubqueryDisallowReason       string
+	ScalarSubqueryAllowed        bool
+	ScalarSubqueryDisallowReason string
+	SubqueryAttempts             int64
+	SubqueryBuilt                int64
+	SubqueryFailed               int64
 }
 
 // AnalyzeQuery summarizes a query for fast-path guards and shared checks.

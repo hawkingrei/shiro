@@ -355,6 +355,29 @@ func TestObserveJoinSignatureFullJoinAttemptEmitted(t *testing.T) {
 	}
 }
 
+func TestObserveJoinSignatureScalarSubqueryDisallowReason(t *testing.T) {
+	r := &Runner{
+		templateJoinPredicateStrategies: make(map[string]int64),
+		subqueryDisallowReasons:         make(map[string]int64),
+		scalarSubqueryDisallowReasons:   make(map[string]int64),
+		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
+	}
+	r.observeJoinSignature(&generator.QueryFeatures{
+		SubqueryAllowed:              true,
+		ScalarSubqueryAllowed:        false,
+		ScalarSubqueryDisallowReason: "scalar_subquery_off",
+	}, "PQS")
+	if r.subqueryAllowed != 1 {
+		t.Fatalf("subqueryAllowed=%d want=1", r.subqueryAllowed)
+	}
+	if r.scalarSubqueryDisallowed != 1 {
+		t.Fatalf("scalarSubqueryDisallowed=%d want=1", r.scalarSubqueryDisallowed)
+	}
+	if r.scalarSubqueryDisallowReasons["scalar_subquery_off"] != 1 {
+		t.Fatalf("scalar_subquery_off=%d want=1", r.scalarSubqueryDisallowReasons["scalar_subquery_off"])
+	}
+}
+
 func TestObserveSQLUsesPrecomputedFeatures(t *testing.T) {
 	r := &Runner{}
 	r.observeSQL("SELECT * FROM t0 WHERE EXISTS (SELECT 1)", nil, &db.SQLSubqueryFeatures{

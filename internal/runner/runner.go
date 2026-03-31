@@ -110,11 +110,14 @@ type Runner struct {
 	predicatePairsJoin              int64
 	subqueryAllowed                 int64
 	subqueryDisallowed              int64
+	scalarSubqueryAllowed           int64
+	scalarSubqueryDisallowed        int64
 	subqueryHas                     int64
 	subqueryAttempts                int64
 	subqueryBuilt                   int64
 	subqueryFailed                  int64
 	subqueryDisallowReasons         map[string]int64
+	scalarSubqueryDisallowReasons   map[string]int64
 	subqueryOracleStats             map[string]*subqueryOracleStats
 	builderStats                    map[string]*builderAttemptStats
 	truthMismatches                 int64
@@ -232,6 +235,7 @@ func New(cfg config.Config, exec *db.DB) *Runner {
 		templateJoinPredicateStrategies: make(map[string]int64),
 		genSQLFullJoinRejected:          make(map[string]int64),
 		subqueryDisallowReasons:         make(map[string]int64),
+		scalarSubqueryDisallowReasons:   make(map[string]int64),
 		subqueryOracleStats:             make(map[string]*subqueryOracleStats),
 		builderStats:                    make(map[string]*builderAttemptStats),
 		oracleStats:                     make(map[string]*oracleFunnel),

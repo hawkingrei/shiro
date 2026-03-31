@@ -82,7 +82,7 @@ func TestSelectCandidatesHandleLateralJoin(t *testing.T) {
 }
 
 func TestSelectCandidatesHandleMergedColumnLateralJoin(t *testing.T) {
-	sql := "SELECT id AS merged_id, dt.id AS lateral_id FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT t2.id AS id FROM t2 WHERE t2.id = id) AS dt ON (1 = 1) ORDER BY 1, 2"
+	sql := "SELECT id AS merged_id, dt.id AS lateral_id FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT src.v0 AS id FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE src.v0 = id) AS dt ON (1 = 1) ORDER BY 1, 2"
 	p := parser.New()
 	node, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {
@@ -126,7 +126,7 @@ func TestSelectCandidatesHandleGroupedOutputAliasLateralJoin(t *testing.T) {
 }
 
 func TestSelectCandidatesHandleGroupedOutputOrderLimitLateralJoin(t *testing.T) {
-	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT t2.id AS g0, COUNT(1) AS cnt FROM t2 WHERE (t2.id <> id) GROUP BY t2.id HAVING (ABS(CASE WHEN (t2.id >= id) THEN (COUNT(1) - id) ELSE ((COUNT(1) + t2.id) - id) END) >= 1) ORDER BY g0, cnt DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT agg.g0 AS g0, agg.cnt AS cnt FROM (SELECT src.v0 AS g0, COUNT(1) AS cnt FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE (src.v0 <> id) GROUP BY src.v0 HAVING (ABS(CASE WHEN (src.v0 >= id) THEN (COUNT(1) - id) ELSE ((COUNT(1) + src.v0) - id) END) >= 1)) AS agg ORDER BY agg.g0, agg.cnt DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
 	p := parser.New()
 	node, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {
@@ -148,7 +148,7 @@ func TestSelectCandidatesHandleGroupedOutputOrderLimitLateralJoin(t *testing.T) 
 }
 
 func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
-	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.id >= id) THEN CASE WHEN (t2.id >= 0) THEN (t2.id - id) ELSE id END ELSE CASE WHEN (t2.id >= 0) THEN (id - t2.id) ELSE t2.id END END) AS score0, ABS(CASE WHEN (t2.id >= 0) THEN (t2.id + id) ELSE (id - t2.id) END) AS tie0 FROM t2 WHERE (t2.id <> id) ORDER BY score0, tie0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT ABS(CASE WHEN (src.v0 >= id) THEN CASE WHEN (src.v0 >= 0) THEN (src.v0 - id) ELSE id END ELSE CASE WHEN (src.v0 >= 0) THEN (id - src.v0) ELSE src.v0 END END) AS score0, ABS(CASE WHEN (src.v0 >= 0) THEN (src.v0 + id) ELSE (id - src.v0) END) AS tie0 FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE (src.v0 <> id) ORDER BY score0, tie0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
 	p := parser.New()
 	node, err := p.ParseOneStmt(sql, "", "")
 	if err != nil {

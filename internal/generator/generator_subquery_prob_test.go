@@ -125,8 +125,14 @@ func TestGenerateSelectQueryKeepsPredicateSubqueriesWhenScalarSubqueriesDisabled
 		if !gen.LastFeatures.SubqueryAllowed {
 			t.Fatalf("expected predicate subqueries to remain allowed")
 		}
-		if gen.LastFeatures.SubqueryDisallowReason != "scalar_subquery_off" {
+		if gen.LastFeatures.SubqueryDisallowReason != "" {
 			t.Fatalf("unexpected disallow reason: %q", gen.LastFeatures.SubqueryDisallowReason)
+		}
+		if gen.LastFeatures.ScalarSubqueryAllowed {
+			t.Fatalf("expected scalar subqueries to remain disabled")
+		}
+		if gen.LastFeatures.ScalarSubqueryDisallowReason != "scalar_subquery_off" {
+			t.Fatalf("unexpected scalar disallow reason: %q", gen.LastFeatures.ScalarSubqueryDisallowReason)
 		}
 		return
 	}

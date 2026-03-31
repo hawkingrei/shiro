@@ -244,6 +244,17 @@ func (r *Runner) observeJoinSignature(features *generator.QueryFeatures, oracleN
 			r.subqueryDisallowReasons[features.SubqueryDisallowReason]++
 		}
 	}
+	if features.ScalarSubqueryAllowed {
+		r.scalarSubqueryAllowed++
+	} else {
+		r.scalarSubqueryDisallowed++
+		if features.ScalarSubqueryDisallowReason != "" {
+			if r.scalarSubqueryDisallowReasons == nil {
+				r.scalarSubqueryDisallowReasons = make(map[string]int64)
+			}
+			r.scalarSubqueryDisallowReasons[features.ScalarSubqueryDisallowReason]++
+		}
+	}
 	if features.HasSubquery {
 		r.subqueryHas++
 	}
@@ -738,12 +749,15 @@ func (r *Runner) startStatsLogger() func() {
 		var lastPredicatePairsJoin int64
 		var lastSubqueryAllowed int64
 		var lastSubqueryDisallowed int64
+		var lastScalarSubqueryAllowed int64
+		var lastScalarSubqueryDisallowed int64
 		var lastSubqueryHas int64
 		var lastSubqueryAttempts int64
 		var lastSubqueryBuilt int64
 		var lastSubqueryFailed int64
 		var lastCapturedCases int64
 		lastSubqueryDisallowReasons := make(map[string]int64)
+		lastScalarSubqueryDisallowReasons := make(map[string]int64)
 		lastCapturedMinimizeStatus := make(map[string]int64)
 		lastCapturedMinimizeReasons := make(map[string]int64)
 		lastCapturedErrorSignatures := make(map[string]int64)
@@ -842,6 +856,8 @@ func (r *Runner) startStatsLogger() func() {
 				predicatePairsJoin := r.predicatePairsJoin
 				subqueryAllowed := r.subqueryAllowed
 				subqueryDisallowed := r.subqueryDisallowed
+				scalarSubqueryAllowed := r.scalarSubqueryAllowed
+				scalarSubqueryDisallowed := r.scalarSubqueryDisallowed
 				subqueryHas := r.subqueryHas
 				subqueryAttempts := r.subqueryAttempts
 				subqueryBuilt := r.subqueryBuilt
@@ -849,6 +865,10 @@ func (r *Runner) startStatsLogger() func() {
 				subqueryDisallowReasons := make(map[string]int64, len(r.subqueryDisallowReasons))
 				for k, v := range r.subqueryDisallowReasons {
 					subqueryDisallowReasons[k] = v
+				}
+				scalarSubqueryDisallowReasons := make(map[string]int64, len(r.scalarSubqueryDisallowReasons))
+				for k, v := range r.scalarSubqueryDisallowReasons {
+					scalarSubqueryDisallowReasons[k] = v
 				}
 				capturedMinimizeStatus := make(map[string]int64, len(r.capturedMinimizeStatus))
 				for k, v := range r.capturedMinimizeStatus {
@@ -1035,6 +1055,8 @@ func (r *Runner) startStatsLogger() func() {
 				deltaPredicatePairsJoin := predicatePairsJoin - lastPredicatePairsJoin
 				deltaSubqueryAllowed := subqueryAllowed - lastSubqueryAllowed
 				deltaSubqueryDisallowed := subqueryDisallowed - lastSubqueryDisallowed
+				deltaScalarSubqueryAllowed := scalarSubqueryAllowed - lastScalarSubqueryAllowed
+				deltaScalarSubqueryDisallowed := scalarSubqueryDisallowed - lastScalarSubqueryDisallowed
 				deltaSubqueryHas := subqueryHas - lastSubqueryHas
 				deltaSubqueryAttempts := subqueryAttempts - lastSubqueryAttempts
 				deltaSubqueryBuilt := subqueryBuilt - lastSubqueryBuilt
@@ -1102,6 +1124,8 @@ func (r *Runner) startStatsLogger() func() {
 				lastPredicatePairsJoin = predicatePairsJoin
 				lastSubqueryAllowed = subqueryAllowed
 				lastSubqueryDisallowed = subqueryDisallowed
+				lastScalarSubqueryAllowed = scalarSubqueryAllowed
+				lastScalarSubqueryDisallowed = scalarSubqueryDisallowed
 				lastSubqueryHas = subqueryHas
 				lastSubqueryAttempts = subqueryAttempts
 				lastSubqueryBuilt = subqueryBuilt
@@ -1331,6 +1355,13 @@ func (r *Runner) startStatsLogger() func() {
 							deltaSubqueryFailed,
 						)
 					}
+					if deltaScalarSubqueryAllowed > 0 || deltaScalarSubqueryDisallowed > 0 {
+						util.Infof(
+							"scalar_subquery last interval: allowed=%d disallowed=%d",
+							deltaScalarSubqueryAllowed,
+							deltaScalarSubqueryDisallowed,
+						)
+					}
 					util.Infof(
 						"metrics last interval: sql_valid_ratio=%.3f impo_invalid_columns_ratio=%.3f impo_base_exec_failed_ratio=%.3f predicate_join_pair_ratio=%.3f predicate_join_pairs=%d/%d inflight_minimize=%d stalled_reason=%s",
 						sqlValidRatio,
@@ -1374,6 +1405,21 @@ func (r *Runner) startStatsLogger() func() {
 							"subquery_disallow_reasons last interval top=%d: %s",
 							topOracleReasonsN,
 							formatTopJoinSigs(deltaSubqueryDisallowReasons, topOracleReasonsN),
+						)
+					}
+					deltaScalarSubqueryDisallowReasons := make(map[string]int64, len(scalarSubqueryDisallowReasons))
+					for reason, total := range scalarSubqueryDisallowReasons {
+						prev := lastScalarSubqueryDisallowReasons[reason]
+						if total-prev > 0 {
+							deltaScalarSubqueryDisallowReasons[reason] = total - prev
+						}
+					}
+					lastScalarSubqueryDisallowReasons = scalarSubqueryDisallowReasons
+					if len(deltaScalarSubqueryDisallowReasons) > 0 {
+						util.Detailf(
+							"scalar_subquery_disallow_reasons last interval top=%d: %s",
+							topOracleReasonsN,
+							formatTopJoinSigs(deltaScalarSubqueryDisallowReasons, topOracleReasonsN),
 						)
 					}
 					if len(subqueryOracleStatsByName) > 0 {
