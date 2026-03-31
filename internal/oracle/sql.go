@@ -282,7 +282,7 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 			return false, "empty_column"
 		}
 		if ref.Table == "" {
-			if unqualifiedColumnAvailable(ref.Name, tableMap) {
+			if unqualifiedColumnAvailable(ref.Name, query, tableMap, outerTables) {
 				return true, ""
 			}
 			return false, "unknown_column"
@@ -536,6 +536,25 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 		return generator.ColumnRef{}, false
 	}
 
+	pickUnqualifiedColumnRef := func(name string) (generator.ColumnRef, bool) {
+		if name == "" {
+			return generator.ColumnRef{}, false
+		}
+		for _, tbl := range orderedTables {
+			if _, ok := tbl.ColumnByName(name); ok {
+				return generator.ColumnRef{Table: tbl.Name, Name: name}, true
+			}
+		}
+		if len(outerTables) == 1 {
+			for _, tbl := range outerTables {
+				if _, ok := tbl.ColumnByName(name); ok {
+					return generator.ColumnRef{Table: tbl.Name, Name: name}, true
+				}
+			}
+		}
+		return generator.ColumnRef{}, false
+	}
+
 	pickSharedColumn := func(left []schema.Table, right schema.Table) (string, bool) {
 		for _, col := range right.Columns {
 			for _, ltbl := range left {
@@ -552,7 +571,7 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 			return false
 		}
 		if ref.Table == "" {
-			return unqualifiedColumnAvailable(ref.Name, tableMap)
+			return unqualifiedColumnAvailable(ref.Name, query, tableMap, outerTables)
 		}
 		tbl, ok := tableMap[ref.Table]
 		if !ok {
@@ -578,6 +597,12 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 		switch e := expr.(type) {
 		case generator.ColumnExpr:
 			if !checkColumn(e.Ref) {
+				if e.Ref.Table == "" {
+					if ref, ok := pickUnqualifiedColumnRef(e.Ref.Name); ok {
+						e.Ref = ref
+						return e, true
+					}
+				}
 				if ref, ok := pickFallbackRef(e.Ref.Table); ok {
 					e.Ref = ref
 					return e, true
@@ -898,13 +923,67 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 	return b.String(), nil
 }
 
-func unqualifiedColumnAvailable(name string, tableMap map[string]schema.Table) bool {
-	for _, tbl := range tableMap {
-		if _, ok := tbl.ColumnByName(name); ok {
-			return true
+func unqualifiedColumnAvailable(name string, query *generator.SelectQuery, tableMap map[string]schema.Table, outerTables map[string]schema.Table) bool {
+	localCounts := unqualifiedColumnCounts(query, tableMap)
+	if count := localCounts[name]; count > 0 {
+		return count == 1
+	}
+	return rawUnqualifiedColumnCount(name, outerTables) == 1
+}
+
+func unqualifiedColumnCounts(query *generator.SelectQuery, tableMap map[string]schema.Table) map[string]int {
+	counts := make(map[string]int)
+	if query == nil {
+		return counts
+	}
+	base, ok := tableMap[query.From.BaseTable]
+	if !ok {
+		return counts
+	}
+	for _, col := range base.Columns {
+		counts[col.Name] = 1
+	}
+	for _, join := range query.From.Joins {
+		right, ok := tableMap[join.Table]
+		if !ok {
+			continue
+		}
+		merged := make(map[string]struct{})
+		if len(join.Using) > 0 {
+			for _, name := range join.Using {
+				if name == "" || counts[name] == 0 {
+					continue
+				}
+				if _, ok := right.ColumnByName(name); ok {
+					merged[name] = struct{}{}
+				}
+			}
+		} else if join.Natural {
+			for _, col := range right.Columns {
+				if counts[col.Name] > 0 {
+					merged[col.Name] = struct{}{}
+				}
+			}
+		}
+		for _, col := range right.Columns {
+			if _, ok := merged[col.Name]; ok {
+				counts[col.Name] = 1
+				continue
+			}
+			counts[col.Name]++
 		}
 	}
-	return false
+	return counts
+}
+
+func rawUnqualifiedColumnCount(name string, tables map[string]schema.Table) int {
+	count := 0
+	for _, tbl := range tables {
+		if _, ok := tbl.ColumnByName(name); ok {
+			count++
+		}
+	}
+	return count
 }
 
 func errString(err error) string {
