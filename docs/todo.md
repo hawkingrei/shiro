@@ -11,6 +11,7 @@ Each completed task should contribute at least one new improvement item here whe
 3. Extend Impo column guardrails from set-operation operands into derived-table alias/projection validation so fresh `missing_column` cases can be classified as Shiro-side invalid seeds vs TiDB planner bugs earlier.
 4. Replace GroundTruth's retry-heavy generic query sampling with a DSG-compatible join builder or query-builder constraint so `groundtruth:dsg_key_mismatch_right_key` stops dominating fresh search-range loss.
 5. Generalize false outer-join null-extension analysis into a shared helper so `EET`, `DQP`, and future oracle guards can reuse the same `ON FALSE` / null-extended-side reasoning instead of duplicating heuristics.
+6. Teach the Impo column guard to model merged-column visibility through derived-table aliases and projection rewrites directly, not only through the final post-sanitize scope rejection.
 
 ## Reporting / Aggregation
 

@@ -278,8 +278,14 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		}
 	}
 	checkColumn := func(ref generator.ColumnRef) (bool, string) {
-		if ref.Table == "" || ref.Name == "" {
+		if ref.Name == "" {
 			return false, "empty_column"
+		}
+		if ref.Table == "" {
+			if unqualifiedColumnAvailable(ref.Name, tableMap) {
+				return true, ""
+			}
+			return false, "unknown_column"
 		}
 		tbl, ok := tableMap[ref.Table]
 		if !ok {
@@ -542,8 +548,11 @@ func sanitizeQueryColumnsWithOuter(query *generator.SelectQuery, state *schema.S
 	}
 
 	checkColumn := func(ref generator.ColumnRef) bool {
-		if ref.Table == "" || ref.Name == "" {
+		if ref.Name == "" {
 			return false
+		}
+		if ref.Table == "" {
+			return unqualifiedColumnAvailable(ref.Name, tableMap)
 		}
 		tbl, ok := tableMap[ref.Table]
 		if !ok {
@@ -887,6 +896,18 @@ func explainSQL(ctx context.Context, exec *db.DB, query string) (string, error) 
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
+}
+
+func unqualifiedColumnAvailable(name string, tableMap map[string]schema.Table) bool {
+	if strings.TrimSpace(name) == "" {
+		return false
+	}
+	for _, tbl := range tableMap {
+		if _, ok := tbl.ColumnByName(name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func errString(err error) string {
