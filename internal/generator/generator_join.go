@@ -1471,6 +1471,32 @@ func (g *Generator) buildMultiOuterProjectedOrderLimitLateralHookQueryForTables(
 	return query
 }
 
+func buildProjectedInnerSource(inner schema.Table, cols ...schema.Column) (FromClause, []ColumnRef, bool) {
+	if inner.Name == "" || len(cols) == 0 {
+		return FromClause{}, nil, false
+	}
+	items := make([]SelectItem, 0, len(cols))
+	refs := make([]ColumnRef, 0, len(cols))
+	for i, col := range cols {
+		if col.Name == "" {
+			return FromClause{}, nil, false
+		}
+		alias := "v" + strconv.Itoa(i)
+		items = append(items, SelectItem{
+			Expr:  ColumnExpr{Ref: ColumnRef{Table: inner.Name, Name: col.Name, Type: col.Type}},
+			Alias: alias,
+		})
+		refs = append(refs, ColumnRef{Table: "src", Name: alias, Type: col.Type})
+	}
+	return FromClause{
+		BaseAlias: "src",
+		BaseQuery: &SelectQuery{
+			Items: items,
+			From:  FromClause{BaseTable: inner.Name},
+		},
+	}, refs, true
+}
+
 func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
 	if g == nil {
 		return nil
@@ -1502,8 +1528,12 @@ func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schem
 		return nil
 	}
 	pick := pairs[g.Rand.Intn(len(pairs))]
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
 	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
-	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	innerRef := sourceRefs[0]
 	positiveInnerExpr := BinaryExpr{
 		Left:  ColumnExpr{Ref: innerRef},
 		Op:    ">=",
@@ -1583,7 +1613,7 @@ func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schem
 				Alias: "tie0",
 			},
 		},
-		From: FromClause{BaseTable: inner.Name},
+		From: sourceFrom,
 		Where: BinaryExpr{
 			Left:  ColumnExpr{Ref: innerRef},
 			Op:    "<>",
@@ -1715,8 +1745,12 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 		return nil
 	}
 	pick := pairs[g.Rand.Intn(len(pairs))]
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
 	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
-	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	innerRef := sourceRefs[0]
 	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
 	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
 	countExpr := FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}
@@ -1765,7 +1799,7 @@ func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base s
 				Alias: "cnt",
 			},
 		},
-		From: FromClause{BaseTable: inner.Name},
+		From: sourceFrom,
 		Where: BinaryExpr{
 			Left:  ColumnExpr{Ref: innerRef},
 			Op:    "<>",
@@ -2216,14 +2250,18 @@ func (g *Generator) buildMergedColumnVisibilityLateralHookQueryForTables(base sc
 		return nil
 	}
 	pick := pairs[g.Rand.Intn(len(pairs))]
-	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
+	innerRef := sourceRefs[0]
 	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
 	lateralQuery := &SelectQuery{
 		Items: []SelectItem{{
 			Expr:  ColumnExpr{Ref: innerRef},
 			Alias: pick.merged.Column.Name,
 		}},
-		From: FromClause{BaseTable: inner.Name},
+		From: sourceFrom,
 		Where: BinaryExpr{
 			Left:  ColumnExpr{Ref: innerRef},
 			Op:    "=",

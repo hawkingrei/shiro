@@ -300,6 +300,50 @@ func TestValidateQueryScopeLateralJoinAllowsLeftReferences(t *testing.T) {
 	}
 }
 
+func TestValidateQueryScopeDerivedBaseQueryRejectsOuterReferences(t *testing.T) {
+	gen := &Generator{
+		State: &schema.State{Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k1", Type: schema.TypeInt},
+				},
+			},
+		}},
+	}
+
+	derived := &SelectQuery{
+		Items: []SelectItem{
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k1", Type: schema.TypeInt}}, Alias: "k1"},
+		},
+		From: FromClause{BaseTable: "t1"},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: ColumnRef{Table: "t1", Name: "k1", Type: schema.TypeInt}},
+			Op:    "=",
+			Right: ColumnExpr{Ref: ColumnRef{Table: "t0", Name: "k0", Type: schema.TypeInt}},
+		},
+	}
+	query := &SelectQuery{
+		From: FromClause{
+			BaseAlias: "d0",
+			BaseQuery: derived,
+		},
+		Items: []SelectItem{
+			{Expr: LiteralExpr{Value: 1}, Alias: "c0"},
+		},
+	}
+
+	if gen.validateQueryScope(query) {
+		t.Fatalf("expected non-LATERAL base derived table to reject outer references")
+	}
+}
+
 func TestValidateQueryScopeLateralJoinAllowsMultiTableAggregateReferences(t *testing.T) {
 	gen := &Generator{
 		State: &schema.State{Tables: []schema.Table{

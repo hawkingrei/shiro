@@ -371,8 +371,8 @@ func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in projected-order-limit hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery != nil {
-		t.Fatalf("expected projected-order-limit hook to stay direct inside the LATERAL body")
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected projected-order-limit hook to wrap the inner source to avoid merged-column shadowing")
 	}
 	if len(lateral.TableQuery.GroupBy) != 0 {
 		t.Fatalf("expected projected-order-limit hook to avoid GROUP BY")
@@ -404,11 +404,20 @@ func TestBuildProjectedOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !exprUsesUnqualifiedColumnName(scoreExpr, usingCol) {
 		t.Fatalf("expected projected-order-limit score0 to reference merged USING column %q", usingCol)
 	}
+	if exprUsesQualifiedColumnName(scoreExpr, "t2", usingCol) {
+		t.Fatalf("expected projected-order-limit score0 to avoid exposing inner column %q directly", usingCol)
+	}
 	if !exprUsesUnqualifiedColumnName(tieExpr, usingCol) {
 		t.Fatalf("expected projected-order-limit tie0 to reference merged USING column %q", usingCol)
 	}
+	if exprUsesQualifiedColumnName(tieExpr, "t2", usingCol) {
+		t.Fatalf("expected projected-order-limit tie0 to avoid exposing inner column %q directly", usingCol)
+	}
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected projected-order-limit WHERE to reference merged USING column %q", usingCol)
+	}
+	if exprUsesQualifiedColumnName(lateral.TableQuery.Where, "t2", usingCol) {
+		t.Fatalf("expected projected-order-limit WHERE to avoid binding merged USING column %q to the inner source", usingCol)
 	}
 	if len(lateral.TableQuery.OrderBy) < 3 {
 		t.Fatalf("expected ORDER BY with projected score plus tie breakers")
@@ -440,8 +449,8 @@ func TestBuildProjectedOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in projected-order-limit NATURAL hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery != nil {
-		t.Fatalf("expected projected-order-limit NATURAL hook to stay direct inside the LATERAL body")
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected projected-order-limit NATURAL hook to wrap the inner source to avoid merged-column shadowing")
 	}
 	if len(lateral.TableQuery.GroupBy) != 0 {
 		t.Fatalf("expected projected-order-limit NATURAL hook to avoid GROUP BY")
@@ -509,6 +518,17 @@ func TestGenerateSelectQueryExercisesProjectedOrderLimitLateralHook(t *testing.T
 	t.Fatalf("expected generator to exercise projected-order-limit LATERAL hook")
 }
 
+func TestQueryHasProjectedOrderLimitLateralHookWithDerivedSource(t *testing.T) {
+	gen := newProjectedOrderLimitTestGenerator(t)
+	query := gen.buildProjectedOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	if query == nil {
+		t.Fatalf("expected projected-order-limit LATERAL hook query")
+	}
+	if !queryHasProjectedOrderLimitLateralHook(query) {
+		t.Fatalf("expected projected-order-limit detector to recognize the wrapped-inner-source shape")
+	}
+}
+
 func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	gen := newGroupedOutputOrderLimitTestGenerator(t)
 	gen.Config.Features.NaturalJoins = false
@@ -523,8 +543,8 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery != nil {
-		t.Fatalf("expected grouped-output-order-limit hook to group directly inside the LATERAL body")
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped-output-order-limit hook to wrap the inner source to avoid merged-column shadowing")
 	}
 	if len(lateral.TableQuery.GroupBy) == 0 {
 		t.Fatalf("expected GROUP BY inside grouped-output-order-limit LATERAL hook")
@@ -544,6 +564,9 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryUsing(t *testing.T) {
 	usingCol := query.From.Joins[0].Using[0]
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected grouped-output-order-limit WHERE to reference merged USING column %q before aggregation", usingCol)
+	}
+	if exprUsesQualifiedColumnName(lateral.TableQuery.Where, "t2", usingCol) {
+		t.Fatalf("expected grouped-output-order-limit WHERE to avoid binding merged USING column %q to the inner source", usingCol)
 	}
 	if lateral.TableQuery.Having == nil {
 		t.Fatalf("expected grouped-output-order-limit HAVING to carry merged USING visibility")
@@ -587,8 +610,8 @@ func TestBuildGroupedOutputOrderLimitLateralHookQueryNatural(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in grouped-output-order-limit NATURAL hook query")
 	}
-	if lateral.TableQuery.From.BaseQuery != nil {
-		t.Fatalf("expected grouped-output-order-limit NATURAL hook to group directly inside the LATERAL body")
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected grouped-output-order-limit NATURAL hook to wrap the inner source to avoid merged-column shadowing")
 	}
 	if len(lateral.TableQuery.GroupBy) == 0 || !exprUsesTable(lateral.TableQuery.GroupBy[0], lateral.TableQuery.From.baseName()) {
 		t.Fatalf("expected grouped-output-order-limit NATURAL hook to keep a direct inner grouped key")
@@ -640,6 +663,17 @@ func TestGenerateSelectQueryExercisesGroupedOutputOrderLimitLateralHook(t *testi
 	}
 
 	t.Fatalf("expected generator to exercise grouped-output-order-limit LATERAL hook")
+}
+
+func TestQueryHasGroupedOutputOrderLimitLateralHookWithDerivedSource(t *testing.T) {
+	gen := newGroupedOutputOrderLimitTestGenerator(t)
+	query := gen.buildGroupedOutputOrderLimitLateralHookQueryForTables(gen.State.Tables[0], gen.State.Tables[1], gen.State.Tables[2], false)
+	if query == nil {
+		t.Fatalf("expected grouped-output-order-limit LATERAL hook query")
+	}
+	if !queryHasGroupedOutputOrderLimitLateralHook(query) {
+		t.Fatalf("expected grouped-output-order-limit detector to recognize the wrapped-inner-source shape")
+	}
 }
 
 func TestBuildCorrelatedAggregateLateralHookQuery(t *testing.T) {
@@ -1314,9 +1348,15 @@ func TestBuildMergedColumnVisibilityLateralHookQueryUsing(t *testing.T) {
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in hook query")
 	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected merged-column hook to wrap the inner source to avoid merged-column shadowing")
+	}
 	usingCol := query.From.Joins[0].Using[0]
 	if !exprUsesUnqualifiedColumnName(lateral.TableQuery.Where, usingCol) {
 		t.Fatalf("expected lateral predicate to reference merged USING column %q unqualified", usingCol)
+	}
+	if exprUsesQualifiedColumnName(lateral.TableQuery.Where, "t2", usingCol) {
+		t.Fatalf("expected lateral predicate to avoid binding merged USING column %q to the inner source", usingCol)
 	}
 	if err := validator.New().Validate(query.SQLString()); err != nil {
 		t.Fatalf("expected merged-column USING LATERAL SQL to parse: %v\nsql=%s", err, query.SQLString())
@@ -1335,6 +1375,9 @@ func TestBuildMergedColumnVisibilityLateralHookQueryNatural(t *testing.T) {
 	lateral := query.From.Joins[1]
 	if !lateral.Lateral || lateral.TableQuery == nil {
 		t.Fatalf("expected LATERAL derived table in NATURAL hook query")
+	}
+	if lateral.TableQuery.From.BaseQuery == nil {
+		t.Fatalf("expected merged-column NATURAL hook to wrap the inner source to avoid merged-column shadowing")
 	}
 	if !exprHasUnqualifiedColumn(lateral.TableQuery.Where) {
 		t.Fatalf("expected lateral predicate to reference a merged NATURAL column unqualified")
@@ -1972,7 +2015,7 @@ func queryHasProjectedOrderLimitLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	lateral := query.From.Joins[1]
-	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery != nil {
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
 		return false
 	}
 	if len(lateral.TableQuery.GroupBy) != 0 || lateral.TableQuery.Having != nil || lateral.TableQuery.Where == nil || lateral.TableQuery.Limit == nil {
@@ -2024,7 +2067,7 @@ func queryHasGroupedOutputOrderLimitLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	lateral := query.From.Joins[1]
-	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery != nil {
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
 		return false
 	}
 	if len(lateral.TableQuery.GroupBy) == 0 || !selectItemsHaveAliases(lateral.TableQuery.Items, "g0", "cnt") {
@@ -2077,7 +2120,7 @@ func queryHasMergedColumnLateralHook(query *SelectQuery) bool {
 		return false
 	}
 	lateral := query.From.Joins[1]
-	if !lateral.Lateral || lateral.TableQuery == nil {
+	if !lateral.Lateral || lateral.TableQuery == nil || lateral.TableQuery.From.BaseQuery == nil {
 		return false
 	}
 	if mergedJoin.Natural {

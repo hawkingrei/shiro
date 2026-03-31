@@ -34,7 +34,7 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			return false
 		}
 	}
-	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, m.scopeForQuery(query.From.BaseQuery), outer) {
+	if query.From.BaseQuery != nil && !m.validateQuery(query.From.BaseQuery, m.scopeForQuery(query.From.BaseQuery), tableScope{}) {
 		return false
 	}
 	currentScope := scope
