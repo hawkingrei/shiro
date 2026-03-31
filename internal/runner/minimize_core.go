@@ -12,6 +12,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	parserutil "github.com/pingcap/tidb/pkg/util/parser"
 )
 
 type replaySpec struct {
@@ -36,6 +37,7 @@ type minimizeOutput struct {
 }
 
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
+const minimizeReasonReplayShapeNotPreserved = "replay_shape_not_preserved"
 const minimizePassLimit = 3
 const minimizeDefaultRounds = 8
 const minimizeBaseReplayAttempts = 3
@@ -106,6 +108,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	minCase := append([]string{}, origCase...)
 	specReduced := spec
 	maxRounds := r.cfg.Minimize.MaxRounds
+	shapeValidator := buildReplayShapeValidator(result, spec.kind)
 
 	switch spec.kind {
 	case "case_error":
@@ -118,9 +121,20 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	default:
 		if spec.kind != "" {
 			minInserts, specReduced = reduceReplaySpecCandidate(minCtx, maxRounds, minInserts, specReduced, r.cfg.Minimize.MergeInserts, func(stmts []string, current replaySpec) bool {
+				if !shapeValidator.preserved(current) {
+					return false
+				}
 				return r.replayCase(minCtx, schemaSQL, stmts, minimalCaseSQL(current), result, current)
 			})
 			minCase = minimalCaseSQL(specReduced)
+		}
+	}
+	if !shapeValidator.preserved(specReduced) {
+		return minimizeOutput{
+			status:  "skipped",
+			reason:  minimizeReasonReplayShapeNotPreserved,
+			flaky:   baseReplay.flaky,
+			details: shapeValidator.details(),
 		}
 	}
 
@@ -525,6 +539,99 @@ func minimalCaseSQL(spec replaySpec) []string {
 		steps = append(steps, spec.actualSQL)
 	}
 	return steps
+}
+
+type replayShapeValidator struct {
+	kind     string
+	mutation string
+}
+
+func buildReplayShapeValidator(result oracle.Result, specKind string) replayShapeValidator {
+	validator := replayShapeValidator{kind: strings.TrimSpace(specKind)}
+	if validator.kind == "" || result.Details == nil {
+		return validator
+	}
+	if validator.kind == "impo_contains" {
+		validator.mutation, _ = result.Details["impo_mutation"].(string)
+		validator.mutation = strings.TrimSpace(validator.mutation)
+	}
+	return validator
+}
+
+func (v replayShapeValidator) preserved(spec replaySpec) bool {
+	if v.kind == "" {
+		return true
+	}
+	switch v.kind {
+	case "impo_contains":
+		return impoReplayShapePreserved(v.mutation, spec)
+	default:
+		return true
+	}
+}
+
+func (v replayShapeValidator) details() map[string]any {
+	if v.mutation != "" {
+		return map[string]any{
+			"minimize_shape_validator": v.mutation,
+		}
+	}
+	return nil
+}
+
+func impoReplayShapePreserved(mutation string, spec replaySpec) bool {
+	switch strings.TrimSpace(mutation) {
+	case "FixMAnyAllU":
+		return queryHasQuantifiedSubquery(spec.expectedSQL, true) && queryHasQuantifiedSubquery(spec.actualSQL, false)
+	case "FixMAnyAllL":
+		return queryHasQuantifiedSubquery(spec.expectedSQL, false) && queryHasQuantifiedSubquery(spec.actualSQL, true)
+	default:
+		return true
+	}
+}
+
+func queryHasQuantifiedSubquery(sqlText string, wantAll bool) bool {
+	stmt, err := parseSingleStatement(sqlText)
+	if err != nil || stmt == nil {
+		return false
+	}
+	visitor := &quantifiedSubqueryFinder{wantAll: wantAll}
+	stmt.Accept(visitor)
+	return visitor.found
+}
+
+func parseSingleStatement(sqlText string) (ast.StmtNode, error) {
+	trimmed := strings.TrimSpace(sqlText)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty sql")
+	}
+	p := parserutil.GetParser()
+	defer parserutil.DestroyParser(p)
+	return p.ParseOneStmt(trimmed, "", "")
+}
+
+type quantifiedSubqueryFinder struct {
+	wantAll bool
+	found   bool
+}
+
+func (v *quantifiedSubqueryFinder) Enter(in ast.Node) (ast.Node, bool) {
+	if v.found {
+		return in, true
+	}
+	expr, ok := in.(*ast.CompareSubqueryExpr)
+	if !ok || expr == nil {
+		return in, false
+	}
+	if _, ok := expr.R.(*ast.SubqueryExpr); ok && expr.All == v.wantAll {
+		v.found = true
+		return in, true
+	}
+	return in, false
+}
+
+func (v *quantifiedSubqueryFinder) Leave(in ast.Node) (ast.Node, bool) {
+	return in, true
 }
 
 func tablesForMinimize(result oracle.Result) map[string]struct{} {
