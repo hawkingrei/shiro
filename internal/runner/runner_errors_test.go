@@ -90,7 +90,7 @@ func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 		Oracle: "EET",
 		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
 	}
-	changed := downgradeMissingColumnFalsePositive(&result)
+	changed := downgradeMissingColumnFalsePositive(&result, true)
 	if !changed {
 		t.Fatalf("expected missing-column downgrade to apply")
 	}
@@ -117,12 +117,29 @@ func TestDowngradeMissingColumnFalsePositive(t *testing.T) {
 	}
 }
 
+func TestDowngradeMissingColumnFalsePositiveDisabledByConfig(t *testing.T) {
+	result := oracle.Result{
+		Oracle: "EET",
+		Err:    errors.New("Error 1105 (HY000): Can't find column c1 in schema"),
+	}
+	changed := downgradeMissingColumnFalsePositive(&result, false)
+	if changed {
+		t.Fatalf("expected missing-column downgrade to stay disabled")
+	}
+	if result.OK {
+		t.Fatalf("expected result to remain non-OK")
+	}
+	if result.Err == nil {
+		t.Fatalf("expected original error to be preserved")
+	}
+}
+
 func TestDowngradeMissingColumnFalsePositiveKeepsInternalColumnIDErrors(t *testing.T) {
 	result := oracle.Result{
 		Oracle: "EET",
 		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
 	}
-	changed := downgradeMissingColumnFalsePositive(&result)
+	changed := downgradeMissingColumnFalsePositive(&result, true)
 	if changed {
 		t.Fatalf("expected internal Column# missing-column to remain reportable")
 	}
@@ -139,7 +156,7 @@ func TestDowngradeMissingColumnFalsePositiveSkipsPlanCache(t *testing.T) {
 		Oracle: "PlanCache",
 		Err:    errors.New("Error 1105 (HY000): Can't find column Column#884 in schema"),
 	}
-	changed := downgradeMissingColumnFalsePositive(&result)
+	changed := downgradeMissingColumnFalsePositive(&result, true)
 	if changed {
 		t.Fatalf("expected plan cache missing-column to stay reportable")
 	}

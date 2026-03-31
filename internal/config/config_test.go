@@ -84,6 +84,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Oracles.CODDCaseWhenMax != coddtestCaseWhenMaxDefault {
 		t.Fatalf("unexpected coddtest case when max: %d", cfg.Oracles.CODDCaseWhenMax)
 	}
+	if cfg.Oracles.DowngradeMissingColumnToSkip {
+		t.Fatalf("expected missing-column downgrade skip to be disabled by default")
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -111,6 +114,30 @@ plan_replayer:
 	}
 	if cfg.PlanReplayer.DownloadURLTemplate != "http://example.com/%s.zip" {
 		t.Fatalf("unexpected download url template: %s", cfg.PlanReplayer.DownloadURLTemplate)
+	}
+}
+
+func TestLoadMissingColumnDowngradeOverride(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `oracles:
+  downgrade_missing_column_to_skip: true
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Oracles.DowngradeMissingColumnToSkip {
+		t.Fatalf("expected downgrade_missing_column_to_skip override to be enabled")
 	}
 }
 

@@ -137,6 +137,7 @@ oracles:
   predicate_level: "strict"
   join_on_policy: "simple"
   join_using_prob: -1
+  downgrade_missing_column_to_skip: false
   dqp_external_hints: []
   dqp_base_hint_pick_limit: 4
   dqp_set_var_hint_pick_max: 4

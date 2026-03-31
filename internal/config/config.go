@@ -180,6 +180,7 @@ type OracleConfig struct {
 	PredicateLevel                  string            `yaml:"predicate_level"`
 	JoinOnPolicy                    string            `yaml:"join_on_policy"`
 	JoinUsingProb                   int               `yaml:"join_using_prob"`
+	DowngradeMissingColumnToSkip    bool              `yaml:"downgrade_missing_column_to_skip"`
 	DisableMPP                      bool              `yaml:"disable_mpp"`
 	MPPTiFlashReplica               int               `yaml:"mpp_tiflash_replica"`
 	DQPExternalHints                []string          `yaml:"dqp_external_hints"`
