@@ -95,13 +95,17 @@ func selectGuaranteedNonEmpty(sel *ast.SelectStmt) bool {
 	if sel.Having != nil {
 		return false
 	}
-	if sel.From == nil {
+	if selectHasNoFrom(sel) {
 		return true
 	}
 	if sel.GroupBy != nil {
 		return false
 	}
 	return selectHasAggregateField(sel)
+}
+
+func selectHasNoFrom(sel *ast.SelectStmt) bool {
+	return sel != nil && (sel.From == nil || sel.From.TableRefs == nil)
 }
 
 func limitAllowsRows(limit *ast.Limit) bool {
@@ -170,8 +174,11 @@ func (v *aggregateFinder) Enter(in ast.Node) (ast.Node, bool) {
 	if v.found {
 		return in, true
 	}
-	if _, ok := in.(*ast.AggregateFuncExpr); ok {
+	switch in.(type) {
+	case *ast.AggregateFuncExpr:
 		v.found = true
+		return in, true
+	case *ast.SubqueryExpr, *ast.WindowFuncExpr:
 		return in, true
 	}
 	return in, false
