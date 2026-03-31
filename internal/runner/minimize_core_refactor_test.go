@@ -335,13 +335,13 @@ func TestReplayShapePreservedFixMAnyAll(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := oracle.Result{
+			validator := buildReplayShapeValidator(oracle.Result{
 				Details: map[string]any{
 					"impo_mutation": tc.mutation,
 				},
-			}
-			if got := replayShapePreserved(result, tc.spec); got != tc.want {
-				t.Fatalf("replayShapePreserved()=%v want=%v", got, tc.want)
+			}, tc.spec.kind)
+			if got := validator.preserved(tc.spec); got != tc.want {
+				t.Fatalf("validator.preserved()=%v want=%v", got, tc.want)
 			}
 		})
 	}

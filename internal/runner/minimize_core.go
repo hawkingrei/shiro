@@ -12,6 +12,7 @@ import (
 
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	parserutil "github.com/pingcap/tidb/pkg/util/parser"
 )
 
 type replaySpec struct {
@@ -107,6 +108,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	minCase := append([]string{}, origCase...)
 	specReduced := spec
 	maxRounds := r.cfg.Minimize.MaxRounds
+	shapeValidator := buildReplayShapeValidator(result, spec.kind)
 
 	switch spec.kind {
 	case "case_error":
@@ -119,7 +121,7 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	default:
 		if spec.kind != "" {
 			minInserts, specReduced = reduceReplaySpecCandidate(minCtx, maxRounds, minInserts, specReduced, r.cfg.Minimize.MergeInserts, func(stmts []string, current replaySpec) bool {
-				if !replayShapePreserved(result, current) {
+				if !shapeValidator.preserved(current) {
 					return false
 				}
 				return r.replayCase(minCtx, schemaSQL, stmts, minimalCaseSQL(current), result, current)
@@ -127,12 +129,12 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 			minCase = minimalCaseSQL(specReduced)
 		}
 	}
-	if !replayShapePreserved(result, specReduced) {
+	if !shapeValidator.preserved(specReduced) {
 		return minimizeOutput{
 			status:  "skipped",
 			reason:  minimizeReasonReplayShapeNotPreserved,
 			flaky:   baseReplay.flaky,
-			details: replayShapeLossDetails(result),
+			details: shapeValidator.details(),
 		}
 	}
 
@@ -539,26 +541,39 @@ func minimalCaseSQL(spec replaySpec) []string {
 	return steps
 }
 
-func replayShapePreserved(result oracle.Result, spec replaySpec) bool {
-	if strings.TrimSpace(spec.kind) == "" {
+type replayShapeValidator struct {
+	kind     string
+	mutation string
+}
+
+func buildReplayShapeValidator(result oracle.Result, specKind string) replayShapeValidator {
+	validator := replayShapeValidator{kind: strings.TrimSpace(specKind)}
+	if validator.kind == "" || result.Details == nil {
+		return validator
+	}
+	if validator.kind == "impo_contains" {
+		validator.mutation, _ = result.Details["impo_mutation"].(string)
+		validator.mutation = strings.TrimSpace(validator.mutation)
+	}
+	return validator
+}
+
+func (v replayShapeValidator) preserved(spec replaySpec) bool {
+	if v.kind == "" {
 		return true
 	}
-	switch spec.kind {
+	switch v.kind {
 	case "impo_contains":
-		mutation, _ := result.Details["impo_mutation"].(string)
-		return impoReplayShapePreserved(mutation, spec)
+		return impoReplayShapePreserved(v.mutation, spec)
 	default:
 		return true
 	}
 }
 
-func replayShapeLossDetails(result oracle.Result) map[string]any {
-	if result.Details == nil {
-		return nil
-	}
-	if mutation, ok := result.Details["impo_mutation"].(string); ok && mutation != "" {
+func (v replayShapeValidator) details() map[string]any {
+	if v.mutation != "" {
 		return map[string]any{
-			"minimize_shape_validator": mutation,
+			"minimize_shape_validator": v.mutation,
 		}
 	}
 	return nil
@@ -590,7 +605,8 @@ func parseSingleStatement(sqlText string) (ast.StmtNode, error) {
 	if trimmed == "" {
 		return nil, fmt.Errorf("empty sql")
 	}
-	p := parser.New()
+	p := parserutil.GetParser()
+	defer parserutil.DestroyParser(p)
 	return p.ParseOneStmt(trimmed, "", "")
 }
 
