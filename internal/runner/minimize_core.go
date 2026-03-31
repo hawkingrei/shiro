@@ -36,6 +36,7 @@ type minimizeOutput struct {
 }
 
 const minimizeReasonBaseReplayNotReproducible = "base_replay_not_reproducible"
+const minimizeReasonReplayShapeNotPreserved = "replay_shape_not_preserved"
 const minimizePassLimit = 3
 const minimizeDefaultRounds = 8
 const minimizeBaseReplayAttempts = 3
@@ -118,9 +119,20 @@ func (r *Runner) minimizeCase(ctx context.Context, result oracle.Result, spec re
 	default:
 		if spec.kind != "" {
 			minInserts, specReduced = reduceReplaySpecCandidate(minCtx, maxRounds, minInserts, specReduced, r.cfg.Minimize.MergeInserts, func(stmts []string, current replaySpec) bool {
+				if !replayShapePreserved(result, current) {
+					return false
+				}
 				return r.replayCase(minCtx, schemaSQL, stmts, minimalCaseSQL(current), result, current)
 			})
 			minCase = minimalCaseSQL(specReduced)
+		}
+	}
+	if !replayShapePreserved(result, specReduced) {
+		return minimizeOutput{
+			status:  "skipped",
+			reason:  minimizeReasonReplayShapeNotPreserved,
+			flaky:   baseReplay.flaky,
+			details: replayShapeLossDetails(result),
 		}
 	}
 
@@ -525,6 +537,85 @@ func minimalCaseSQL(spec replaySpec) []string {
 		steps = append(steps, spec.actualSQL)
 	}
 	return steps
+}
+
+func replayShapePreserved(result oracle.Result, spec replaySpec) bool {
+	if strings.TrimSpace(spec.kind) == "" {
+		return true
+	}
+	switch spec.kind {
+	case "impo_contains":
+		mutation, _ := result.Details["impo_mutation"].(string)
+		return impoReplayShapePreserved(mutation, spec)
+	default:
+		return true
+	}
+}
+
+func replayShapeLossDetails(result oracle.Result) map[string]any {
+	if result.Details == nil {
+		return nil
+	}
+	if mutation, ok := result.Details["impo_mutation"].(string); ok && mutation != "" {
+		return map[string]any{
+			"minimize_shape_validator": mutation,
+		}
+	}
+	return nil
+}
+
+func impoReplayShapePreserved(mutation string, spec replaySpec) bool {
+	switch strings.TrimSpace(mutation) {
+	case "FixMAnyAllU":
+		return queryHasQuantifiedSubquery(spec.expectedSQL, true) && queryHasQuantifiedSubquery(spec.actualSQL, false)
+	case "FixMAnyAllL":
+		return queryHasQuantifiedSubquery(spec.expectedSQL, false) && queryHasQuantifiedSubquery(spec.actualSQL, true)
+	default:
+		return true
+	}
+}
+
+func queryHasQuantifiedSubquery(sqlText string, wantAll bool) bool {
+	stmt, err := parseSingleStatement(sqlText)
+	if err != nil || stmt == nil {
+		return false
+	}
+	visitor := &quantifiedSubqueryFinder{wantAll: wantAll}
+	stmt.Accept(visitor)
+	return visitor.found
+}
+
+func parseSingleStatement(sqlText string) (ast.StmtNode, error) {
+	trimmed := strings.TrimSpace(sqlText)
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty sql")
+	}
+	p := parser.New()
+	return p.ParseOneStmt(trimmed, "", "")
+}
+
+type quantifiedSubqueryFinder struct {
+	wantAll bool
+	found   bool
+}
+
+func (v *quantifiedSubqueryFinder) Enter(in ast.Node) (ast.Node, bool) {
+	if v.found {
+		return in, true
+	}
+	expr, ok := in.(*ast.CompareSubqueryExpr)
+	if !ok || expr == nil {
+		return in, false
+	}
+	if _, ok := expr.R.(*ast.SubqueryExpr); ok && expr.All == v.wantAll {
+		v.found = true
+		return in, true
+	}
+	return in, false
+}
+
+func (v *quantifiedSubqueryFinder) Leave(in ast.Node) (ast.Node, bool) {
+	return in, true
 }
 
 func tablesForMinimize(result oracle.Result) map[string]struct{} {

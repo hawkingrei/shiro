@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"shiro/internal/oracle"
 	"shiro/internal/schema"
 )
 
@@ -281,5 +282,67 @@ func TestExpandMinimizeTablesForViewDependenciesNoViewReference(t *testing.T) {
 	}
 	if _, ok := got["t0"]; !ok {
 		t.Fatalf("expected table t0 to remain in set, got=%v", got)
+	}
+}
+
+func TestReplayShapePreservedFixMAnyAll(t *testing.T) {
+	cases := []struct {
+		name     string
+		mutation string
+		spec     replaySpec
+		want     bool
+	}{
+		{
+			name:     "FixMAnyAllU preserved",
+			mutation: "FixMAnyAllU",
+			spec: replaySpec{
+				kind:        "impo_contains",
+				expectedSQL: "SELECT * FROM t0 WHERE t0.k1 <= ALL (SELECT t1.k1 FROM t1)",
+				actualSQL:   "SELECT * FROM t0 WHERE t0.k1 <= ANY (SELECT t1.k1 FROM t1)",
+			},
+			want: true,
+		},
+		{
+			name:     "FixMAnyAllU reduced away",
+			mutation: "FixMAnyAllU",
+			spec: replaySpec{
+				kind:        "impo_contains",
+				expectedSQL: "SELECT 1 FROM t0",
+				actualSQL:   "SELECT 1 FROM t0 JOIN (SELECT 1 FROM t1) AS t1",
+			},
+			want: false,
+		},
+		{
+			name:     "FixMAnyAllL preserved",
+			mutation: "FixMAnyAllL",
+			spec: replaySpec{
+				kind:        "impo_contains",
+				expectedSQL: "SELECT * FROM t0 WHERE t0.k1 <= ANY (SELECT t1.k1 FROM t1)",
+				actualSQL:   "SELECT * FROM t0 WHERE t0.k1 <= ALL (SELECT t1.k1 FROM t1)",
+			},
+			want: true,
+		},
+		{
+			name:     "other mutation bypasses shape validator",
+			mutation: "FixMCmpOpU",
+			spec: replaySpec{
+				kind:        "impo_contains",
+				expectedSQL: "SELECT 1 FROM t0",
+				actualSQL:   "SELECT 1 FROM t0",
+			},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := oracle.Result{
+				Details: map[string]any{
+					"impo_mutation": tc.mutation,
+				},
+			}
+			if got := replayShapePreserved(result, tc.spec); got != tc.want {
+				t.Fatalf("replayShapePreserved()=%v want=%v", got, tc.want)
+			}
+		})
 	}
 }

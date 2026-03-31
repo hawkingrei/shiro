@@ -27,6 +27,7 @@ Each completed task should contribute at least one new improvement item here whe
 10. Expose per-oracle stable-vs-explain-same mismatch counts in interval summaries and bandit dumps so wrong-result-oriented reward tuning can be validated directly from fresh rerun logs.
 11. Split captured `error_signature` interval summaries into planner/runtime/infra classes and annotate pre-crash vs post-crash recency so duplicate timeout/no-throughput clusters can be downweighted automatically.
 12. Replace the new global `downgrade_missing_column_to_skip` switch with per-oracle or per-signature policy once the missing-column false-positive taxonomy is stable enough to avoid one-size-fits-all handling.
+13. Generalize replay-shape preservation checks beyond `FixMAnyAll*` so replay-based minimizers can reject degenerate `SELECT 1`-style reductions without adding one-off validators per mutation.
 
 ## Architecture / Refactor
 
