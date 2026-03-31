@@ -44,8 +44,14 @@ func (m scopeManager) validateQuery(query *SelectQuery, scope tableScope, outer 
 			visible = append(visible, baseName)
 		}
 		for _, join := range query.From.Joins {
-			if join.TableQuery != nil && !m.validateQuery(join.TableQuery, m.scopeForQuery(join.TableQuery), tableScope{}) {
-				return false
+			if join.TableQuery != nil {
+				lateralOuter := outer
+				if join.Lateral {
+					lateralOuter = mergeTableScopes(scopeForTables(currentScope, visible), outer)
+				}
+				if !m.validateQuery(join.TableQuery, m.scopeForQuery(join.TableQuery), lateralOuter) {
+					return false
+				}
 			}
 			joinScope := scopeForTables(currentScope, visible)
 			if joinName := join.tableName(); joinName != "" {

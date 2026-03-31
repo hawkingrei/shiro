@@ -2,6 +2,7 @@ package generator
 
 import (
 	"math/rand"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -17,9 +18,28 @@ const (
 	joinShapeSnowflake
 )
 
+type groupedAggregateLateralMode int
+
+const (
+	groupedAggregateLateralModeWhere groupedAggregateLateralMode = iota
+	groupedAggregateLateralModeOuterFilteredWhere
+	groupedAggregateLateralModeMultiFilteredWhere
+	groupedAggregateLateralModeOuterCorrelatedGroupKey
+	groupedAggregateLateralModeCaseCorrelatedGroupKey
+	groupedAggregateLateralModeNestedCaseCorrelatedGroupKey
+	groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey
+	groupedAggregateLateralModeGroupKeyHaving
+	groupedAggregateLateralModeAggregateValueHaving
+)
+
 type columnPair struct {
 	Left  ColumnRef
 	Right ColumnRef
+}
+
+type mergedColumnCandidate struct {
+	Natural bool
+	Column  ColumnRef
 }
 
 func pickJoinShape(r *rand.Rand) joinShape {
@@ -354,6 +374,2054 @@ func (g *Generator) joinUsingProb() int {
 	return UsingJoinProb
 }
 
+func (g *Generator) pickSupportedLateralJoinType() (JoinType, bool) {
+	if g.joinTypeOverride != nil {
+		switch *g.joinTypeOverride {
+		case JoinCross, JoinInner:
+			return *g.joinTypeOverride, true
+		default:
+			return "", false
+		}
+	}
+	if util.Chance(g.Rand, 50) {
+		return JoinCross, true
+	}
+	return JoinInner, true
+}
+
+func (g *Generator) buildLateralDerivedTableQuery(outerTables []schema.Table, inner schema.Table) *SelectQuery {
+	query := g.buildDerivedTableQuery(inner)
+	if query == nil {
+		return nil
+	}
+	if outerCol, innerCol, ok := g.pickCorrelatedJoinPair(outerTables, inner); ok {
+		query.Where = BinaryExpr{
+			Left:  ColumnExpr{Ref: innerCol},
+			Op:    "=",
+			Right: ColumnExpr{Ref: outerCol},
+		}
+	} else if util.Chance(g.Rand, 50) {
+		query.Where = g.GenerateSimplePredicateColumns([]schema.Table{inner}, min(2, g.maxDepth))
+	}
+	if g.Config.Features.OrderBy && g.Config.Features.Limit && util.Chance(g.Rand, LateralJoinOrderLimitProb) {
+		query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
+		if len(query.OrderBy) > 0 {
+			limit := g.Rand.Intn(LateralJoinLimitMax) + 1
+			query.Limit = &limit
+			query.OrderBy = g.ensureLimitOrderByTieBreaker(query, []schema.Table{inner})
+		}
+	}
+	return query
+}
+
+func (g *Generator) buildCorrelatedOrderLimitLateralQuery(outerTables []schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.OrderBy || !g.Config.Features.Limit {
+		return nil
+	}
+	outerCol, innerCol, ok := g.pickCorrelatedJoinPair(outerTables, inner)
+	if !ok {
+		return nil
+	}
+	query := g.buildDerivedTableQuery(inner)
+	if query == nil {
+		return nil
+	}
+	query.Where = BinaryExpr{
+		Left:  ColumnExpr{Ref: innerCol},
+		Op:    "=",
+		Right: ColumnExpr{Ref: outerCol},
+	}
+	query.OrderBy = g.orderByForQuery(query, []schema.Table{inner})
+	if len(query.OrderBy) == 0 {
+		return nil
+	}
+	limit := g.Rand.Intn(LateralJoinLimitMax) + 1
+	query.Limit = &limit
+	query.OrderBy = g.ensureLimitOrderByTieBreaker(query, []schema.Table{inner})
+	return query
+}
+
+func (g *Generator) buildGroupedAggregateLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || !g.Config.Features.GroupBy || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinGroupedAggregateProb) {
+		return nil
+	}
+	variantOrder := []groupedAggregateLateralMode{
+		groupedAggregateLateralModeWhere,
+		groupedAggregateLateralModeOuterFilteredWhere,
+		groupedAggregateLateralModeMultiFilteredWhere,
+		groupedAggregateLateralModeOuterCorrelatedGroupKey,
+		groupedAggregateLateralModeCaseCorrelatedGroupKey,
+		groupedAggregateLateralModeNestedCaseCorrelatedGroupKey,
+		groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey,
+	}
+	if g.Config.Features.Having {
+		variantOrder = append(variantOrder,
+			groupedAggregateLateralModeGroupKeyHaving,
+			groupedAggregateLateralModeAggregateValueHaving,
+		)
+		g.Rand.Shuffle(len(variantOrder), func(i, j int) {
+			variantOrder[i], variantOrder[j] = variantOrder[j], variantOrder[i]
+		})
+	}
+	for _, mode := range variantOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildGroupedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k], mode); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildGroupedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, mode groupedAggregateLateralMode) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, groupInnerCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok {
+		return nil
+	}
+	sumRef, hasSum := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, groupInnerCol.Name)
+
+	groupExpr := Expr(ColumnExpr{Ref: groupInnerCol})
+	groupExprType := groupInnerCol.Type
+	if mode == groupedAggregateLateralModeOuterCorrelatedGroupKey || mode == groupedAggregateLateralModeCaseCorrelatedGroupKey || mode == groupedAggregateLateralModeNestedCaseCorrelatedGroupKey || mode == groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey {
+		if !g.isNumericType(groupInnerCol.Type) || !g.isNumericType(siblingOuterCol.Type) || !compatibleColumnType(groupInnerCol.Type, siblingOuterCol.Type) {
+			return nil
+		}
+		switch mode {
+		case groupedAggregateLateralModeOuterCorrelatedGroupKey:
+			groupExpr = BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "+",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			}
+		case groupedAggregateLateralModeCaseCorrelatedGroupKey:
+			groupExpr = CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: groupInnerCol},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: ColumnExpr{Ref: groupInnerCol},
+					},
+				},
+				Else: ColumnExpr{Ref: siblingOuterCol},
+			}
+		case groupedAggregateLateralModeNestedCaseCorrelatedGroupKey:
+			filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name)
+			if !ok || !g.isNumericType(filterInnerRef.Type) || !compatibleColumnType(filterInnerRef.Type, siblingOuterCol.Type) {
+				return nil
+			}
+			innerCase := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: ColumnExpr{Ref: groupInnerCol},
+					},
+				},
+				Else: ColumnExpr{Ref: siblingOuterCol},
+			}
+			outerElse := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: ColumnExpr{Ref: siblingOuterCol},
+					},
+				},
+				Else: ColumnExpr{Ref: groupInnerCol},
+			}
+			groupExpr = CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: groupInnerCol},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: innerCase,
+					},
+				},
+				Else: outerElse,
+			}
+		case groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey:
+			filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name)
+			if !ok || !g.isNumericType(filterInnerRef.Type) || !compatibleColumnType(filterInnerRef.Type, siblingOuterCol.Type) {
+				return nil
+			}
+			diffInnerOuter := BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "-",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			}
+			diffOuterInner := BinaryExpr{
+				Left:  ColumnExpr{Ref: siblingOuterCol},
+				Op:    "-",
+				Right: ColumnExpr{Ref: groupInnerCol},
+			}
+			innerCase := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: diffInnerOuter,
+					},
+				},
+				Else: diffOuterInner,
+			}
+			outerElse := CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: filterInnerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						},
+						Then: diffOuterInner,
+					},
+				},
+				Else: diffInnerOuter,
+			}
+			groupExpr = FuncExpr{
+				Name: "ABS",
+				Args: []Expr{
+					CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: BinaryExpr{
+									Left:  ColumnExpr{Ref: groupInnerCol},
+									Op:    ">=",
+									Right: ColumnExpr{Ref: siblingOuterCol},
+								},
+								Then: innerCase,
+							},
+						},
+						Else: outerElse,
+					},
+				},
+			}
+		}
+	}
+
+	lateralItems := make([]SelectItem, 0, 3)
+	lateralItems = append(lateralItems,
+		SelectItem{
+			Expr:  groupExpr,
+			Alias: "g0",
+		},
+		SelectItem{
+			Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
+			Alias: "cnt",
+		},
+	)
+	if hasSum {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		lateralItems = append(lateralItems, SelectItem{
+			Expr:  FuncExpr{Name: "SUM", Args: []Expr{sumExpr}},
+			Alias: "sum1",
+		})
+	}
+
+	where := Expr(BinaryExpr{
+		Left:  ColumnExpr{Ref: baseInnerCol},
+		Op:    "=",
+		Right: ColumnExpr{Ref: baseOuterCol},
+	})
+	switch mode {
+	case groupedAggregateLateralModeWhere:
+		where = BinaryExpr{
+			Left: where,
+			Op:   "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: groupInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		}
+	case groupedAggregateLateralModeOuterFilteredWhere:
+		filterOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name, groupInnerCol.Name)
+		if !ok || !compatibleColumnType(filterInnerRef.Type, filterOuterRef.Type) {
+			return nil
+		}
+		where = BinaryExpr{
+			Left: where,
+			Op:   "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: filterInnerRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: filterOuterRef},
+			},
+		}
+	case groupedAggregateLateralModeMultiFilteredWhere:
+		filterOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		filterInnerRef, ok := g.pickGroupedAggregateFilterInnerRef(inner, sumRef, hasSum, baseInnerCol.Name, groupInnerCol.Name)
+		if !ok || !compatibleColumnType(filterInnerRef.Type, filterOuterRef.Type) {
+			return nil
+		}
+		where = BinaryExpr{
+			Left: BinaryExpr{
+				Left: where,
+				Op:   "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: groupInnerCol},
+					Op:    "=",
+					Right: ColumnExpr{Ref: siblingOuterCol},
+				},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: filterInnerRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: filterOuterRef},
+			},
+		}
+	case groupedAggregateLateralModeOuterCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and move sibling dependency into the grouped key itself.
+	case groupedAggregateLateralModeCaseCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and route sibling dependency through a non-linear grouped key expression.
+	case groupedAggregateLateralModeNestedCaseCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and route sibling dependency through nested CASE branches in the grouped key.
+	case groupedAggregateLateralModeWrappedNestedCaseCorrelatedGroupKey:
+		// Keep the base equality anchor in WHERE and route sibling dependency through nested CASE branches wrapped by a value-domain-changing function.
+	}
+
+	lateralQuery := &SelectQuery{
+		Items:   lateralItems,
+		From:    FromClause{BaseTable: inner.Name},
+		Where:   where,
+		GroupBy: []Expr{groupExpr},
+	}
+	switch mode {
+	case groupedAggregateLateralModeGroupKeyHaving:
+		lateralQuery.Having = BinaryExpr{
+			Left:  ColumnExpr{Ref: groupInnerCol},
+			Op:    "=",
+			Right: ColumnExpr{Ref: siblingOuterCol},
+		}
+	case groupedAggregateLateralModeAggregateValueHaving:
+		havingOuterRef, ok := g.pickGroupedAggregateOuterNumericRef(base, sibling, baseJoinCol.Name, siblingJoinCol.Name)
+		if !ok {
+			return nil
+		}
+		havingAgg, ok := g.pickGroupedAggregateHavingExpr(sumRef, hasSum)
+		if !ok {
+			return nil
+		}
+		lateralQuery.Having = BinaryExpr{
+			Left:  havingAgg,
+			Op:    ">=",
+			Right: ColumnExpr{Ref: havingOuterRef},
+		}
+	}
+
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+
+	items := make([]SelectItem, 0, 5)
+	items = append(items,
+		SelectItem{
+			Expr:  ColumnExpr{Ref: baseOuterCol},
+			Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
+		},
+		SelectItem{
+			Expr:  ColumnExpr{Ref: siblingOuterCol},
+			Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
+		},
+		SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "g0",
+				Type:  groupExprType,
+			}},
+			Alias: "lateral_g0",
+		},
+		SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "cnt",
+				Type:  schema.TypeBigInt,
+			}},
+			Alias: "lateral_cnt",
+		},
+	)
+	if hasSum {
+		items = append(items, SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "sum1",
+				Type:  sumRef.Type,
+			}},
+			Alias: "lateral_sum1",
+		})
+	}
+
+	query := &SelectQuery{
+		Items: items,
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+			},
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) buildGroupedOutputAliasLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || !g.Config.Features.GroupBy || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinGroupedOutputAliasProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildGroupedOutputAliasLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildProjectedOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinProjectedOrderLimitProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildProjectedOrderLimitLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildMultiOuterProjectedOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinMultiOuterOrderLimitProb) {
+		return nil
+	}
+	for i := 0; i < len(tables); i++ {
+		for j := 0; j < len(tables); j++ {
+			if j == i {
+				continue
+			}
+			for k := 0; k < len(tables); k++ {
+				if k == i || k == j {
+					continue
+				}
+				if query := g.buildMultiOuterProjectedOrderLimitLateralHookQueryForTables(tables[i], tables[j], tables[k]); query != nil {
+					return query
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.OrderBy || !g.Config.Features.Limit || !g.Config.Features.QuantifiedSubqueries || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !g.allowScalarSubquery() || !util.Chance(g.Rand, LateralJoinScalarSubqueryOrderLimitProb) {
+		return nil
+	}
+	for i := 0; i < len(tables); i++ {
+		for j := 0; j < len(tables); j++ {
+			if j == i {
+				continue
+			}
+			for k := 0; k < len(tables); k++ {
+				if k == i || k == j {
+					continue
+				}
+				if query := g.buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTables(tables[i], tables[j], tables[k]); query != nil {
+					return query
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildScalarSubqueryProjectedOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	if !g.Config.Features.QuantifiedSubqueries {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	if joinType != JoinInner {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, innerScoreCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok || !g.isNumericType(siblingOuterCol.Type) || !g.isNumericType(innerScoreCol.Type) || !compatibleColumnType(siblingOuterCol.Type, innerScoreCol.Type) {
+		return nil
+	}
+	scalarSourceCol, ok := g.pickCompatibleColumn(inner, innerScoreCol.Type)
+	if !ok || !g.isNumericType(scalarSourceCol.Type) {
+		return nil
+	}
+	baseSignalCol, ok := g.pickCompatibleColumn(base, innerScoreCol.Type)
+	if !ok || !g.isNumericType(baseSignalCol.Type) {
+		return nil
+	}
+	baseSignalRef := ColumnRef{Table: base.Name, Name: baseSignalCol.Name, Type: baseSignalCol.Type}
+	innerScoreRef := ColumnRef{Table: inner.Name, Name: innerScoreCol.Name, Type: innerScoreCol.Type}
+	subqueryLimit := 1
+	buildScalarSubquery := func() *SelectQuery {
+		scalarBaseRef := ColumnRef{Table: "sq", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
+		scalarCompareRef := ColumnRef{Table: "sq", Name: innerScoreCol.Name, Type: innerScoreCol.Type}
+		scalarSourceRef := ColumnRef{Table: "sq", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
+		return &SelectQuery{
+			Items: []SelectItem{
+				{
+					Expr:  ColumnExpr{Ref: scalarSourceRef},
+					Alias: "sv0",
+				},
+			},
+			From: FromClause{BaseTable: inner.Name, BaseAlias: "sq"},
+			Where: BinaryExpr{
+				Left: BinaryExpr{
+					Left:  ColumnExpr{Ref: scalarBaseRef},
+					Op:    "=",
+					Right: ColumnExpr{Ref: baseOuterCol},
+				},
+				Op: "AND",
+				Right: BinaryExpr{
+					Left:  ColumnExpr{Ref: scalarCompareRef},
+					Op:    "<>",
+					Right: ColumnExpr{Ref: siblingOuterCol},
+				},
+			},
+			OrderBy: []OrderBy{
+				{
+					Expr: FuncExpr{
+						Name: "ABS",
+						Args: []Expr{BinaryExpr{
+							Left:  ColumnExpr{Ref: scalarCompareRef},
+							Op:    "-",
+							Right: ColumnExpr{Ref: siblingOuterCol},
+						}},
+					},
+				},
+				{Expr: ColumnExpr{Ref: scalarSourceRef}, Desc: true},
+				{Expr: ColumnExpr{Ref: baseSignalRef}},
+			},
+			Limit: &subqueryLimit,
+		}
+	}
+	scoreExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{BinaryExpr{
+			Left:  ColumnExpr{Ref: innerScoreRef},
+			Op:    "-",
+			Right: SubqueryExpr{Query: buildScalarSubquery()},
+		}},
+	}
+	tieExpr := SubqueryExpr{Query: buildScalarSubquery()}
+	scoreAliasRef := ColumnRef{Name: "score0", Type: innerScoreCol.Type}
+	tieAliasRef := ColumnRef{Name: "tie0", Type: scalarSourceCol.Type}
+	limit := 1
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  scoreExpr,
+				Alias: "score0",
+			},
+			{
+				Expr:  tieExpr,
+				Alias: "tie0",
+			},
+		},
+		From: FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: baseInnerCol},
+			Op:    "=",
+			Right: ColumnExpr{Ref: baseOuterCol},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: scoreAliasRef}},
+			{Expr: ColumnExpr{Ref: tieAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: baseSignalRef}},
+		},
+		Limit: &limit,
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	lateralJoin.On = g.trueExpr()
+	postBaseRef := ColumnRef{Table: "post", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
+	postTieRef := ColumnRef{Table: "post", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
+	derivedBaseRef := ColumnRef{Table: "postr", Name: baseInnerCol.Name, Type: baseInnerCol.Type}
+	derivedScoreRef := ColumnRef{Table: "postr", Name: innerScoreCol.Name, Type: innerScoreCol.Type}
+	derivedTieRef := ColumnRef{Table: "postr", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}
+	derivedMatchRef := ColumnRef{Table: "postd", Name: "match0", Type: scalarSourceCol.Type}
+	derivedJoinRef := ColumnRef{Table: "postd", Name: "join0", Type: baseInnerCol.Type}
+	derivedProbeRef := ColumnRef{Table: "postd", Name: "probe0", Type: innerScoreCol.Type}
+	quantifiedMatchRef := ColumnRef{Table: "probeq", Name: "match0", Type: scalarSourceCol.Type}
+	quantifiedJoinRef := ColumnRef{Table: "probeq", Name: "join0", Type: baseInnerCol.Type}
+	quantifiedProbeRef := ColumnRef{Table: "probeq", Name: "probe0", Type: innerScoreCol.Type}
+	quantifiedAliasRef := ColumnRef{Name: "mq0", Type: innerScoreCol.Type}
+	probeAliasRef := ColumnRef{Name: "probe0", Type: innerScoreCol.Type}
+	siblingLimit := 1
+	siblingDerivedQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: derivedTieRef},
+				Alias: "match0",
+			},
+			{
+				Expr:  ColumnExpr{Ref: derivedBaseRef},
+				Alias: "join0",
+			},
+			{
+				Expr: FuncExpr{
+					Name: "ABS",
+					Args: []Expr{BinaryExpr{
+						Left:  ColumnExpr{Ref: derivedScoreRef},
+						Op:    "-",
+						Right: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "tie0", Type: tieAliasRef.Type}},
+					}},
+				},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{BaseTable: inner.Name, BaseAlias: "postr"},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left:  ColumnExpr{Ref: derivedBaseRef},
+				Op:    "=",
+				Right: ColumnExpr{Ref: baseOuterCol},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: derivedScoreRef},
+				Op:    ">=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+	}
+	quantifiedLimit := 2
+	quantifiedQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: quantifiedProbeRef},
+				Alias: "mq0",
+			},
+		},
+		From: FromClause{
+			BaseTable: inner.Name,
+			BaseAlias: "postq",
+			Joins: []Join{
+				{
+					Type:       JoinInner,
+					Table:      "probeq",
+					TableAlias: "probeq",
+					TableQuery: siblingDerivedQuery,
+					On: BinaryExpr{
+						Left: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "postq", Name: baseInnerCol.Name, Type: baseInnerCol.Type}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: quantifiedJoinRef},
+						},
+						Op: "AND",
+						Right: BinaryExpr{
+							Left:  ColumnExpr{Ref: ColumnRef{Table: "postq", Name: scalarSourceCol.Name, Type: scalarSourceCol.Type}},
+							Op:    "=",
+							Right: ColumnExpr{Ref: quantifiedMatchRef},
+						},
+					},
+				},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: quantifiedAliasRef}},
+			{Expr: ColumnExpr{Ref: quantifiedMatchRef}},
+			{Expr: ColumnExpr{Ref: baseSignalRef}},
+		},
+		Limit: &quantifiedLimit,
+	}
+	siblingQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: derivedProbeRef},
+				Alias: "probe0",
+			},
+		},
+		From: FromClause{
+			BaseTable: inner.Name,
+			BaseAlias: "post",
+			Joins: []Join{
+				{
+					Type:       JoinInner,
+					Table:      "postd",
+					TableAlias: "postd",
+					TableQuery: siblingDerivedQuery,
+					On: BinaryExpr{
+						Left: BinaryExpr{
+							Left:  ColumnExpr{Ref: postBaseRef},
+							Op:    "=",
+							Right: ColumnExpr{Ref: derivedJoinRef},
+						},
+						Op: "AND",
+						Right: BinaryExpr{
+							Left:  ColumnExpr{Ref: postTieRef},
+							Op:    "=",
+							Right: ColumnExpr{Ref: derivedMatchRef},
+						},
+					},
+				},
+			},
+		},
+		Where: CompareSubqueryExpr{
+			Left:       ColumnExpr{Ref: derivedProbeRef},
+			Op:         ">=",
+			Quantifier: "ANY",
+			Query:      quantifiedQuery,
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: probeAliasRef}},
+			{Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: scoreAliasRef.Type}}},
+			{Expr: ColumnExpr{Ref: siblingOuterCol}},
+		},
+		Limit: &siblingLimit,
+	}
+	siblingJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "sx",
+		TableAlias: "sx",
+		TableQuery: siblingQuery,
+		On:         g.trueExpr(),
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: baseOuterCol},
+				Alias: "base0",
+			},
+			{
+				Expr:  ColumnExpr{Ref: siblingOuterCol},
+				Alias: "sibling0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "score0",
+					Type:  scoreAliasRef.Type,
+				}},
+				Alias: "lateral_score0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "tie0",
+					Type:  tieAliasRef.Type,
+				}},
+				Alias: "lateral_tie0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "sx",
+					Name:  "probe0",
+					Type:  probeAliasRef.Type,
+				}},
+				Alias: "sibling_probe0",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+				siblingJoin,
+			},
+		},
+	}
+	query.OrderBy = []OrderBy{
+		{
+			Expr: ColumnExpr{Ref: ColumnRef{Name: "sibling_probe0", Type: probeAliasRef.Type}},
+		},
+		{
+			Expr: ColumnExpr{Ref: ColumnRef{Table: "dt", Name: "score0", Type: scoreAliasRef.Type}},
+		},
+		{
+			Expr: ColumnExpr{Ref: baseOuterCol},
+		},
+	}
+	return query
+}
+
+func (g *Generator) buildMultiOuterProjectedOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, scoreInnerCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok || !g.isNumericType(siblingOuterCol.Type) || !g.isNumericType(scoreInnerCol.Type) || !compatibleColumnType(siblingOuterCol.Type, scoreInnerCol.Type) {
+		return nil
+	}
+	baseSignalCol, ok := g.pickCompatibleColumn(base, siblingOuterCol.Type)
+	if !ok || !g.isNumericType(baseSignalCol.Type) {
+		return nil
+	}
+	baseSignalRef := ColumnRef{Table: base.Name, Name: baseSignalCol.Name, Type: baseSignalCol.Type}
+	tieInnerCol, ok := g.pickCompatibleColumn(inner, baseSignalRef.Type)
+	if !ok || !g.isNumericType(tieInnerCol.Type) {
+		return nil
+	}
+	tieInnerRef := ColumnRef{Table: inner.Name, Name: tieInnerCol.Name, Type: tieInnerCol.Type}
+	positiveTieExpr := BinaryExpr{
+		Left:  ColumnExpr{Ref: tieInnerRef},
+		Op:    ">=",
+		Right: ColumnExpr{Ref: baseSignalRef},
+	}
+	scoreExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: BinaryExpr{
+						Left:  ColumnExpr{Ref: scoreInnerCol},
+						Op:    ">=",
+						Right: ColumnExpr{Ref: siblingOuterCol},
+					},
+					Then: CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: positiveTieExpr,
+								Then: BinaryExpr{
+									Left:  ColumnExpr{Ref: scoreInnerCol},
+									Op:    "-",
+									Right: ColumnExpr{Ref: siblingOuterCol},
+								},
+							},
+						},
+						Else: ColumnExpr{Ref: baseSignalRef},
+					},
+				},
+			},
+			Else: CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: positiveTieExpr,
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: siblingOuterCol},
+							Op:    "-",
+							Right: ColumnExpr{Ref: scoreInnerCol},
+						},
+					},
+				},
+				Else: ColumnExpr{Ref: tieInnerRef},
+			},
+		}},
+	}
+	tieExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: positiveTieExpr,
+					Then: BinaryExpr{
+						Left:  ColumnExpr{Ref: tieInnerRef},
+						Op:    "+",
+						Right: ColumnExpr{Ref: baseSignalRef},
+					},
+				},
+			},
+			Else: BinaryExpr{
+				Left:  ColumnExpr{Ref: siblingOuterCol},
+				Op:    "-",
+				Right: ColumnExpr{Ref: tieInnerRef},
+			},
+		}},
+	}
+	scoreAliasRef := ColumnRef{Name: "score0", Type: siblingOuterCol.Type}
+	tieAliasRef := ColumnRef{Name: "tie0", Type: baseSignalRef.Type}
+	limit := 1
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  scoreExpr,
+				Alias: "score0",
+			},
+			{
+				Expr:  tieExpr,
+				Alias: "tie0",
+			},
+		},
+		From: FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left:  ColumnExpr{Ref: baseInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: baseOuterCol},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: scoreInnerCol},
+				Op:    "<>",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: scoreAliasRef}},
+			{Expr: ColumnExpr{Ref: tieAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: siblingOuterCol}},
+		},
+		Limit: &limit,
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: baseOuterCol},
+				Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
+			},
+			{
+				Expr:  ColumnExpr{Ref: siblingOuterCol},
+				Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "score0",
+					Type:  scoreAliasRef.Type,
+				}},
+				Alias: "lateral_score0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "tie0",
+					Type:  tieAliasRef.Type,
+				}},
+				Alias: "lateral_tie0",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+			},
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func buildProjectedInnerSource(inner schema.Table, cols ...schema.Column) (FromClause, []ColumnRef, bool) {
+	if inner.Name == "" || len(cols) == 0 {
+		return FromClause{}, nil, false
+	}
+	items := make([]SelectItem, 0, len(cols))
+	refs := make([]ColumnRef, 0, len(cols))
+	for i, col := range cols {
+		if col.Name == "" {
+			return FromClause{}, nil, false
+		}
+		alias := "v" + strconv.Itoa(i)
+		items = append(items, SelectItem{
+			Expr:  ColumnExpr{Ref: ColumnRef{Table: inner.Name, Name: col.Name, Type: col.Type}},
+			Alias: alias,
+		})
+		refs = append(refs, ColumnRef{Table: "src", Name: alias, Type: col.Type})
+	}
+	return FromClause{
+		BaseAlias: "src",
+		BaseQuery: &SelectQuery{
+			Items: items,
+			From:  FromClause{BaseTable: inner.Name},
+		},
+	}, refs, true
+}
+
+func (g *Generator) buildProjectedOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !g.isNumericType(candidate.Column.Type) {
+			continue
+		}
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok || !g.isNumericType(innerCol.Type) {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	innerRef := sourceRefs[0]
+	positiveInnerExpr := BinaryExpr{
+		Left:  ColumnExpr{Ref: innerRef},
+		Op:    ">=",
+		Right: LiteralExpr{Value: 0},
+	}
+	scoreExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: BinaryExpr{
+						Left:  ColumnExpr{Ref: innerRef},
+						Op:    ">=",
+						Right: ColumnExpr{Ref: mergedRef},
+					},
+					Then: CaseExpr{
+						Whens: []CaseWhen{
+							{
+								When: positiveInnerExpr,
+								Then: BinaryExpr{
+									Left:  ColumnExpr{Ref: innerRef},
+									Op:    "-",
+									Right: ColumnExpr{Ref: mergedRef},
+								},
+							},
+						},
+						Else: ColumnExpr{Ref: mergedRef},
+					},
+				},
+			},
+			Else: CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: positiveInnerExpr,
+						Then: BinaryExpr{
+							Left:  ColumnExpr{Ref: mergedRef},
+							Op:    "-",
+							Right: ColumnExpr{Ref: innerRef},
+						},
+					},
+				},
+				Else: ColumnExpr{Ref: innerRef},
+			},
+		}},
+	}
+	tieExpr := FuncExpr{
+		Name: "ABS",
+		Args: []Expr{CaseExpr{
+			Whens: []CaseWhen{
+				{
+					When: positiveInnerExpr,
+					Then: BinaryExpr{
+						Left:  ColumnExpr{Ref: innerRef},
+						Op:    "+",
+						Right: ColumnExpr{Ref: mergedRef},
+					},
+				},
+			},
+			Else: BinaryExpr{
+				Left:  ColumnExpr{Ref: mergedRef},
+				Op:    "-",
+				Right: ColumnExpr{Ref: innerRef},
+			},
+		}},
+	}
+	scoreAliasRef := ColumnRef{Name: "score0", Type: pick.inner.Type}
+	tieAliasRef := ColumnRef{Name: "tie0", Type: pick.inner.Type}
+	limit := 1
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  scoreExpr,
+				Alias: "score0",
+			},
+			{
+				Expr:  tieExpr,
+				Alias: "tie0",
+			},
+		},
+		From: sourceFrom,
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    "<>",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: scoreAliasRef}},
+			{Expr: ColumnExpr{Ref: tieAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: mergedRef}},
+		},
+		Limit: &limit,
+	}
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	})
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "score0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_score0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "tie0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_tie0",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) buildGroupedOutputOrderLimitLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || !g.Config.Features.GroupBy || !g.Config.Features.OrderBy || !g.Config.Features.Limit || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinGroupedOutputOrderLimitProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildGroupedOutputOrderLimitLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildGroupedOutputOrderLimitLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		if !g.isNumericType(candidate.Column.Type) {
+			continue
+		}
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok || !g.isNumericType(innerCol.Type) {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	innerRef := sourceRefs[0]
+	groupAliasRef := ColumnRef{Name: "g0", Type: pick.inner.Type}
+	countAliasRef := ColumnRef{Name: "cnt", Type: schema.TypeBigInt}
+	countExpr := FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}
+	havingExpr := BinaryExpr{
+		Left: FuncExpr{
+			Name: "ABS",
+			Args: []Expr{CaseExpr{
+				Whens: []CaseWhen{
+					{
+						When: BinaryExpr{
+							Left:  ColumnExpr{Ref: innerRef},
+							Op:    ">=",
+							Right: ColumnExpr{Ref: mergedRef},
+						},
+						Then: BinaryExpr{
+							Left:  countExpr,
+							Op:    "-",
+							Right: ColumnExpr{Ref: mergedRef},
+						},
+					},
+				},
+				Else: BinaryExpr{
+					Left: BinaryExpr{
+						Left:  countExpr,
+						Op:    "+",
+						Right: ColumnExpr{Ref: innerRef},
+					},
+					Op:    "-",
+					Right: ColumnExpr{Ref: mergedRef},
+				},
+			}},
+		},
+		Op:    ">=",
+		Right: LiteralExpr{Value: 1},
+	}
+	groupExpr := ColumnExpr{Ref: innerRef}
+	limit := 1
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  groupExpr,
+				Alias: "g0",
+			},
+			{
+				Expr:  countExpr,
+				Alias: "cnt",
+			},
+		},
+		From: sourceFrom,
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    "<>",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+		GroupBy: []Expr{groupExpr},
+		Having:  havingExpr,
+		OrderBy: []OrderBy{
+			{Expr: ColumnExpr{Ref: groupAliasRef}},
+			{Expr: ColumnExpr{Ref: countAliasRef}, Desc: true},
+			{Expr: ColumnExpr{Ref: mergedRef}},
+		},
+		Limit: &limit,
+	}
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	})
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "g0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_g0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "cnt",
+					Type:  schema.TypeBigInt,
+				}},
+				Alias: "lateral_cnt",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) buildGroupedOutputAliasLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	innerRef := ColumnRef{Table: inner.Name, Name: pick.inner.Name, Type: pick.inner.Type}
+	aggQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: innerRef},
+				Alias: "g0",
+			},
+			{
+				Expr:  FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}},
+				Alias: "cnt",
+			},
+		},
+		From:    FromClause{BaseTable: inner.Name},
+		GroupBy: []Expr{ColumnExpr{Ref: innerRef}},
+	}
+	groupAliasRef := ColumnRef{Table: "agg", Name: "g0", Type: pick.inner.Type}
+	countAliasRef := ColumnRef{Table: "agg", Name: "cnt", Type: schema.TypeBigInt}
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: groupAliasRef},
+				Alias: "g0",
+			},
+			{
+				Expr:  ColumnExpr{Ref: countAliasRef},
+				Alias: "cnt",
+			},
+		},
+		From: FromClause{
+			BaseTable: "agg",
+			BaseAlias: "agg",
+			BaseQuery: aggQuery,
+		},
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: groupAliasRef},
+			Op:    "=",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+		OrderBy: []OrderBy{{Expr: ColumnExpr{Ref: groupAliasRef}}},
+	}
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	})
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "g0",
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_g0",
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  "cnt",
+					Type:  schema.TypeBigInt,
+				}},
+				Alias: "lateral_cnt",
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) buildCorrelatedAggregateLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || !g.Config.Features.Aggregates || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinAggregateProb) {
+		return nil
+	}
+	for i := 0; i < len(tables); i++ {
+		for j := 0; j < len(tables); j++ {
+			if j == i {
+				continue
+			}
+			for k := 0; k < len(tables); k++ {
+				if k == i || k == j {
+					continue
+				}
+				if query := g.buildCorrelatedAggregateLateralHookQueryForTables(tables[i], tables[j], tables[k]); query != nil {
+					return query
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildCorrelatedAggregateLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	baseJoinCol, siblingJoinCol, ok := g.pickJoinColumnPair([]schema.Table{base}, sibling)
+	if !ok {
+		return nil
+	}
+	baseOuterCol, baseInnerCol, ok := g.pickJoinColumnPair([]schema.Table{base}, inner)
+	if !ok {
+		return nil
+	}
+	siblingOuterCol, siblingInnerCol, ok := g.pickJoinColumnPair([]schema.Table{sibling}, inner)
+	if !ok {
+		return nil
+	}
+
+	lateralItems := make([]SelectItem, 0, 2)
+	lateralItems = append(lateralItems, SelectItem{Expr: FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, Alias: "cnt"})
+	sumRef, hasSum := g.pickAggregateValueColumnRef(inner, baseInnerCol.Name, siblingInnerCol.Name)
+	if hasSum {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		lateralItems = append(lateralItems, SelectItem{
+			Expr:  FuncExpr{Name: "SUM", Args: []Expr{sumExpr}},
+			Alias: "sum1",
+		})
+	}
+
+	lateralQuery := &SelectQuery{
+		Items: lateralItems,
+		From:  FromClause{BaseTable: inner.Name},
+		Where: BinaryExpr{
+			Left: BinaryExpr{
+				Left:  ColumnExpr{Ref: baseInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: baseOuterCol},
+			},
+			Op: "AND",
+			Right: BinaryExpr{
+				Left:  ColumnExpr{Ref: siblingInnerCol},
+				Op:    "=",
+				Right: ColumnExpr{Ref: siblingOuterCol},
+			},
+		},
+	}
+
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+
+	items := make([]SelectItem, 0, 4)
+	items = append(items,
+		SelectItem{
+			Expr:  ColumnExpr{Ref: baseOuterCol},
+			Alias: baseOuterCol.Table + "_" + baseOuterCol.Name,
+		},
+		SelectItem{
+			Expr:  ColumnExpr{Ref: siblingOuterCol},
+			Alias: siblingOuterCol.Table + "_" + siblingOuterCol.Name,
+		},
+		SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "cnt",
+				Type:  schema.TypeBigInt,
+			}},
+			Alias: "lateral_cnt",
+		},
+	)
+	if hasSum {
+		items = append(items, SelectItem{
+			Expr: ColumnExpr{Ref: ColumnRef{
+				Table: "dt",
+				Name:  "sum1",
+				Type:  sumRef.Type,
+			}},
+			Alias: "lateral_sum1",
+		})
+	}
+
+	query := &SelectQuery{
+		Items: items,
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins: []Join{
+				{
+					Type:  JoinInner,
+					Table: sibling.Name,
+					On: BinaryExpr{
+						Left:  ColumnExpr{Ref: baseJoinCol},
+						Op:    "=",
+						Right: ColumnExpr{Ref: siblingJoinCol},
+					},
+				},
+				lateralJoin,
+			},
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) pickAggregateValueColumnRef(tbl schema.Table, excludeNames ...string) (ColumnRef, bool) {
+	if g == nil || len(tbl.Columns) == 0 {
+		return ColumnRef{}, false
+	}
+	exclude := make(map[string]struct{}, len(excludeNames))
+	for _, name := range excludeNames {
+		if name == "" {
+			continue
+		}
+		exclude[name] = struct{}{}
+	}
+	preferred := make([]schema.Column, 0, len(tbl.Columns))
+	fallback := make([]schema.Column, 0, len(tbl.Columns))
+	for _, col := range tbl.Columns {
+		if _, skip := exclude[col.Name]; skip {
+			continue
+		}
+		if !g.isNumericType(col.Type) {
+			continue
+		}
+		fallback = append(fallback, col)
+		if col.Type != schema.TypeDouble {
+			preferred = append(preferred, col)
+		}
+	}
+	if len(preferred) > 0 {
+		col := preferred[g.Rand.Intn(len(preferred))]
+		return ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, true
+	}
+	if len(fallback) > 0 {
+		col := fallback[g.Rand.Intn(len(fallback))]
+		return ColumnRef{Table: tbl.Name, Name: col.Name, Type: col.Type}, true
+	}
+	return ColumnRef{}, false
+}
+
+func (g *Generator) pickGroupedAggregateOuterNumericRef(base schema.Table, sibling schema.Table, excludeNames ...string) (ColumnRef, bool) {
+	if ref, ok := g.pickAggregateValueColumnRef(sibling, excludeNames...); ok {
+		return ref, true
+	}
+	return g.pickAggregateValueColumnRef(base, excludeNames...)
+}
+
+func (g *Generator) pickGroupedAggregateFilterInnerRef(tbl schema.Table, sumRef ColumnRef, hasSum bool, excludeNames ...string) (ColumnRef, bool) {
+	if hasSum {
+		return sumRef, true
+	}
+	return g.pickAggregateValueColumnRef(tbl, excludeNames...)
+}
+
+func (g *Generator) pickGroupedAggregateHavingExpr(sumRef ColumnRef, hasSum bool) (Expr, bool) {
+	if hasSum && util.Chance(g.Rand, 50) {
+		sumExpr := ColumnExpr{Ref: sumRef}
+		g.warnAggOnDouble("SUM", sumExpr)
+		return FuncExpr{Name: "SUM", Args: []Expr{sumExpr}}, true
+	}
+	return FuncExpr{Name: "COUNT", Args: []Expr{LiteralExpr{Value: 1}}}, true
+}
+
+func (g *Generator) buildMergedColumnVisibilityLateralHookQuery(tables []schema.Table) *SelectQuery {
+	if g == nil || !g.Config.Features.Joins || !g.Config.Features.LateralJoins || g.Config.Features.DSG || len(tables) < 3 {
+		return nil
+	}
+	if !util.Chance(g.Rand, LateralJoinMergedVisibilityProb) {
+		return nil
+	}
+	shapeOrder := []bool{false}
+	if g.Config.Features.NaturalJoins {
+		if util.Chance(g.Rand, 50) {
+			shapeOrder = []bool{true, false}
+		} else {
+			shapeOrder = []bool{false, true}
+		}
+	}
+	for _, natural := range shapeOrder {
+		for i := 0; i < len(tables); i++ {
+			for j := 0; j < len(tables); j++ {
+				if j == i {
+					continue
+				}
+				for k := 0; k < len(tables); k++ {
+					if k == i || k == j {
+						continue
+					}
+					if query := g.buildMergedColumnVisibilityLateralHookQueryForTables(tables[i], tables[j], tables[k], natural); query != nil {
+						return query
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (g *Generator) buildMergedColumnVisibilityLateralHookQueryForTables(base schema.Table, sibling schema.Table, inner schema.Table, natural bool) *SelectQuery {
+	if g == nil {
+		return nil
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return nil
+	}
+	candidates := g.collectMergedColumnCandidates([]schema.Table{base}, sibling, natural)
+	if len(candidates) == 0 {
+		return nil
+	}
+	type hookedPair struct {
+		merged mergedColumnCandidate
+		inner  schema.Column
+	}
+	pairs := make([]hookedPair, 0, len(candidates))
+	for _, candidate := range candidates {
+		innerCol, ok := g.pickCompatibleColumn(inner, candidate.Column.Type)
+		if !ok {
+			continue
+		}
+		pairs = append(pairs, hookedPair{merged: candidate, inner: innerCol})
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	pick := pairs[g.Rand.Intn(len(pairs))]
+	sourceFrom, sourceRefs, ok := buildProjectedInnerSource(inner, pick.inner)
+	if !ok || len(sourceRefs) != 1 {
+		return nil
+	}
+	innerRef := sourceRefs[0]
+	mergedRef := ColumnRef{Name: pick.merged.Column.Name, Type: pick.merged.Column.Type}
+	lateralQuery := &SelectQuery{
+		Items: []SelectItem{{
+			Expr:  ColumnExpr{Ref: innerRef},
+			Alias: pick.merged.Column.Name,
+		}},
+		From: sourceFrom,
+		Where: BinaryExpr{
+			Left:  ColumnExpr{Ref: innerRef},
+			Op:    "=",
+			Right: ColumnExpr{Ref: mergedRef},
+		},
+	}
+	joins := make([]Join, 0, 2)
+	joins = append(joins, Join{
+		Type:  JoinInner,
+		Table: sibling.Name,
+	})
+	if pick.merged.Natural {
+		joins[0].Natural = true
+	} else {
+		joins[0].Using = []string{pick.merged.Column.Name}
+	}
+	lateralJoin := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      "dt",
+		TableAlias: "dt",
+		TableQuery: lateralQuery,
+	}
+	if joinType == JoinInner {
+		lateralJoin.On = g.trueExpr()
+	}
+	joins = append(joins, lateralJoin)
+	query := &SelectQuery{
+		Items: []SelectItem{
+			{
+				Expr:  ColumnExpr{Ref: mergedRef},
+				Alias: "merged_" + pick.merged.Column.Name,
+			},
+			{
+				Expr: ColumnExpr{Ref: ColumnRef{
+					Table: "dt",
+					Name:  pick.merged.Column.Name,
+					Type:  pick.inner.Type,
+				}},
+				Alias: "lateral_" + pick.merged.Column.Name,
+			},
+		},
+		From: FromClause{
+			BaseTable: base.Name,
+			Joins:     joins,
+		},
+	}
+	query.OrderBy = g.orderByFromItemsStable(query.Items)
+	return query
+}
+
+func (g *Generator) collectMergedColumnCandidates(left []schema.Table, right schema.Table, natural bool) []mergedColumnCandidate {
+	if natural {
+		if !g.Config.Features.NaturalJoins || !g.naturalJoinAllowed(left, right) {
+			return nil
+		}
+		cols := g.collectNaturalMergedColumns(left, right)
+		out := make([]mergedColumnCandidate, 0, len(cols))
+		for _, col := range cols {
+			out = append(out, mergedColumnCandidate{
+				Natural: true,
+				Column:  col,
+			})
+		}
+		return out
+	}
+	names := g.collectUsingColumnNamesWithMode(left, right, false)
+	if len(names) == 0 {
+		return nil
+	}
+	leftCols := uniqueColumnsByName(g.collectColumns(left))
+	out := make([]mergedColumnCandidate, 0, len(names))
+	for _, name := range names {
+		col, ok := leftCols[name]
+		if !ok {
+			continue
+		}
+		out = append(out, mergedColumnCandidate{
+			Column: ColumnRef{Name: name, Type: col.Type},
+		})
+	}
+	return out
+}
+
+func (g *Generator) collectNaturalMergedColumns(left []schema.Table, right schema.Table) []ColumnRef {
+	leftCols := uniqueColumnsByName(g.collectColumns(left))
+	if len(leftCols) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	out := make([]ColumnRef, 0, len(right.Columns))
+	for _, col := range right.Columns {
+		leftCol, ok := leftCols[col.Name]
+		if !ok || !compatibleColumnType(leftCol.Type, col.Type) {
+			continue
+		}
+		if _, dup := seen[col.Name]; dup {
+			continue
+		}
+		seen[col.Name] = struct{}{}
+		out = append(out, ColumnRef{Name: col.Name, Type: leftCol.Type})
+	}
+	return out
+}
+
+func uniqueColumnsByName(cols []ColumnRef) map[string]ColumnRef {
+	if len(cols) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(cols))
+	first := make(map[string]ColumnRef, len(cols))
+	for _, col := range cols {
+		if col.Name == "" {
+			continue
+		}
+		counts[col.Name]++
+		if _, ok := first[col.Name]; !ok {
+			first[col.Name] = col
+		}
+	}
+	out := make(map[string]ColumnRef, len(first))
+	for name, count := range counts {
+		if count == 1 {
+			out[name] = first[name]
+		}
+	}
+	return out
+}
+
+func (g *Generator) buildLateralJoin(outerTables []schema.Table, inner schema.Table) (Join, bool) {
+	if g == nil || !g.Config.Features.LateralJoins || g.Config.Features.DSG || len(outerTables) == 0 {
+		return Join{}, false
+	}
+	if !util.Chance(g.Rand, LateralJoinProb) {
+		return Join{}, false
+	}
+	joinType, ok := g.pickSupportedLateralJoinType()
+	if !ok {
+		return Join{}, false
+	}
+	query := g.buildCorrelatedOrderLimitLateralQuery(outerTables, inner)
+	if query == nil {
+		query = g.buildLateralDerivedTableQuery(outerTables, inner)
+	}
+	if query == nil {
+		return Join{}, false
+	}
+	join := Join{
+		Type:       joinType,
+		Lateral:    true,
+		Table:      inner.Name,
+		TableQuery: query,
+		TableAlias: inner.Name,
+	}
+	if joinType == JoinInner {
+		join.On = g.trueExpr()
+	}
+	return join, true
+}
+
 func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*SelectQuery) FromClause {
 	if len(tables) == 0 {
 		return FromClause{}
@@ -367,6 +2435,10 @@ func (g *Generator) buildFromClause(tables []schema.Table, derived map[string]*S
 		return from
 	}
 	for i := 1; i < len(tables); i++ {
+		if lateralJoin, ok := g.buildLateralJoin(tables[:i], tables[i]); ok {
+			from.Joins = append(from.Joins, lateralJoin)
+			continue
+		}
 		joinType := JoinInner
 		if g.joinTypeOverride != nil {
 			joinType = *g.joinTypeOverride
@@ -434,7 +2506,19 @@ func (g *Generator) randomColumn(tables []schema.Table) ColumnRef {
 }
 
 func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []string {
-	useIndexPrefix := util.Chance(g.Rand, g.indexPrefixProb())
+	names := g.collectUsingColumnNamesWithMode(left, right, util.Chance(g.Rand, g.indexPrefixProb()))
+	if len(names) == 0 {
+		return nil
+	}
+	count := 1
+	if len(names) > 1 && util.Chance(g.Rand, UsingColumnExtraProb) {
+		count = 2
+	}
+	g.Rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
+	return names[:count]
+}
+
+func (g *Generator) collectUsingColumnNamesWithMode(left []schema.Table, right schema.Table, useIndexPrefix bool) []string {
 	// USING requires same column names; we only relax type matching by category (number/string/time/bool).
 	leftCounts := map[string]int{}
 	leftTypes := map[string]schema.ColumnType{}
@@ -451,6 +2535,7 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 		}
 	}
 	names := []string{}
+	seen := map[string]struct{}{}
 	for _, ltbl := range left {
 		pairs := g.collectJoinPairs(ltbl, right, true, useIndexPrefix)
 		for _, pair := range pairs {
@@ -463,18 +2548,14 @@ func (g *Generator) pickUsingColumns(left []schema.Table, right schema.Table) []
 			if !compatibleColumnType(leftTypes[pair.Left.Name], pair.Left.Type) {
 				continue
 			}
+			if _, ok := seen[pair.Left.Name]; ok {
+				continue
+			}
+			seen[pair.Left.Name] = struct{}{}
 			names = append(names, pair.Left.Name)
 		}
 	}
-	if len(names) == 0 {
-		return nil
-	}
-	count := 1
-	if len(names) > 1 && util.Chance(g.Rand, UsingColumnExtraProb) {
-		count = 2
-	}
-	g.Rand.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
-	return names[:count]
+	return names
 }
 
 func (g *Generator) naturalJoinAllowed(left []schema.Table, right schema.Table) bool {
@@ -771,8 +2852,24 @@ func hasCrossOrTrueJoin(from FromClause) bool {
 		if join.Type == JoinCross {
 			return true
 		}
+		if join.Type == JoinInner && isLiteralEqualityTrue(join.On) {
+			return true
+		}
 	}
 	return false
+}
+
+func isLiteralEqualityTrue(expr Expr) bool {
+	bin, ok := expr.(BinaryExpr)
+	if !ok || bin.Op != "=" {
+		return false
+	}
+	left, lok := bin.Left.(LiteralExpr)
+	right, rok := bin.Right.(LiteralExpr)
+	if !lok || !rok {
+		return false
+	}
+	return reflect.DeepEqual(left.Value, right.Value)
 }
 
 func (g *Generator) maybeEmulateFullJoin(query *SelectQuery) {

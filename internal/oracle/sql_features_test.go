@@ -73,6 +73,31 @@ func TestBuildFromKeepsBaseAndJoinAlias(t *testing.T) {
 	}
 }
 
+func TestBuildFromCrossLateralJoin(t *testing.T) {
+	lateral := &generator.SelectQuery{
+		Items: []generator.SelectItem{{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "id"}}, Alias: "id"}},
+		From:  generator.FromClause{BaseTable: "t1"},
+	}
+	query := &generator.SelectQuery{
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{
+					Type:       generator.JoinCross,
+					Lateral:    true,
+					Table:      "dt",
+					TableAlias: "dt",
+					TableQuery: lateral,
+				},
+			},
+		},
+	}
+	fromSQL := buildFrom(query)
+	if !strings.Contains(fromSQL, "CROSS JOIN LATERAL (SELECT t1.id AS id FROM t1) AS dt") {
+		t.Fatalf("unexpected FROM SQL for LATERAL join: %s", fromSQL)
+	}
+}
+
 func TestQueryHelperPreferAnalysisFastPath(t *testing.T) {
 	query := &generator.SelectQuery{
 		Items: []generator.SelectItem{{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"}},

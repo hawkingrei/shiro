@@ -476,6 +476,30 @@ func TestLoadGroupByExtensionFlags(t *testing.T) {
 	}
 }
 
+func TestLoadLateralJoinFeatureFlag(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	content := `features:
+  lateral_joins: true
+`
+	if _, err := tmp.WriteString(content); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
+
+	cfg, err := Load(tmp.Name())
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Features.LateralJoins {
+		t.Fatalf("expected lateral_joins enabled")
+	}
+}
+
 func TestNormalizeDQPComplexityThresholds(t *testing.T) {
 	tmp, err := os.CreateTemp(t.TempDir(), "config-*.yaml")
 	if err != nil {

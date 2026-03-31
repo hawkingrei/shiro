@@ -47,13 +47,13 @@ func buildExpr(expr generator.Expr) string {
 }
 
 func buildFrom(query *generator.SelectQuery) string {
-	from := buildTableFactor(query.From.BaseTable, query.From.BaseAlias, query.From.BaseQuery)
+	from := buildTableFactor(query.From.BaseTable, query.From.BaseAlias, query.From.BaseQuery, false)
 	for _, join := range query.From.Joins {
 		if join.Natural {
-			from += fmt.Sprintf(" NATURAL %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery))
+			from += fmt.Sprintf(" NATURAL %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery, join.Lateral))
 			continue
 		}
-		from += fmt.Sprintf(" %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery))
+		from += fmt.Sprintf(" %s %s", join.Type, buildTableFactor(join.Table, join.TableAlias, join.TableQuery, join.Lateral))
 		if len(join.Using) > 0 {
 			from += " USING (" + strings.Join(join.Using, ", ") + ")"
 		} else if join.On != nil {
@@ -63,7 +63,7 @@ func buildFrom(query *generator.SelectQuery) string {
 	return from
 }
 
-func buildTableFactor(tableName string, alias string, subquery *generator.SelectQuery) string {
+func buildTableFactor(tableName string, alias string, subquery *generator.SelectQuery, lateral bool) string {
 	if subquery == nil {
 		if alias == "" || alias == tableName {
 			return tableName
@@ -76,7 +76,11 @@ func buildTableFactor(tableName string, alias string, subquery *generator.Select
 	if alias == "" {
 		alias = "derived"
 	}
-	return fmt.Sprintf("(%s) AS %s", subquery.SQLString(), alias)
+	prefix := ""
+	if lateral {
+		prefix = "LATERAL "
+	}
+	return fmt.Sprintf("%s(%s) AS %s", prefix, subquery.SQLString(), alias)
 }
 
 func buildWith(query *generator.SelectQuery) string {

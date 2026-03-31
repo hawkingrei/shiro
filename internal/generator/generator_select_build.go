@@ -15,18 +15,85 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 		return nil
 	}
 	g.resetPredicateStats()
-	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	allowPredicateSubquery := g.allowAnySubquery()
 	subqueryDisallowReason := ""
-	if !allowSubquery {
+	if !allowPredicateSubquery {
 		if g.subqueryConstraintDisallow {
 			subqueryDisallowReason = "constraint:subquery"
 		} else if !g.Config.Features.Subqueries {
 			subqueryDisallowReason = "config:subqueries_off"
-		} else if g.disallowScalarSubq {
-			subqueryDisallowReason = "scalar_subquery_off"
 		} else {
 			subqueryDisallowReason = "subquery_disabled"
 		}
+	}
+	allowScalarSubquery := g.allowScalarSubquery()
+	scalarSubqueryDisallowReason := ""
+	if allowPredicateSubquery && !allowScalarSubquery {
+		scalarSubqueryDisallowReason = "scalar_subquery_off"
+	}
+
+	if query := g.buildScalarSubqueryProjectedOrderLimitLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildMultiOuterProjectedOrderLimitLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildProjectedOrderLimitLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildGroupedOutputOrderLimitLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildGroupedOutputAliasLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildGroupedAggregateLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildCorrelatedAggregateLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
+	}
+
+	if query := g.buildMergedColumnVisibilityLateralHookQuery(baseTables); query != nil {
+		if !g.validateQueryScope(query) {
+			return nil
+		}
+		g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
+		return query
 	}
 
 	if !g.Config.TQS.Enabled {
@@ -40,7 +107,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 			if !g.validateQueryScope(query) {
 				return nil
 			}
-			g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
+			g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
 			return query
 		}
 	}
@@ -99,7 +166,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	case PredicateModeSimpleColumns:
 		query.Where = g.GenerateSimplePredicateColumns(queryTables, min(2, g.maxDepth))
 	default:
-		query.Where = g.GeneratePredicate(queryTables, g.maxDepth, allowSubquery, g.maxSubqDepth)
+		query.Where = g.GeneratePredicate(queryTables, g.maxDepth, allowPredicateSubquery, g.maxSubqDepth)
 	}
 
 	if g.Config.Features.Aggregates && util.Chance(g.Rand, g.aggProb()) {
@@ -146,7 +213,7 @@ func (g *Generator) GenerateSelectQuery() *SelectQuery {
 	if !g.validateQueryScope(query) {
 		return nil
 	}
-	g.setLastFeatures(query, allowSubquery, subqueryDisallowReason)
+	g.setLastFeatures(query, allowPredicateSubquery, subqueryDisallowReason, allowScalarSubquery, scalarSubqueryDisallowReason)
 	return query
 }
 
@@ -307,9 +374,9 @@ func (g *Generator) buildSetOperationQuery(baseItems []SelectItem, tables []sche
 	if len(query.Items) == 0 {
 		return nil
 	}
-	allowSubquery := g.Config.Features.Subqueries && !g.disallowScalarSubq
+	allowPredicateSubquery := g.allowAnySubquery()
 	if util.Chance(g.Rand, 45) {
-		query.Where = g.GeneratePredicate(rhsTables, min(2, g.maxDepth), allowSubquery, g.maxSubqDepth)
+		query.Where = g.GeneratePredicate(rhsTables, min(2, g.maxDepth), allowPredicateSubquery, g.maxSubqDepth)
 	}
 	if g.Config.Features.Aggregates && util.Chance(g.Rand, g.aggProb()/2) {
 		withGroupBy := g.Config.Features.GroupBy && util.Chance(g.Rand, g.Config.Weights.Features.GroupByProb)
@@ -393,7 +460,7 @@ func (g *Generator) pickSetOperationAll(opType SetOperationType) bool {
 	}
 }
 
-func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subqueryDisallowReason string) {
+func (g *Generator) setLastFeatures(query *SelectQuery, allowPredicateSubquery bool, subqueryDisallowReason string, allowScalarSubquery bool, scalarSubqueryDisallowReason string) {
 	if query == nil {
 		return
 	}
@@ -401,8 +468,10 @@ func (g *Generator) setLastFeatures(query *SelectQuery, allowSubquery bool, subq
 	queryFeatures.ViewCount = g.countViewsInQuery(query)
 	queryFeatures.PredicatePairsTotal = g.predicatePairsTotal
 	queryFeatures.PredicatePairsJoin = g.predicatePairsJoin
-	queryFeatures.SubqueryAllowed = allowSubquery
+	queryFeatures.SubqueryAllowed = allowPredicateSubquery
 	queryFeatures.SubqueryDisallowReason = subqueryDisallowReason
+	queryFeatures.ScalarSubqueryAllowed = allowScalarSubquery
+	queryFeatures.ScalarSubqueryDisallowReason = scalarSubqueryDisallowReason
 	queryFeatures.SubqueryAttempts = g.subqueryAttempts
 	queryFeatures.SubqueryBuilt = g.subqueryBuilt
 	queryFeatures.SubqueryFailed = g.subqueryFailed

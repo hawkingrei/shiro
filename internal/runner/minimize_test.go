@@ -59,6 +59,358 @@ func TestSelectCandidatesDropSingleCTEFromWithList(t *testing.T) {
 	}
 }
 
+func TestSelectCandidatesHandleLateralJoin(t *testing.T) {
+	sql := "SELECT * FROM t0 JOIN LATERAL (SELECT t1.c0 FROM t1 WHERE t1.id = t0.id ORDER BY t1.c0 LIMIT 1) AS dt ON (1 = 1)"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleMergedColumnLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.id AS lateral_id FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT src.v0 AS id FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE src.v0 = id) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for merged-column LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized merged-column LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleGroupedOutputAliasLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT agg.g0 AS g0, agg.cnt AS cnt FROM (SELECT t2.id AS g0, COUNT(1) AS cnt FROM t2 GROUP BY t2.id) AS agg WHERE (agg.g0 = id) ORDER BY agg.g0) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for grouped-output-alias LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized grouped-output-alias LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleGroupedOutputOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT agg.g0 AS g0, agg.cnt AS cnt FROM (SELECT src.v0 AS g0, COUNT(1) AS cnt FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE (src.v0 <> id) GROUP BY src.v0 HAVING (ABS(CASE WHEN (src.v0 >= id) THEN (COUNT(1) - id) ELSE ((COUNT(1) + src.v0) - id) END) >= 1)) AS agg ORDER BY agg.g0, agg.cnt DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for grouped-output-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized grouped-output-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleProjectedOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT id AS merged_id, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 USING (id) JOIN LATERAL (SELECT ABS(CASE WHEN (src.v0 >= id) THEN CASE WHEN (src.v0 >= 0) THEN (src.v0 - id) ELSE id END ELSE CASE WHEN (src.v0 >= 0) THEN (id - src.v0) ELSE src.v0 END END) AS score0, ABS(CASE WHEN (src.v0 >= 0) THEN (src.v0 + id) ELSE (id - src.v0) END) AS tie0 FROM (SELECT t2.id AS v0 FROM t2) AS src WHERE (src.v0 <> id) ORDER BY score0, tie0 DESC, id LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for projected-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized projected-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleScalarSubqueryProjectedOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS base0, t1.c1 AS sibling0, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0, sx.probe0 AS sibling_probe0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS((t2.c2 - (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1))) AS score0, (SELECT sq.v0 AS sv0 FROM t2 AS sq WHERE ((sq.id = t0.id) AND (sq.c2 <> t1.c1)) ORDER BY ABS((sq.c2 - t1.c1)), sq.v0 DESC, t0.c0 LIMIT 1) AS tie0 FROM t2 WHERE (t2.id = t0.id) ORDER BY score0, tie0 DESC, t0.c0 LIMIT 1) AS dt ON (1 = 1) JOIN LATERAL (SELECT postd.probe0 AS probe0 FROM t2 AS post JOIN (SELECT postr.v0 AS match0, postr.id AS join0, ABS((postr.c2 - dt.tie0)) AS probe0 FROM t2 AS postr WHERE ((postr.id = t0.id) AND (postr.c2 >= t1.c1))) AS postd ON ((post.id = postd.join0) AND (post.v0 = postd.match0)) WHERE (postd.probe0 >= ANY (SELECT probeq.probe0 AS mq0 FROM t2 AS postq JOIN (SELECT postr.v0 AS match0, postr.id AS join0, ABS((postr.c2 - dt.tie0)) AS probe0 FROM t2 AS postr WHERE ((postr.id = t0.id) AND (postr.c2 >= t1.c1))) AS probeq ON ((postq.id = probeq.join0) AND (postq.v0 = probeq.match0)) ORDER BY mq0, probeq.match0, t0.c0 LIMIT 2)) ORDER BY probe0, dt.score0, t1.c1 LIMIT 1) AS sx ON (1 = 1) ORDER BY sibling_probe0, dt.score0, t0.id"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for scalar-subquery projected-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized scalar-subquery projected-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleMultiOuterProjectedOrderLimitLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.score0 AS lateral_score0, dt.tie0 AS lateral_tie0 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t0.c0) THEN (t2.c2 - t1.c1) ELSE t0.c0 END ELSE CASE WHEN (t2.v0 >= t0.c0) THEN (t1.c1 - t2.c2) ELSE t2.v0 END END) AS score0, ABS(CASE WHEN (t2.v0 >= t0.c0) THEN (t2.v0 + t0.c0) ELSE (t1.c1 - t2.v0) END) AS tie0 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 <> t1.c1)) ORDER BY score0, tie0 DESC, t1.c1 LIMIT 1) AS dt ON (1 = 1) ORDER BY 1, 2, 3, 4"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for multi-outer projected-order-limit LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized multi-outer projected-order-limit LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleAggregateLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE ((t2.id = t0.id) AND (t2.c2 = t1.c1))) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for aggregate LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized aggregate LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleGroupedAggregateLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY t2.c2 HAVING (t2.c2 = t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for grouped aggregate LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized grouped aggregate LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleOuterFilteredGroupedAggregateLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE ((t2.id = t0.id) AND (t2.v0 >= t1.c1)) GROUP BY t2.c2) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for outer-filtered grouped aggregate LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized outer-filtered grouped aggregate LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleMultiFilteredGroupedAggregateLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (((t2.id = t0.id) AND (t2.c2 = t1.c1)) AND (t2.v0 >= t1.c1)) GROUP BY t2.c2) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for multi-filtered grouped aggregate LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized multi-filtered grouped aggregate LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleOuterCorrelatedGroupKeyLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT (t2.c2 + t1.c1) AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY (t2.c2 + t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for outer-correlated group-key LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized outer-correlated group-key LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleCaseCorrelatedGroupKeyLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT CASE WHEN (t2.c2 >= t1.c1) THEN t2.c2 ELSE t1.c1 END AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY CASE WHEN (t2.c2 >= t1.c1) THEN t2.c2 ELSE t1.c1 END) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for case-correlated group-key LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized case-correlated group-key LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleNestedCaseCorrelatedGroupKeyLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN t2.c2 ELSE t1.c1 END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN t1.c1 ELSE t2.c2 END END AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN t2.c2 ELSE t1.c1 END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN t1.c1 ELSE t2.c2 END END) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for nested-case-correlated group-key LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized nested-case-correlated group-key LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleWrappedNestedCaseCorrelatedGroupKeyLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT ABS(CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN (t2.c2 - t1.c1) ELSE (t1.c1 - t2.c2) END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN (t1.c1 - t2.c2) ELSE (t2.c2 - t1.c1) END END) AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY ABS(CASE WHEN (t2.c2 >= t1.c1) THEN CASE WHEN (t2.v0 >= t1.c1) THEN (t2.c2 - t1.c1) ELSE (t1.c1 - t2.c2) END ELSE CASE WHEN (t2.v0 >= t1.c1) THEN (t1.c1 - t2.c2) ELSE (t2.c2 - t1.c1) END END)) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for wrapped-nested-case-correlated group-key LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized wrapped-nested-case-correlated group-key LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
+func TestSelectCandidatesHandleAggregateValuedHavingLateralJoin(t *testing.T) {
+	sql := "SELECT t0.id AS t0_id, t1.c1 AS t1_c1, dt.g0 AS lateral_g0, dt.cnt AS lateral_cnt, dt.sum1 AS lateral_sum1 FROM t0 JOIN t1 ON (t0.id = t1.id) JOIN LATERAL (SELECT t2.c2 AS g0, COUNT(1) AS cnt, SUM(t2.v0) AS sum1 FROM t2 WHERE (t2.id = t0.id) GROUP BY t2.c2 HAVING (SUM(t2.v0) >= t1.c1)) AS dt ON (1 = 1) ORDER BY 1, 2"
+	p := parser.New()
+	node, err := p.ParseOneStmt(sql, "", "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	sel, ok := node.(*ast.SelectStmt)
+	if !ok {
+		t.Fatalf("expected select stmt")
+	}
+	candidates := selectCandidates(p, sel)
+	if len(candidates) == 0 {
+		t.Fatalf("expected at least one minimized candidate for aggregate-valued HAVING LATERAL join")
+	}
+	for _, cand := range candidates {
+		if _, err := p.ParseOneStmt(cand, "", ""); err != nil {
+			t.Fatalf("expected minimized aggregate-valued HAVING LATERAL candidate to remain parseable: %v\nsql=%s", err, cand)
+		}
+	}
+}
+
 func TestSelectCandidatesReduceNestedBoolPredicateBranch(t *testing.T) {
 	sql := "SELECT * FROM t WHERE (a > b OR c > d) AND e > f"
 	p := parser.New()

@@ -191,6 +191,14 @@ func (g *Generator) DisallowScalarSubquery() bool {
 	return g.disallowScalarSubq
 }
 
+func (g *Generator) allowAnySubquery() bool {
+	return g != nil && g.Config.Features.Subqueries
+}
+
+func (g *Generator) allowScalarSubquery() bool {
+	return g.allowAnySubquery() && !g.disallowScalarSubq
+}
+
 // SetTruth stores the RowID bitmap truth for TQS evaluation.
 func (g *Generator) SetTruth(truth any) {
 	g.Truth = truth
