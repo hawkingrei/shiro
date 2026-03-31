@@ -194,7 +194,10 @@ func isInternalColumnIDMissingErr(err error) bool {
 	return strings.Contains(msg, "can't find column column#")
 }
 
-func downgradeMissingColumnFalsePositive(result *oracle.Result) bool {
+func downgradeMissingColumnFalsePositive(result *oracle.Result, enabled bool) bool {
+	if !enabled {
+		return false
+	}
 	if result == nil || result.Err == nil {
 		return false
 	}

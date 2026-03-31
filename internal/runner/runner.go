@@ -745,7 +745,7 @@ func (r *Runner) runQuery(ctx context.Context) bool {
 			result.Err = nil
 		}
 	}
-	_ = downgradeMissingColumnFalsePositive(&result)
+	_ = downgradeMissingColumnFalsePositive(&result, r.cfg.Oracles.DowngradeMissingColumnToSkip)
 	_ = downgradeGroundTruthLowConfidenceFalsePositive(&result)
 	_ = downgradeDQPTimeoutFalsePositive(&result)
 	annotateResultForReporting(&result)
