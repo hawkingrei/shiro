@@ -238,7 +238,7 @@ func (g *Generator) CreateViewSQL() (string, *schema.Table) {
 		}
 	}
 	query = query.Clone()
-	query.Items = ensureUniqueAliases(query.Items)
+	query.Items = NormalizeSelectItemAliases(query.Items)
 	viewName := g.NextViewName()
 	cols := g.columnsFromSelectItems(query.Items)
 	if len(cols) == 0 {
@@ -248,7 +248,9 @@ func (g *Generator) CreateViewSQL() (string, *schema.Table) {
 	return fmt.Sprintf("CREATE VIEW %s AS %s", viewName, query.SQLString()), view
 }
 
-func ensureUniqueAliases(items []SelectItem) []SelectItem {
+// NormalizeSelectItemAliases makes projected names deterministic for Shiro's
+// scope model by assigning fallback aliases and de-duplicating collisions.
+func NormalizeSelectItemAliases(items []SelectItem) []SelectItem {
 	used := map[string]int{}
 	out := make([]SelectItem, len(items))
 	for i, item := range items {

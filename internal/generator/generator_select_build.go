@@ -726,7 +726,7 @@ func (g *Generator) columnsFromSelectItems(items []SelectItem) []schema.Column {
 	if len(items) == 0 {
 		return nil
 	}
-	items = ensureUniqueAliases(items)
+	items = NormalizeSelectItemAliases(items)
 	cols := make([]schema.Column, 0, len(items))
 	for i, item := range items {
 		name := strings.TrimSpace(item.Alias)

@@ -125,6 +125,26 @@ func TestCreateTablePartitionedSQL(t *testing.T) {
 	}
 }
 
+func TestNormalizeSelectItemAliases(t *testing.T) {
+	items := []SelectItem{
+		{Expr: LiteralExpr{Value: 1}, Alias: "dup"},
+		{Expr: LiteralExpr{Value: 2}, Alias: "dup"},
+		{Expr: ColumnExpr{Ref: ColumnRef{Name: "base_col"}}, Alias: ""},
+		{Expr: LiteralExpr{Value: 3}, Alias: ""},
+	}
+
+	got := NormalizeSelectItemAliases(items)
+	want := []string{"dup", "dup_1", "base_col", "c3"}
+	if len(got) != len(want) {
+		t.Fatalf("NormalizeSelectItemAliases() len=%d, want %d", len(got), len(want))
+	}
+	for i, alias := range want {
+		if got[i].Alias != alias {
+			t.Fatalf("NormalizeSelectItemAliases()[%d] alias=%q, want %q", i, got[i].Alias, alias)
+		}
+	}
+}
+
 func TestAnalyzeQueryFeaturesInSubquery(t *testing.T) {
 	query := &SelectQuery{
 		Items: []SelectItem{{Expr: LiteralExpr{Value: 1}}},

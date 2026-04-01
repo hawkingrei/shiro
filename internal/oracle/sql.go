@@ -384,24 +384,12 @@ func projectedColumnsFromSelectItems(items []generator.SelectItem) []schema.Colu
 	if len(items) == 0 {
 		return nil
 	}
-	used := map[string]int{}
+	items = generator.NormalizeSelectItemAliases(items)
 	cols := make([]schema.Column, 0, len(items))
 	for i, item := range items {
 		name := strings.TrimSpace(item.Alias)
 		if name == "" {
-			if col, ok := item.Expr.(generator.ColumnExpr); ok {
-				name = col.Ref.Name
-			} else {
-				name = fmt.Sprintf("c%d", i)
-			}
-		}
-		base := name
-		if count, ok := used[base]; ok {
-			count++
-			used[base] = count
-			name = fmt.Sprintf("%s_%d", base, count)
-		} else {
-			used[base] = 0
+			name = fmt.Sprintf("c%d", i)
 		}
 		cols = append(cols, schema.Column{Name: name, Type: schema.TypeVarchar})
 	}
