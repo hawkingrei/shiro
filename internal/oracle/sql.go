@@ -283,7 +283,9 @@ func mergeColumnGuardScopes(left *columnGuardScope, right *columnGuardScope) *co
 		out.qualified[name] = colSet
 	}
 	for name, count := range right.unqualified {
-		out.unqualified[name] += count
+		if out.unqualified[name] == 0 {
+			out.unqualified[name] = count
+		}
 	}
 	return out
 }
@@ -367,6 +369,17 @@ func (s *columnGuardScope) unqualifiedCount(name string) int {
 	return s.unqualified[name]
 }
 
+func columnNameCounts(cols []schema.Column) map[string]int {
+	if len(cols) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(cols))
+	for _, col := range cols {
+		counts[col.Name]++
+	}
+	return counts
+}
+
 func projectedColumnsFromSelectItems(items []generator.SelectItem) []schema.Column {
 	if len(items) == 0 {
 		return nil
@@ -433,10 +446,14 @@ func naturalJoinMergedColumns(scope *columnGuardScope, leftTables []string, righ
 	if scope == nil || right.Name == "" || len(leftTables) == 0 {
 		return nil
 	}
+	rightCounts := columnNameCounts(right.Columns)
 	seen := make(map[string]struct{})
 	merged := make([]string, 0)
 	for _, col := range right.Columns {
-		if scope.unqualifiedCount(col.Name) == 0 {
+		if scope.unqualifiedCount(col.Name) != 1 {
+			continue
+		}
+		if rightCounts[col.Name] != 1 {
 			continue
 		}
 		if _, ok := seen[col.Name]; ok {
@@ -473,21 +490,29 @@ func queryColumnsValidWithScope(query *generator.SelectQuery, state *schema.Stat
 	scope.addTable(baseTbl)
 	leftTables := []string{baseTbl.Name}
 
+	resolveUnqualifiedColumn := func(name string, scope *columnGuardScope) (bool, string) {
+		if name == "" || scope == nil {
+			return false, ""
+		}
+		if count := scope.unqualifiedCount(name); count > 0 {
+			if count == 1 {
+				return true, ""
+			}
+			return false, "ambiguous_column"
+		}
+		return false, ""
+	}
+
 	checkColumn := func(ref generator.ColumnRef, local *columnGuardScope) (bool, string) {
 		if ref.Name == "" {
 			return false, "empty_column"
 		}
 		if ref.Table == "" {
-			if local != nil {
-				if count := local.unqualifiedCount(ref.Name); count > 0 {
-					if count == 1 {
-						return true, ""
-					}
-					return false, "unknown_column"
-				}
+			if ok, reason := resolveUnqualifiedColumn(ref.Name, local); ok || reason != "" {
+				return ok, reason
 			}
-			if outer != nil && outer.unqualifiedCount(ref.Name) == 1 {
-				return true, ""
+			if ok, reason := resolveUnqualifiedColumn(ref.Name, outer); ok || reason != "" {
+				return ok, reason
 			}
 			return false, "unknown_column"
 		}
@@ -603,12 +628,21 @@ func queryColumnsValidWithScope(query *generator.SelectQuery, state *schema.Stat
 		joinScope := cloneColumnGuardScope(scope)
 		joinScope.addTable(rightTbl)
 		if len(join.Using) > 0 {
+			rightCounts := columnNameCounts(rightTbl.Columns)
 			for _, name := range join.Using {
-				if _, ok := rightTbl.ColumnByName(name); !ok {
+				switch rightCounts[name] {
+				case 0:
 					return false, "unknown_using_column"
+				case 1:
+				default:
+					return false, "ambiguous_using_column"
 				}
-				if scope.unqualifiedCount(name) == 0 {
+				switch scope.unqualifiedCount(name) {
+				case 0:
 					return false, "unknown_using_column"
+				case 1:
+				default:
+					return false, "ambiguous_using_column"
 				}
 			}
 		}
@@ -617,8 +651,9 @@ func queryColumnsValidWithScope(query *generator.SelectQuery, state *schema.Stat
 		}
 		mergedSet := make(map[string]struct{})
 		if len(join.Using) > 0 {
+			rightCounts := columnNameCounts(rightTbl.Columns)
 			for _, name := range join.Using {
-				if _, ok := rightTbl.ColumnByName(name); ok && scope.unqualifiedCount(name) > 0 {
+				if rightCounts[name] == 1 && scope.unqualifiedCount(name) == 1 {
 					mergedSet[name] = struct{}{}
 				}
 			}
