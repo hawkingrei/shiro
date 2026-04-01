@@ -219,7 +219,241 @@ func queryHasSubquery(query *generator.SelectQuery) bool {
 	return false
 }
 
-func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerTables map[string]schema.Table) (bool, string) {
+type columnGuardScope struct {
+	tables      map[string]schema.Table
+	qualified   map[string]map[string]struct{}
+	unqualified map[string]int
+}
+
+func newColumnGuardScope() *columnGuardScope {
+	return &columnGuardScope{
+		tables:      make(map[string]schema.Table),
+		qualified:   make(map[string]map[string]struct{}),
+		unqualified: make(map[string]int),
+	}
+}
+
+func cloneColumnGuardScope(in *columnGuardScope) *columnGuardScope {
+	if in == nil {
+		return nil
+	}
+	out := newColumnGuardScope()
+	for name, tbl := range in.tables {
+		copied := tbl
+		copied.Columns = append([]schema.Column{}, tbl.Columns...)
+		out.tables[name] = copied
+	}
+	for name, cols := range in.qualified {
+		colSet := make(map[string]struct{}, len(cols))
+		for col := range cols {
+			colSet[col] = struct{}{}
+		}
+		out.qualified[name] = colSet
+	}
+	for name, count := range in.unqualified {
+		out.unqualified[name] = count
+	}
+	return out
+}
+
+func mergeColumnGuardScopes(left *columnGuardScope, right *columnGuardScope) *columnGuardScope {
+	if left == nil {
+		return cloneColumnGuardScope(right)
+	}
+	out := cloneColumnGuardScope(left)
+	if right == nil {
+		return out
+	}
+	for name, tbl := range right.tables {
+		if _, ok := out.tables[name]; ok {
+			continue
+		}
+		copied := tbl
+		copied.Columns = append([]schema.Column{}, tbl.Columns...)
+		out.tables[name] = copied
+	}
+	for name, cols := range right.qualified {
+		if _, ok := out.qualified[name]; ok {
+			continue
+		}
+		colSet := make(map[string]struct{}, len(cols))
+		for col := range cols {
+			colSet[col] = struct{}{}
+		}
+		out.qualified[name] = colSet
+	}
+	for name, count := range right.unqualified {
+		if out.unqualified[name] == 0 {
+			out.unqualified[name] = count
+		}
+	}
+	return out
+}
+
+func (s *columnGuardScope) addTable(tbl schema.Table) {
+	if s == nil || strings.TrimSpace(tbl.Name) == "" {
+		return
+	}
+	copied := tbl
+	copied.Columns = append([]schema.Column{}, tbl.Columns...)
+	s.tables[copied.Name] = copied
+	colSet := make(map[string]struct{}, len(copied.Columns))
+	for _, col := range copied.Columns {
+		colSet[col.Name] = struct{}{}
+		s.unqualified[col.Name]++
+	}
+	s.qualified[copied.Name] = colSet
+}
+
+func (s *columnGuardScope) addJoinTable(tbl schema.Table, merged map[string]struct{}) {
+	if s == nil || strings.TrimSpace(tbl.Name) == "" {
+		return
+	}
+	copied := tbl
+	copied.Columns = append([]schema.Column{}, tbl.Columns...)
+	s.tables[copied.Name] = copied
+	colSet := make(map[string]struct{}, len(copied.Columns))
+	for _, col := range copied.Columns {
+		if _, ok := merged[col.Name]; ok {
+			s.unqualified[col.Name] = 1
+			continue
+		}
+		colSet[col.Name] = struct{}{}
+		s.unqualified[col.Name]++
+	}
+	s.qualified[copied.Name] = colSet
+}
+
+func (s *columnGuardScope) hideQualifiedColumns(tableNames []string, columns []string) {
+	if s == nil {
+		return
+	}
+	for _, tableName := range tableNames {
+		colSet, ok := s.qualified[tableName]
+		if !ok {
+			continue
+		}
+		for _, col := range columns {
+			delete(colSet, col)
+		}
+		s.qualified[tableName] = colSet
+	}
+}
+
+func (s *columnGuardScope) hasTable(name string) bool {
+	if s == nil || name == "" {
+		return false
+	}
+	_, ok := s.tables[name]
+	return ok
+}
+
+func (s *columnGuardScope) hasQualifiedColumn(tableName string, columnName string) bool {
+	if s == nil || tableName == "" || columnName == "" {
+		return false
+	}
+	if _, ok := s.tables[tableName]; !ok {
+		return false
+	}
+	if cols, ok := s.qualified[tableName]; ok {
+		_, ok = cols[columnName]
+		return ok
+	}
+	return false
+}
+
+func (s *columnGuardScope) unqualifiedCount(name string) int {
+	if s == nil || name == "" {
+		return 0
+	}
+	return s.unqualified[name]
+}
+
+func columnNameCounts(cols []schema.Column) map[string]int {
+	if len(cols) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(cols))
+	for _, col := range cols {
+		counts[col.Name]++
+	}
+	return counts
+}
+
+func projectedColumnsFromSelectItems(items []generator.SelectItem) []schema.Column {
+	if len(items) == 0 {
+		return nil
+	}
+	items = generator.NormalizeSelectItemAliases(items)
+	cols := make([]schema.Column, 0, len(items))
+	for i, item := range items {
+		name := strings.TrimSpace(item.Alias)
+		if name == "" {
+			name = fmt.Sprintf("c%d", i)
+		}
+		cols = append(cols, schema.Column{Name: name, Type: schema.TypeVarchar})
+	}
+	return cols
+}
+
+func resolveQuerySourceTable(sourceName string, visibleName string, subquery *generator.SelectQuery, state *schema.State) (schema.Table, bool, string) {
+	name := strings.TrimSpace(visibleName)
+	if name == "" {
+		return schema.Table{}, false, "empty_table"
+	}
+	if subquery != nil {
+		return schema.Table{Name: name, Columns: projectedColumnsFromSelectItems(subquery.Items)}, true, ""
+	}
+	if state == nil {
+		return schema.Table{}, false, "nil_query_or_state"
+	}
+	tbl, ok := state.TableByName(sourceName)
+	if !ok {
+		return schema.Table{}, false, "unknown_table"
+	}
+	tbl.Name = name
+	tbl.Columns = append([]schema.Column{}, tbl.Columns...)
+	return tbl, true, ""
+}
+
+func visibleBaseName(from generator.FromClause) string {
+	if strings.TrimSpace(from.BaseAlias) != "" {
+		return from.BaseAlias
+	}
+	return from.BaseTable
+}
+
+func visibleJoinName(join generator.Join) string {
+	if strings.TrimSpace(join.TableAlias) != "" {
+		return join.TableAlias
+	}
+	return join.Table
+}
+
+func naturalJoinMergedColumns(scope *columnGuardScope, leftTables []string, right schema.Table) []string {
+	if scope == nil || right.Name == "" || len(leftTables) == 0 {
+		return nil
+	}
+	rightCounts := columnNameCounts(right.Columns)
+	seen := make(map[string]struct{})
+	merged := make([]string, 0)
+	for _, col := range right.Columns {
+		if scope.unqualifiedCount(col.Name) != 1 {
+			continue
+		}
+		if rightCounts[col.Name] != 1 {
+			continue
+		}
+		if _, ok := seen[col.Name]; ok {
+			continue
+		}
+		seen[col.Name] = struct{}{}
+		merged = append(merged, col.Name)
+	}
+	return merged
+}
+
+func queryColumnsValidWithScope(query *generator.SelectQuery, state *schema.State, outer *columnGuardScope) (bool, string) {
 	if query == nil || state == nil {
 		return false, "nil_query_or_state"
 	}
@@ -227,99 +461,84 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		return false, "with_clause"
 	}
 	for _, op := range query.SetOps {
-		if ok, reason := queryColumnsValid(op.Query, state, outerTables); !ok {
+		if ok, reason := queryColumnsValidWithScope(op.Query, state, outer); !ok {
 			return false, reason
 		}
 	}
-	tableMap := map[string]schema.Table{}
-	for name, tbl := range outerTables {
-		tableMap[name] = tbl
-	}
-	names := []string{query.From.BaseTable}
-	for _, join := range query.From.Joins {
-		names = append(names, join.Table)
-	}
-	for _, name := range names {
-		if name == "" {
-			return false, "empty_table"
+	if query.From.BaseQuery != nil {
+		if ok, reason := queryColumnsValidWithScope(query.From.BaseQuery, state, nil); !ok {
+			return false, reason
 		}
-		tbl, ok := state.TableByName(name)
-		if !ok {
-			return false, "unknown_table"
-		}
-		tableMap[name] = tbl
 	}
-	if len(query.From.Joins) > 0 {
-		leftTables := make([]schema.Table, 0, len(query.From.Joins)+1)
-		if base, ok := tableMap[query.From.BaseTable]; ok {
-			leftTables = append(leftTables, base)
+	baseTbl, ok, reason := resolveQuerySourceTable(query.From.BaseTable, visibleBaseName(query.From), query.From.BaseQuery, state)
+	if !ok {
+		return false, reason
+	}
+	scope := newColumnGuardScope()
+	scope.addTable(baseTbl)
+	leftTables := []string{baseTbl.Name}
+
+	resolveUnqualifiedColumn := func(name string, scope *columnGuardScope) (bool, string) {
+		if name == "" || scope == nil {
+			return false, ""
 		}
-		for _, join := range query.From.Joins {
-			if len(join.Using) > 0 {
-				right, ok := tableMap[join.Table]
-				if !ok {
-					return false, "unknown_table"
-				}
-				for _, col := range join.Using {
-					if _, ok := right.ColumnByName(col); !ok {
-						return false, "unknown_using_column"
-					}
-					found := false
-					for _, left := range leftTables {
-						if _, ok := left.ColumnByName(col); ok {
-							found = true
-							break
-						}
-					}
-					if !found {
-						return false, "unknown_using_column"
-					}
-				}
+		if count := scope.unqualifiedCount(name); count > 0 {
+			if count == 1 {
+				return true, ""
 			}
-			if tbl, ok := tableMap[join.Table]; ok {
-				leftTables = append(leftTables, tbl)
-			}
+			return false, "ambiguous_column"
 		}
+		return false, ""
 	}
-	checkColumn := func(ref generator.ColumnRef) (bool, string) {
+
+	checkColumn := func(ref generator.ColumnRef, local *columnGuardScope) (bool, string) {
 		if ref.Name == "" {
 			return false, "empty_column"
 		}
 		if ref.Table == "" {
-			if unqualifiedColumnAvailable(ref.Name, query, tableMap, outerTables) {
+			if ok, reason := resolveUnqualifiedColumn(ref.Name, local); ok || reason != "" {
+				return ok, reason
+			}
+			if ok, reason := resolveUnqualifiedColumn(ref.Name, outer); ok || reason != "" {
+				return ok, reason
+			}
+			return false, "unknown_column"
+		}
+		if local != nil && local.hasTable(ref.Table) {
+			if local.hasQualifiedColumn(ref.Table, ref.Name) {
 				return true, ""
 			}
 			return false, "unknown_column"
 		}
-		tbl, ok := tableMap[ref.Table]
-		if !ok {
-			return false, "unknown_table"
-		}
-		if _, ok := tbl.ColumnByName(ref.Name); !ok {
+		if outer != nil && outer.hasTable(ref.Table) {
+			if outer.hasQualifiedColumn(ref.Table, ref.Name) {
+				return true, ""
+			}
 			return false, "unknown_column"
 		}
-		return true, ""
+		return false, "unknown_table"
 	}
-	var checkExpr func(expr generator.Expr) (bool, string)
-	checkExpr = func(expr generator.Expr) (bool, string) {
+
+	var checkExpr func(expr generator.Expr, local *columnGuardScope) (bool, string)
+	checkExpr = func(expr generator.Expr, local *columnGuardScope) (bool, string) {
 		if expr == nil {
 			return true, ""
 		}
 		switch e := expr.(type) {
 		case generator.ColumnExpr:
-			return checkColumn(e.Ref)
+			return checkColumn(e.Ref, local)
 		case generator.LiteralExpr, generator.ParamExpr:
 			return true, ""
 		case generator.UnaryExpr:
-			return checkExpr(e.Expr)
+			return checkExpr(e.Expr, local)
 		case generator.BinaryExpr:
-			if ok, reason := checkExpr(e.Left); !ok {
+			if ok, reason := checkExpr(e.Left, local); !ok {
 				return false, reason
 			}
-			return checkExpr(e.Right)
+			return checkExpr(e.Right, local)
 		case generator.FuncExpr:
 			for _, arg := range e.Args {
-				if ok, reason := checkExpr(arg); !ok {
+				if ok, reason := checkExpr(arg, local); !ok {
 					return false, reason
 				}
 			}
@@ -328,54 +547,51 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 			if e.Expr == nil {
 				return true, ""
 			}
-			return checkExpr(e.Expr)
+			return checkExpr(e.Expr, local)
 		case generator.CaseExpr:
 			for _, w := range e.Whens {
-				if ok, reason := checkExpr(w.When); !ok {
+				if ok, reason := checkExpr(w.When, local); !ok {
 					return false, reason
 				}
-				if ok, reason := checkExpr(w.Then); !ok {
+				if ok, reason := checkExpr(w.Then, local); !ok {
 					return false, reason
 				}
 			}
-			if ok, reason := checkExpr(e.Else); !ok {
-				return false, reason
-			}
-			return true, ""
+			return checkExpr(e.Else, local)
 		case generator.InExpr:
-			if ok, reason := checkExpr(e.Left); !ok {
+			if ok, reason := checkExpr(e.Left, local); !ok {
 				return false, reason
 			}
 			for _, item := range e.List {
-				if ok, reason := checkExpr(item); !ok {
+				if ok, reason := checkExpr(item, local); !ok {
 					return false, reason
 				}
 			}
 			return true, ""
 		case generator.SubqueryExpr:
-			return queryColumnsValid(e.Query, state, tableMap)
+			return queryColumnsValidWithScope(e.Query, state, mergeColumnGuardScopes(local, outer))
 		case generator.ExistsExpr:
-			return queryColumnsValid(e.Query, state, tableMap)
+			return queryColumnsValidWithScope(e.Query, state, mergeColumnGuardScopes(local, outer))
 		case generator.WindowExpr:
 			for _, arg := range e.Args {
-				if ok, reason := checkExpr(arg); !ok {
+				if ok, reason := checkExpr(arg, local); !ok {
 					return false, reason
 				}
 			}
 			for _, expr := range e.PartitionBy {
-				if ok, reason := checkExpr(expr); !ok {
+				if ok, reason := checkExpr(expr, local); !ok {
 					return false, reason
 				}
 			}
 			for _, ob := range e.OrderBy {
-				if ok, reason := checkExpr(ob.Expr); !ok {
+				if ok, reason := checkExpr(ob.Expr, local); !ok {
 					return false, reason
 				}
 			}
 			return true, ""
 		default:
 			for _, col := range expr.Columns() {
-				if ok, reason := checkColumn(col); !ok {
+				if ok, reason := checkColumn(col, local); !ok {
 					return false, reason
 				}
 			}
@@ -383,62 +599,101 @@ func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerT
 		}
 	}
 
-	leftTables := []schema.Table{}
-	base, ok := tableMap[query.From.BaseTable]
-	if !ok {
-		return false, "unknown_table"
-	}
-	leftTables = append(leftTables, base)
 	for _, join := range query.From.Joins {
-		right, ok := tableMap[join.Table]
-		if !ok {
-			return false, "unknown_table"
+		joinOuter := (*columnGuardScope)(nil)
+		if join.Lateral {
+			joinOuter = mergeColumnGuardScopes(scope, outer)
 		}
+		if join.TableQuery != nil {
+			if ok, reason := queryColumnsValidWithScope(join.TableQuery, state, joinOuter); !ok {
+				return false, reason
+			}
+		}
+		rightTbl, ok, reason := resolveQuerySourceTable(join.Table, visibleJoinName(join), join.TableQuery, state)
+		if !ok {
+			return false, reason
+		}
+		joinScope := cloneColumnGuardScope(scope)
+		joinScope.addTable(rightTbl)
 		if len(join.Using) > 0 {
+			rightCounts := columnNameCounts(rightTbl.Columns)
 			for _, name := range join.Using {
-				if _, ok := right.ColumnByName(name); !ok {
+				switch rightCounts[name] {
+				case 0:
 					return false, "unknown_using_column"
+				case 1:
+				default:
+					return false, "ambiguous_using_column"
 				}
-				found := false
-				for _, ltbl := range leftTables {
-					if _, ok := ltbl.ColumnByName(name); ok {
-						found = true
-						break
-					}
-				}
-				if !found {
+				switch scope.unqualifiedCount(name) {
+				case 0:
 					return false, "unknown_using_column"
+				case 1:
+				default:
+					return false, "ambiguous_using_column"
 				}
 			}
 		}
-		if ok, reason := checkExpr(join.On); !ok {
+		if ok, reason := checkExpr(join.On, joinScope); !ok {
 			return false, reason
 		}
-		leftTables = append(leftTables, right)
+		mergedSet := make(map[string]struct{})
+		if len(join.Using) > 0 {
+			rightCounts := columnNameCounts(rightTbl.Columns)
+			for _, name := range join.Using {
+				if rightCounts[name] == 1 && scope.unqualifiedCount(name) == 1 {
+					mergedSet[name] = struct{}{}
+				}
+			}
+		} else if join.Natural {
+			for _, name := range naturalJoinMergedColumns(scope, leftTables, rightTbl) {
+				mergedSet[name] = struct{}{}
+			}
+		}
+		mergedNames := make([]string, 0, len(mergedSet))
+		for name := range mergedSet {
+			mergedNames = append(mergedNames, name)
+		}
+		scope.addJoinTable(rightTbl, mergedSet)
+		if len(mergedNames) > 0 {
+			hideTables := append(append([]string{}, leftTables...), rightTbl.Name)
+			scope.hideQualifiedColumns(hideTables, mergedNames)
+		}
+		leftTables = append(leftTables, rightTbl.Name)
 	}
 
 	for _, item := range query.Items {
-		if ok, reason := checkExpr(item.Expr); !ok {
+		if ok, reason := checkExpr(item.Expr, scope); !ok {
 			return false, reason
 		}
 	}
-	if ok, reason := checkExpr(query.Where); !ok {
+	if ok, reason := checkExpr(query.Where, scope); !ok {
 		return false, reason
 	}
-	if ok, reason := checkExpr(query.Having); !ok {
+	if ok, reason := checkExpr(query.Having, scope); !ok {
 		return false, reason
 	}
 	for _, expr := range query.GroupBy {
-		if ok, reason := checkExpr(expr); !ok {
+		if ok, reason := checkExpr(expr, scope); !ok {
 			return false, reason
 		}
 	}
 	for _, ob := range query.OrderBy {
-		if ok, reason := checkExpr(ob.Expr); !ok {
+		if ok, reason := checkExpr(ob.Expr, scope); !ok {
 			return false, reason
 		}
 	}
 	return true, ""
+}
+
+func queryColumnsValid(query *generator.SelectQuery, state *schema.State, outerTables map[string]schema.Table) (bool, string) {
+	outer := newColumnGuardScope()
+	for name, tbl := range outerTables {
+		copied := tbl
+		copied.Name = name
+		outer.addTable(copied)
+	}
+	return queryColumnsValidWithScope(query, state, outer)
 }
 
 func mysqlErrCode(err error) (uint16, bool) {
