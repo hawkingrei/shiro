@@ -9,6 +9,7 @@
 - Followed up on review hardening: correlated subqueries now use nearest-outer-scope semantics for unqualified column lookup instead of accumulating ambiguity across outer levels.
 - Tightened ambiguity classification so unqualified references, `USING`, and `NATURAL JOIN` checks distinguish `ambiguous_*` from `unknown_*` cases.
 - Centralized select-item alias normalization in `generator.NormalizeSelectItemAliases` and switched the oracle projected-column guard to reuse that helper, so derived-scope modeling cannot drift between generator and oracle paths.
+- Hardened `NormalizeSelectItemAliases` against explicit pre-suffixed aliases such as `["dup", "dup_1", "dup"]`, which previously could reintroduce a duplicate final alias.
 - Expanded regression coverage in `internal/oracle/sql_column_guard_test.go` for alias-hidden base names, correlated outer-scope resolution, ambiguous `USING`, and left-side-ambiguous `NATURAL JOIN` behavior.
 
 ## Why

@@ -143,6 +143,20 @@ func TestNormalizeSelectItemAliases(t *testing.T) {
 			t.Fatalf("NormalizeSelectItemAliases()[%d] alias=%q, want %q", i, got[i].Alias, alias)
 		}
 	}
+
+	items = []SelectItem{
+		{Expr: LiteralExpr{Value: 1}, Alias: "dup"},
+		{Expr: LiteralExpr{Value: 2}, Alias: "dup_1"},
+		{Expr: LiteralExpr{Value: 3}, Alias: "dup"},
+	}
+
+	got = NormalizeSelectItemAliases(items)
+	want = []string{"dup", "dup_1", "dup_2"}
+	for i, alias := range want {
+		if got[i].Alias != alias {
+			t.Fatalf("NormalizeSelectItemAliases() suffixed[%d] alias=%q, want %q", i, got[i].Alias, alias)
+		}
+	}
 }
 
 func TestAnalyzeQueryFeaturesInSubquery(t *testing.T) {

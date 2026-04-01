@@ -251,7 +251,8 @@ func (g *Generator) CreateViewSQL() (string, *schema.Table) {
 // NormalizeSelectItemAliases makes projected names deterministic for Shiro's
 // scope model by assigning fallback aliases and de-duplicating collisions.
 func NormalizeSelectItemAliases(items []SelectItem) []SelectItem {
-	used := map[string]int{}
+	nextSuffix := map[string]int{}
+	used := map[string]struct{}{}
 	out := make([]SelectItem, len(items))
 	for i, item := range items {
 		base := strings.TrimSpace(item.Alias)
@@ -262,14 +263,21 @@ func NormalizeSelectItemAliases(items []SelectItem) []SelectItem {
 				base = fmt.Sprintf("c%d", i)
 			}
 		}
-		if count, ok := used[base]; ok {
-			count++
-			used[base] = count
-			item.Alias = fmt.Sprintf("%s_%d", base, count)
-		} else {
-			used[base] = 0
-			item.Alias = base
+		alias := base
+		if _, ok := used[alias]; ok {
+			suffix := nextSuffix[base] + 1
+			for {
+				candidate := fmt.Sprintf("%s_%d", base, suffix)
+				if _, exists := used[candidate]; !exists {
+					alias = candidate
+					nextSuffix[base] = suffix
+					break
+				}
+				suffix++
+			}
 		}
+		item.Alias = alias
+		used[alias] = struct{}{}
 		out[i] = item
 	}
 	return out
