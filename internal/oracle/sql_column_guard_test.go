@@ -257,3 +257,124 @@ func TestSanitizeQueryColumnsRepairsUnqualifiedColumnAfterUsingRewrite(t *testin
 		t.Fatalf("unexpected sanitized column ref after USING rewrite: %#v", col.Ref)
 	}
 }
+
+func TestQueryColumnsValidRejectsHiddenDerivedProjectionColumn(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "k0", Type: schema.TypeBigInt},
+				},
+			},
+		},
+	}
+
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "dt", Name: "k0"}}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "dt",
+			BaseQuery: &generator.SelectQuery{
+				Items: []generator.SelectItem{
+					{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}}, Alias: "c0"},
+				},
+				From: generator.FromClause{BaseTable: "t0"},
+			},
+		},
+	}
+
+	if ok, reason := queryColumnsValid(query, state, nil); ok || reason != "unknown_column" {
+		t.Fatalf("queryColumnsValid() = (%v, %q), want false/unknown_column", ok, reason)
+	}
+}
+
+func TestQueryColumnsValidAllowsProjectedDerivedAliasColumn(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "id", Type: schema.TypeBigInt},
+					{Name: "k0", Type: schema.TypeBigInt},
+				},
+			},
+		},
+	}
+
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "dt", Name: "c0"}}, Alias: "out0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			BaseAlias: "dt",
+			BaseQuery: &generator.SelectQuery{
+				Items: []generator.SelectItem{
+					{Expr: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t0", Name: "id"}}, Alias: "c0"},
+				},
+				From: generator.FromClause{BaseTable: "t0"},
+			},
+		},
+	}
+
+	if ok, reason := queryColumnsValid(query, state, nil); !ok {
+		t.Fatalf("queryColumnsValid() = (%v, %q), want true", ok, reason)
+	}
+}
+
+func TestQueryColumnsValidRejectsQualifiedMergedColumnInLaterJoin(t *testing.T) {
+	state := &schema.State{
+		Tables: []schema.Table{
+			{
+				Name: "t0",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeBigInt},
+					{Name: "id", Type: schema.TypeBigInt},
+				},
+			},
+			{
+				Name: "t1",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeBigInt},
+					{Name: "c1", Type: schema.TypeBigInt},
+				},
+			},
+			{
+				Name: "t2",
+				Columns: []schema.Column{
+					{Name: "k0", Type: schema.TypeBigInt},
+					{Name: "c2", Type: schema.TypeBigInt},
+				},
+			},
+		},
+	}
+
+	query := &generator.SelectQuery{
+		Items: []generator.SelectItem{
+			{Expr: generator.LiteralExpr{Value: 1}, Alias: "c0"},
+		},
+		From: generator.FromClause{
+			BaseTable: "t0",
+			Joins: []generator.Join{
+				{Type: generator.JoinInner, Table: "t1", Natural: true},
+				{
+					Type:  generator.JoinInner,
+					Table: "t2",
+					On: generator.BinaryExpr{
+						Left:  generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t1", Name: "k0"}},
+						Op:    "=",
+						Right: generator.ColumnExpr{Ref: generator.ColumnRef{Table: "t2", Name: "k0"}},
+					},
+				},
+			},
+		},
+	}
+
+	if ok, reason := queryColumnsValid(query, state, nil); ok || reason != "unknown_column" {
+		t.Fatalf("queryColumnsValid() = (%v, %q), want false/unknown_column", ok, reason)
+	}
+}
