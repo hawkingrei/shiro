@@ -62,7 +62,7 @@ type CaseEntry struct {
 	ReplayExpectedErrorSignature string                 `json:"replay_expected_error_signature,omitempty"`
 	ReplayActualErrorReason      string                 `json:"replay_actual_error_reason,omitempty"`
 	ReplayActualErrorSignature   string                 `json:"replay_actual_error_signature,omitempty"`
-	CaptureFreshness             string                 `json:"capture_freshness"`
+	CaptureFreshness             string                 `json:"capture_freshness,omitempty"`
 	CaptureStalledReason         string                 `json:"capture_stalled_reason,omitempty"`
 	Flaky                        bool                   `json:"flaky"`
 	NoRECOptimizedSQL            string                 `json:"norec_optimized_sql"`
@@ -121,7 +121,7 @@ type CaseIndexEntry struct {
 	ReplayExpectedErrorSignature string `json:"replay_expected_error_signature,omitempty"`
 	ReplayActualErrorReason      string `json:"replay_actual_error_reason,omitempty"`
 	ReplayActualErrorSignature   string `json:"replay_actual_error_signature,omitempty"`
-	CaptureFreshness             string `json:"capture_freshness"`
+	CaptureFreshness             string `json:"capture_freshness,omitempty"`
 	CaptureStalledReason         string `json:"capture_stalled_reason,omitempty"`
 	Flaky                        bool   `json:"flaky"`
 	NoRECPredicate               string `json:"norec_predicate"`
@@ -1173,6 +1173,12 @@ func hydrateSummaryObservabilityFields(summary *report.Summary) {
 	summary.ReplayExpectedErrorSignature = normalizeSummaryErrorSignature(firstNonEmpty(summary.ReplayExpectedErrorSignature, summaryDetailString(summary.Details, "minimize_base_replay_expected_error_signature")))
 	summary.ReplayActualErrorReason = normalizeSummaryErrorReason(firstNonEmpty(summary.ReplayActualErrorReason, summaryDetailString(summary.Details, "minimize_base_replay_actual_error_reason")))
 	summary.ReplayActualErrorSignature = normalizeSummaryErrorSignature(firstNonEmpty(summary.ReplayActualErrorSignature, summaryDetailString(summary.Details, "minimize_base_replay_actual_error_signature")))
+	summary.CaptureFreshness = strings.TrimSpace(summary.CaptureFreshness)
+	if summary.CaptureFreshness != "stale" {
+		summary.CaptureStalledReason = ""
+		return
+	}
+	summary.CaptureStalledReason = strings.TrimSpace(summary.CaptureStalledReason)
 }
 
 func summaryDetailString(details map[string]any, key string) string {

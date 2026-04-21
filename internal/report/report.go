@@ -55,7 +55,7 @@ type Summary struct {
 	ReplayExpectedErrorSignature string             `json:"replay_expected_error_signature,omitempty"`
 	ReplayActualErrorReason      string             `json:"replay_actual_error_reason,omitempty"`
 	ReplayActualErrorSignature   string             `json:"replay_actual_error_signature,omitempty"`
-	CaptureFreshness             string             `json:"capture_freshness"`
+	CaptureFreshness             string             `json:"capture_freshness,omitempty"`
 	CaptureStalledReason         string             `json:"capture_stalled_reason,omitempty"`
 	BugHint                      string             `json:"bug_hint"`
 	GroundTruthDSGMismatchReason string             `json:"groundtruth_dsg_mismatch_reason"`

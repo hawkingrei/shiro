@@ -168,7 +168,7 @@ func TestBuildSearchBlobSkipsNilDetails(t *testing.T) {
 		ReplayExpectedErrorSignature: "eet:missing_column|cant_find_column_in_schema",
 		ReplayActualErrorReason:      "replay:no_error",
 		ReplayActualErrorSignature:   "replay:no_error|no_error",
-		CaptureFreshness:             "infra_unhealthy",
+		CaptureFreshness:             "stale",
 		CaptureStalledReason:         "oracle_timeout",
 		Details:                      nil,
 	}
@@ -183,7 +183,7 @@ func TestBuildSearchBlobSkipsNilDetails(t *testing.T) {
 		"schema_load",
 		"eet:missing_column",
 		"replay:no_error",
-		"infra_unhealthy",
+		"stale",
 		"oracle_timeout",
 	} {
 		if !strings.Contains(blob, want) {
@@ -213,7 +213,7 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 				ReplayExpectedErrorSignature: "eet:missing_column|cant_find_column_in_schema",
 				ReplayActualErrorReason:      "replay:no_error",
 				ReplayActualErrorSignature:   "replay:no_error|no_error",
-				CaptureFreshness:             "infra_unhealthy",
+				CaptureFreshness:             "stale",
 				CaptureStalledReason:         "oracle_timeout",
 				ReportURL:                    "https://cdn.example.com/cases/legacy-case-id/report.json",
 				UploadLocation:               "gs://bucket/legacy-case-id/",
@@ -281,12 +281,12 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 		index.Cases[0].ReplayExpectedErrorSignature != "eet:missing_column|cant_find_column_in_schema" ||
 		index.Cases[0].ReplayActualErrorReason != "replay:no_error" ||
 		index.Cases[0].ReplayActualErrorSignature != "replay:no_error|no_error" ||
-		index.Cases[0].CaptureFreshness != "infra_unhealthy" ||
+		index.Cases[0].CaptureFreshness != "stale" ||
 		index.Cases[0].CaptureStalledReason != "oracle_timeout" {
 		t.Fatalf("index entry missing observability fields: %+v", index.Cases[0])
 	}
 	if !strings.Contains(index.Cases[0].SearchBlob, "delta_debug") ||
-		!strings.Contains(index.Cases[0].SearchBlob, "infra_unhealthy") ||
+		!strings.Contains(index.Cases[0].SearchBlob, "stale") ||
 		!strings.Contains(index.Cases[0].SearchBlob, "replay:no_error|no_error") {
 		t.Fatalf("search blob missing observability fields: %q", index.Cases[0].SearchBlob)
 	}
@@ -315,7 +315,7 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 		legacySummary.ReplayExpectedErrorSignature != "eet:missing_column|cant_find_column_in_schema" ||
 		legacySummary.ReplayActualErrorReason != "replay:no_error" ||
 		legacySummary.ReplayActualErrorSignature != "replay:no_error|no_error" ||
-		legacySummary.CaptureFreshness != "infra_unhealthy" ||
+		legacySummary.CaptureFreshness != "stale" ||
 		legacySummary.CaptureStalledReason != "oracle_timeout" {
 		t.Fatalf("per-case summary missing observability fields: %+v", legacySummary)
 	}
@@ -358,6 +358,55 @@ func TestHydrateSummaryObservabilityFieldsFallsBackToDetails(t *testing.T) {
 	if summary.ReplayActualErrorSignature != "replay:no_error|no_error" {
 		t.Fatalf("ReplayActualErrorSignature=%q want normalized signature", summary.ReplayActualErrorSignature)
 	}
+}
+
+func TestHydrateSummaryObservabilityFieldsCaptureFreshnessCompatibility(t *testing.T) {
+	t.Run("empty freshness keeps empty stalled reason", func(t *testing.T) {
+		summary := report.Summary{
+			CaptureStalledReason: "oracle_timeout",
+		}
+
+		hydrateSummaryObservabilityFields(&summary)
+
+		if summary.CaptureFreshness != "" {
+			t.Fatalf("CaptureFreshness=%q want empty", summary.CaptureFreshness)
+		}
+		if summary.CaptureStalledReason != "" {
+			t.Fatalf("CaptureStalledReason=%q want empty", summary.CaptureStalledReason)
+		}
+	})
+
+	t.Run("fresh clears stalled reason", func(t *testing.T) {
+		summary := report.Summary{
+			CaptureFreshness:     "fresh",
+			CaptureStalledReason: "oracle_timeout",
+		}
+
+		hydrateSummaryObservabilityFields(&summary)
+
+		if summary.CaptureFreshness != "fresh" {
+			t.Fatalf("CaptureFreshness=%q want fresh", summary.CaptureFreshness)
+		}
+		if summary.CaptureStalledReason != "" {
+			t.Fatalf("CaptureStalledReason=%q want empty", summary.CaptureStalledReason)
+		}
+	})
+
+	t.Run("stale keeps stalled reason", func(t *testing.T) {
+		summary := report.Summary{
+			CaptureFreshness:     "stale",
+			CaptureStalledReason: " oracle_timeout ",
+		}
+
+		hydrateSummaryObservabilityFields(&summary)
+
+		if summary.CaptureFreshness != "stale" {
+			t.Fatalf("CaptureFreshness=%q want stale", summary.CaptureFreshness)
+		}
+		if summary.CaptureStalledReason != "oracle_timeout" {
+			t.Fatalf("CaptureStalledReason=%q want oracle_timeout", summary.CaptureStalledReason)
+		}
+	})
 }
 
 func TestBuildSiteIndexMarksMissingSummaryAsLoaded(t *testing.T) {
