@@ -47,6 +47,16 @@ type Summary struct {
 	Error                        string             `json:"error"`
 	ErrorReason                  string             `json:"error_reason"`
 	ErrorSignature               string             `json:"error_signature"`
+	MinimizeReason               string             `json:"minimize_reason,omitempty"`
+	ReplayKind                   string             `json:"replay_kind,omitempty"`
+	ReplayOutcome                string             `json:"replay_outcome,omitempty"`
+	ReplayFailureStage           string             `json:"replay_failure_stage,omitempty"`
+	ReplayExpectedErrorReason    string             `json:"replay_expected_error_reason,omitempty"`
+	ReplayExpectedErrorSignature string             `json:"replay_expected_error_signature,omitempty"`
+	ReplayActualErrorReason      string             `json:"replay_actual_error_reason,omitempty"`
+	ReplayActualErrorSignature   string             `json:"replay_actual_error_signature,omitempty"`
+	CaptureFreshness             string             `json:"capture_freshness"`
+	CaptureStalledReason         string             `json:"capture_stalled_reason,omitempty"`
 	BugHint                      string             `json:"bug_hint"`
 	GroundTruthDSGMismatchReason string             `json:"groundtruth_dsg_mismatch_reason"`
 	ErrorSQL                     string             `json:"error_sql"`

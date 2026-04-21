@@ -155,16 +155,40 @@ func TestCaseSummaryRelPath(t *testing.T) {
 
 func TestBuildSearchBlobSkipsNilDetails(t *testing.T) {
 	entry := CaseEntry{
-		Oracle:        "norec",
-		ErrorReason:   "result_mismatch",
-		Expected:      "cnt=1",
-		Actual:        "cnt=2",
-		PlanSignature: "abc",
-		Details:       nil,
+		Oracle:                       "norec",
+		ErrorReason:                  "result_mismatch",
+		Expected:                     "cnt=1",
+		Actual:                       "cnt=2",
+		PlanSignature:                "abc",
+		MinimizeReason:               "delta_debug",
+		ReplayKind:                   "base",
+		ReplayOutcome:                "failed",
+		ReplayFailureStage:           "schema_load",
+		ReplayExpectedErrorReason:    "eet:missing_column",
+		ReplayExpectedErrorSignature: "eet:missing_column|cant_find_column_in_schema",
+		ReplayActualErrorReason:      "replay:no_error",
+		ReplayActualErrorSignature:   "replay:no_error|no_error",
+		CaptureFreshness:             "infra_unhealthy",
+		CaptureStalledReason:         "oracle_timeout",
+		Details:                      nil,
 	}
 	blob := buildSearchBlob(entry)
 	if strings.Contains(blob, "{}") {
 		t.Fatalf("search blob should not include empty details object: %q", blob)
+	}
+	for _, want := range []string{
+		"delta_debug",
+		"base",
+		"failed",
+		"schema_load",
+		"eet:missing_column",
+		"replay:no_error",
+		"infra_unhealthy",
+		"oracle_timeout",
+	} {
+		if !strings.Contains(blob, want) {
+			t.Fatalf("search blob missing observability field %q: %q", want, blob)
+		}
 	}
 }
 
@@ -175,26 +199,37 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 		Source:      "reports",
 		Cases: []CaseEntry{
 			{
-				ID:             "legacy-case-id",
-				Oracle:         "norec",
-				Timestamp:      "2026-02-13T15:59:00Z",
-				Expected:       "cnt=1",
-				Actual:         "cnt=2",
-				ErrorReason:    "result_mismatch",
-				ReportURL:      "https://cdn.example.com/cases/legacy-case-id/report.json",
-				UploadLocation: "gs://bucket/legacy-case-id/",
+				ID:                           "legacy-case-id",
+				Oracle:                       "norec",
+				Timestamp:                    "2026-02-13T15:59:00Z",
+				Expected:                     "cnt=1",
+				Actual:                       "cnt=2",
+				ErrorReason:                  "result_mismatch",
+				MinimizeReason:               "delta_debug",
+				ReplayKind:                   "base",
+				ReplayOutcome:                "failed",
+				ReplayFailureStage:           "schema_load",
+				ReplayExpectedErrorReason:    "eet:missing_column",
+				ReplayExpectedErrorSignature: "eet:missing_column|cant_find_column_in_schema",
+				ReplayActualErrorReason:      "replay:no_error",
+				ReplayActualErrorSignature:   "replay:no_error|no_error",
+				CaptureFreshness:             "infra_unhealthy",
+				CaptureStalledReason:         "oracle_timeout",
+				ReportURL:                    "https://cdn.example.com/cases/legacy-case-id/report.json",
+				UploadLocation:               "gs://bucket/legacy-case-id/",
 			},
 			{
-				ID:             "fallback-id",
-				CaseID:         "019c5744-b015-7ac5-8cf4-97b2ee3b0fed",
-				CaseDir:        "019c5744-b015-7ac5-8cf4-97b2ee3b0fed",
-				Oracle:         "tlp",
-				Timestamp:      "2026-02-13T15:58:00Z",
-				Expected:       "ok",
-				Actual:         "ok",
-				SQL:            []string{"SELECT 1"},
-				Details:        map[string]any{"error_reason": "none"},
-				UploadLocation: "gs://bucket/019c5744-b015-7ac5-8cf4-97b2ee3b0fed/",
+				ID:               "fallback-id",
+				CaseID:           "019c5744-b015-7ac5-8cf4-97b2ee3b0fed",
+				CaseDir:          "019c5744-b015-7ac5-8cf4-97b2ee3b0fed",
+				Oracle:           "tlp",
+				Timestamp:        "2026-02-13T15:58:00Z",
+				Expected:         "ok",
+				Actual:           "ok",
+				CaptureFreshness: "fresh",
+				SQL:              []string{"SELECT 1"},
+				Details:          map[string]any{"error_reason": "none"},
+				UploadLocation:   "gs://bucket/019c5744-b015-7ac5-8cf4-97b2ee3b0fed/",
 			},
 		},
 	}
@@ -238,6 +273,23 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 	if index.Cases[1].DetailLoaded {
 		t.Fatalf("expected detail_loaded=false when summary url is available")
 	}
+	if index.Cases[0].MinimizeReason != "delta_debug" ||
+		index.Cases[0].ReplayKind != "base" ||
+		index.Cases[0].ReplayOutcome != "failed" ||
+		index.Cases[0].ReplayFailureStage != "schema_load" ||
+		index.Cases[0].ReplayExpectedErrorReason != "eet:missing_column" ||
+		index.Cases[0].ReplayExpectedErrorSignature != "eet:missing_column|cant_find_column_in_schema" ||
+		index.Cases[0].ReplayActualErrorReason != "replay:no_error" ||
+		index.Cases[0].ReplayActualErrorSignature != "replay:no_error|no_error" ||
+		index.Cases[0].CaptureFreshness != "infra_unhealthy" ||
+		index.Cases[0].CaptureStalledReason != "oracle_timeout" {
+		t.Fatalf("index entry missing observability fields: %+v", index.Cases[0])
+	}
+	if !strings.Contains(index.Cases[0].SearchBlob, "delta_debug") ||
+		!strings.Contains(index.Cases[0].SearchBlob, "infra_unhealthy") ||
+		!strings.Contains(index.Cases[0].SearchBlob, "replay:no_error|no_error") {
+		t.Fatalf("search blob missing observability fields: %q", index.Cases[0].SearchBlob)
+	}
 
 	summaryPath := filepath.Join(output, "cases", "019c5744-b015-7ac5-8cf4-97b2ee3b0fed", "summary.json")
 	if _, err := os.Stat(summaryPath); err != nil {
@@ -246,6 +298,65 @@ func TestWriteJSONOutputsIndexAndCaseSummaries(t *testing.T) {
 	legacySummaryPath := filepath.Join(output, "cases", "legacy-case-id", "summary.json")
 	if _, err := os.Stat(legacySummaryPath); err != nil {
 		t.Fatalf("missing per-case summary file for legacy id: %v", err)
+	}
+	legacySummaryData, err := os.ReadFile(legacySummaryPath)
+	if err != nil {
+		t.Fatalf("read legacy summary failed: %v", err)
+	}
+	var legacySummary CaseEntry
+	if err := json.Unmarshal(legacySummaryData, &legacySummary); err != nil {
+		t.Fatalf("unmarshal legacy summary failed: %v", err)
+	}
+	if legacySummary.MinimizeReason != "delta_debug" ||
+		legacySummary.ReplayKind != "base" ||
+		legacySummary.ReplayOutcome != "failed" ||
+		legacySummary.ReplayFailureStage != "schema_load" ||
+		legacySummary.ReplayExpectedErrorReason != "eet:missing_column" ||
+		legacySummary.ReplayExpectedErrorSignature != "eet:missing_column|cant_find_column_in_schema" ||
+		legacySummary.ReplayActualErrorReason != "replay:no_error" ||
+		legacySummary.ReplayActualErrorSignature != "replay:no_error|no_error" ||
+		legacySummary.CaptureFreshness != "infra_unhealthy" ||
+		legacySummary.CaptureStalledReason != "oracle_timeout" {
+		t.Fatalf("per-case summary missing observability fields: %+v", legacySummary)
+	}
+}
+
+func TestHydrateSummaryObservabilityFieldsFallsBackToDetails(t *testing.T) {
+	summary := report.Summary{
+		Details: map[string]any{
+			"minimize_reason":                               "base_replay_not_reproducible",
+			"minimize_base_replay_kind":                     "case_error",
+			"minimize_base_replay_outcome":                  "error_mismatch",
+			"minimize_base_replay_failure_stage":            "exec-case-sql",
+			"minimize_base_replay_expected_error_reason":    "EET:Missing_Column",
+			"minimize_base_replay_expected_error_signature": " EET:Missing_Column | cant_find_column_in_schema ",
+			"minimize_base_replay_actual_error_reason":      " replay:no_error ",
+			"minimize_base_replay_actual_error_signature":   " replay:no_error | no error ",
+		},
+	}
+
+	hydrateSummaryObservabilityFields(&summary)
+
+	if summary.MinimizeReason != "base_replay_not_reproducible" {
+		t.Fatalf("MinimizeReason=%q want=base_replay_not_reproducible", summary.MinimizeReason)
+	}
+	if summary.ReplayKind != "case_error" || summary.ReplayOutcome != "error_mismatch" {
+		t.Fatalf("unexpected replay identity fields: %+v", summary)
+	}
+	if summary.ReplayFailureStage != "exec_case_sql" {
+		t.Fatalf("ReplayFailureStage=%q want=exec_case_sql", summary.ReplayFailureStage)
+	}
+	if summary.ReplayExpectedErrorReason != "eet:missing_column" {
+		t.Fatalf("ReplayExpectedErrorReason=%q want=eet:missing_column", summary.ReplayExpectedErrorReason)
+	}
+	if summary.ReplayExpectedErrorSignature != "eet:missing_column|cant_find_column_in_schema" {
+		t.Fatalf("ReplayExpectedErrorSignature=%q want normalized signature", summary.ReplayExpectedErrorSignature)
+	}
+	if summary.ReplayActualErrorReason != "replay:no_error" {
+		t.Fatalf("ReplayActualErrorReason=%q want=replay:no_error", summary.ReplayActualErrorReason)
+	}
+	if summary.ReplayActualErrorSignature != "replay:no_error|no_error" {
+		t.Fatalf("ReplayActualErrorSignature=%q want normalized signature", summary.ReplayActualErrorSignature)
 	}
 }
 

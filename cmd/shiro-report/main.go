@@ -54,6 +54,16 @@ type CaseEntry struct {
 	Actual                       string                 `json:"actual"`
 	Error                        string                 `json:"error"`
 	GroundTruthDSGMismatchReason string                 `json:"groundtruth_dsg_mismatch_reason"`
+	MinimizeReason               string                 `json:"minimize_reason,omitempty"`
+	ReplayKind                   string                 `json:"replay_kind,omitempty"`
+	ReplayOutcome                string                 `json:"replay_outcome,omitempty"`
+	ReplayFailureStage           string                 `json:"replay_failure_stage,omitempty"`
+	ReplayExpectedErrorReason    string                 `json:"replay_expected_error_reason,omitempty"`
+	ReplayExpectedErrorSignature string                 `json:"replay_expected_error_signature,omitempty"`
+	ReplayActualErrorReason      string                 `json:"replay_actual_error_reason,omitempty"`
+	ReplayActualErrorSignature   string                 `json:"replay_actual_error_signature,omitempty"`
+	CaptureFreshness             string                 `json:"capture_freshness"`
+	CaptureStalledReason         string                 `json:"capture_stalled_reason,omitempty"`
 	Flaky                        bool                   `json:"flaky"`
 	NoRECOptimizedSQL            string                 `json:"norec_optimized_sql"`
 	NoRECUnoptimizedSQL          string                 `json:"norec_unoptimized_sql"`
@@ -103,6 +113,16 @@ type CaseIndexEntry struct {
 	Actual                       string `json:"actual"`
 	Error                        string `json:"error"`
 	GroundTruthDSGMismatchReason string `json:"groundtruth_dsg_mismatch_reason"`
+	MinimizeReason               string `json:"minimize_reason,omitempty"`
+	ReplayKind                   string `json:"replay_kind,omitempty"`
+	ReplayOutcome                string `json:"replay_outcome,omitempty"`
+	ReplayFailureStage           string `json:"replay_failure_stage,omitempty"`
+	ReplayExpectedErrorReason    string `json:"replay_expected_error_reason,omitempty"`
+	ReplayExpectedErrorSignature string `json:"replay_expected_error_signature,omitempty"`
+	ReplayActualErrorReason      string `json:"replay_actual_error_reason,omitempty"`
+	ReplayActualErrorSignature   string `json:"replay_actual_error_signature,omitempty"`
+	CaptureFreshness             string `json:"capture_freshness"`
+	CaptureStalledReason         string `json:"capture_stalled_reason,omitempty"`
 	Flaky                        bool   `json:"flaky"`
 	NoRECPredicate               string `json:"norec_predicate"`
 	CaseID                       string `json:"case_id"`
@@ -153,6 +173,18 @@ type workerSyncCase struct {
 }
 
 const reportIndexVersion = 1
+
+var summaryErrorSignatureReplacer = strings.NewReplacer(
+	" | ", "|",
+	" |", "|",
+	"| ", "|",
+	" : ", ":",
+	" :", ":",
+	": ", ":",
+	" + ", "+",
+	" +", "+",
+	"+ ", "+",
+)
 
 func main() {
 	input := flag.String("input", ".report", "input directory, gs://bucket/prefix, or legacy s3://bucket/prefix")
@@ -321,6 +353,7 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 	if err := json.Unmarshal(data, &summary); err != nil {
 		return CaseEntry{}, err
 	}
+	hydrateSummaryObservabilityFields(&summary)
 	files := map[string]FileContent{}
 	files["case.sql"] = mustReadFile(filepath.Join(dir, "case.sql"), opts.MaxBytes)
 	files["schema.sql"] = mustReadFile(filepath.Join(dir, "schema.sql"), opts.MaxBytes)
@@ -353,6 +386,16 @@ func readCaseFromDir(dir string, opts loadOptions) (CaseEntry, error) {
 		Actual:                       summary.Actual,
 		Error:                        summary.Error,
 		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		MinimizeReason:               summary.MinimizeReason,
+		ReplayKind:                   summary.ReplayKind,
+		ReplayOutcome:                summary.ReplayOutcome,
+		ReplayFailureStage:           summary.ReplayFailureStage,
+		ReplayExpectedErrorReason:    summary.ReplayExpectedErrorReason,
+		ReplayExpectedErrorSignature: summary.ReplayExpectedErrorSignature,
+		ReplayActualErrorReason:      summary.ReplayActualErrorReason,
+		ReplayActualErrorSignature:   summary.ReplayActualErrorSignature,
+		CaptureFreshness:             summary.CaptureFreshness,
+		CaptureStalledReason:         summary.CaptureStalledReason,
 		Flaky:                        summary.Flaky,
 		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
@@ -479,6 +522,16 @@ func buildSiteIndex(site SiteData) SiteIndexData {
 			Actual:                       c.Actual,
 			Error:                        c.Error,
 			GroundTruthDSGMismatchReason: c.GroundTruthDSGMismatchReason,
+			MinimizeReason:               c.MinimizeReason,
+			ReplayKind:                   c.ReplayKind,
+			ReplayOutcome:                c.ReplayOutcome,
+			ReplayFailureStage:           c.ReplayFailureStage,
+			ReplayExpectedErrorReason:    c.ReplayExpectedErrorReason,
+			ReplayExpectedErrorSignature: c.ReplayExpectedErrorSignature,
+			ReplayActualErrorReason:      c.ReplayActualErrorReason,
+			ReplayActualErrorSignature:   c.ReplayActualErrorSignature,
+			CaptureFreshness:             c.CaptureFreshness,
+			CaptureStalledReason:         c.CaptureStalledReason,
 			Flaky:                        c.Flaky,
 			NoRECPredicate:               c.NoRECPredicate,
 			CaseID:                       c.CaseID,
@@ -531,6 +584,16 @@ func buildSearchBlob(c CaseEntry) string {
 		c.Expected,
 		c.Actual,
 		c.GroundTruthDSGMismatchReason,
+		c.MinimizeReason,
+		c.ReplayKind,
+		c.ReplayOutcome,
+		c.ReplayFailureStage,
+		c.ReplayExpectedErrorReason,
+		c.ReplayExpectedErrorSignature,
+		c.ReplayActualErrorReason,
+		c.ReplayActualErrorSignature,
+		c.CaptureFreshness,
+		c.CaptureStalledReason,
 		c.NoRECOptimizedSQL,
 		c.NoRECUnoptimizedSQL,
 		c.NoRECPredicate,
@@ -663,6 +726,7 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 	if err := json.Unmarshal([]byte(summaryData), &summary); err != nil {
 		return CaseEntry{}, err
 	}
+	hydrateSummaryObservabilityFields(&summary)
 	files := map[string]FileContent{}
 	files["case.sql"] = readObjectFile(ctx, client, bucket, dir+"/case.sql", opts.MaxBytes)
 	files["schema.sql"] = readObjectFile(ctx, client, bucket, dir+"/schema.sql", opts.MaxBytes)
@@ -696,6 +760,16 @@ func readCaseFromS3(ctx context.Context, client *s3.Client, bucket, dir string, 
 		Actual:                       summary.Actual,
 		Error:                        summary.Error,
 		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		MinimizeReason:               summary.MinimizeReason,
+		ReplayKind:                   summary.ReplayKind,
+		ReplayOutcome:                summary.ReplayOutcome,
+		ReplayFailureStage:           summary.ReplayFailureStage,
+		ReplayExpectedErrorReason:    summary.ReplayExpectedErrorReason,
+		ReplayExpectedErrorSignature: summary.ReplayExpectedErrorSignature,
+		ReplayActualErrorReason:      summary.ReplayActualErrorReason,
+		ReplayActualErrorSignature:   summary.ReplayActualErrorSignature,
+		CaptureFreshness:             summary.CaptureFreshness,
+		CaptureStalledReason:         summary.CaptureStalledReason,
 		Flaky:                        summary.Flaky,
 		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
@@ -830,6 +904,7 @@ func readCaseFromGCS(ctx context.Context, client *storage.Client, bucket, dir st
 	if err := json.Unmarshal([]byte(summaryData), &summary); err != nil {
 		return CaseEntry{}, err
 	}
+	hydrateSummaryObservabilityFields(&summary)
 	files := map[string]FileContent{}
 	files["case.sql"] = readGCSObjectFile(ctx, client, bucket, dir+"/case.sql", opts.MaxBytes)
 	files["schema.sql"] = readGCSObjectFile(ctx, client, bucket, dir+"/schema.sql", opts.MaxBytes)
@@ -863,6 +938,16 @@ func readCaseFromGCS(ctx context.Context, client *storage.Client, bucket, dir st
 		Actual:                       summary.Actual,
 		Error:                        summary.Error,
 		GroundTruthDSGMismatchReason: summary.GroundTruthDSGMismatchReason,
+		MinimizeReason:               summary.MinimizeReason,
+		ReplayKind:                   summary.ReplayKind,
+		ReplayOutcome:                summary.ReplayOutcome,
+		ReplayFailureStage:           summary.ReplayFailureStage,
+		ReplayExpectedErrorReason:    summary.ReplayExpectedErrorReason,
+		ReplayExpectedErrorSignature: summary.ReplayExpectedErrorSignature,
+		ReplayActualErrorReason:      summary.ReplayActualErrorReason,
+		ReplayActualErrorSignature:   summary.ReplayActualErrorSignature,
+		CaptureFreshness:             summary.CaptureFreshness,
+		CaptureStalledReason:         summary.CaptureStalledReason,
 		Flaky:                        summary.Flaky,
 		NoRECOptimizedSQL:            summary.NoRECOptimizedSQL,
 		NoRECUnoptimizedSQL:          summary.NoRECUnoptimizedSQL,
@@ -1074,6 +1159,63 @@ func summaryErrorReason(summary report.Summary) string {
 		return ""
 	}
 	return strings.TrimSpace(reason)
+}
+
+func hydrateSummaryObservabilityFields(summary *report.Summary) {
+	if summary == nil {
+		return
+	}
+	summary.MinimizeReason = firstNonEmpty(summary.MinimizeReason, summaryDetailString(summary.Details, "minimize_reason"))
+	summary.ReplayKind = strings.TrimSpace(firstNonEmpty(summary.ReplayKind, summaryDetailString(summary.Details, "minimize_base_replay_kind")))
+	summary.ReplayOutcome = strings.TrimSpace(firstNonEmpty(summary.ReplayOutcome, summaryDetailString(summary.Details, "minimize_base_replay_outcome")))
+	summary.ReplayFailureStage = normalizeSummaryReplayFailureStage(firstNonEmpty(summary.ReplayFailureStage, summaryDetailString(summary.Details, "minimize_base_replay_failure_stage")))
+	summary.ReplayExpectedErrorReason = normalizeSummaryErrorReason(firstNonEmpty(summary.ReplayExpectedErrorReason, summaryDetailString(summary.Details, "minimize_base_replay_expected_error_reason")))
+	summary.ReplayExpectedErrorSignature = normalizeSummaryErrorSignature(firstNonEmpty(summary.ReplayExpectedErrorSignature, summaryDetailString(summary.Details, "minimize_base_replay_expected_error_signature")))
+	summary.ReplayActualErrorReason = normalizeSummaryErrorReason(firstNonEmpty(summary.ReplayActualErrorReason, summaryDetailString(summary.Details, "minimize_base_replay_actual_error_reason")))
+	summary.ReplayActualErrorSignature = normalizeSummaryErrorSignature(firstNonEmpty(summary.ReplayActualErrorSignature, summaryDetailString(summary.Details, "minimize_base_replay_actual_error_signature")))
+}
+
+func summaryDetailString(details map[string]any, key string) string {
+	if len(details) == 0 {
+		return ""
+	}
+	value, ok := details[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func normalizeSummaryReplayFailureStage(stage string) string {
+	normalized := strings.ToLower(strings.TrimSpace(stage))
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	return strings.Join(strings.Fields(normalized), "_")
+}
+
+func normalizeSummaryErrorReason(reason string) string {
+	return strings.ToLower(strings.TrimSpace(reason))
+}
+
+func normalizeSummaryErrorSignature(signature string) string {
+	normalized := strings.ToLower(strings.TrimSpace(signature))
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	normalized = summaryErrorSignatureReplacer.Replace(normalized)
+	return strings.ReplaceAll(normalized, " ", "_")
 }
 
 func collectPublishFiles(output string) ([]string, error) {
