@@ -27,6 +27,11 @@ type throughputControlState struct {
 	InfraErrorCounts    map[string]int64
 }
 
+type captureHealthSnapshot struct {
+	Freshness     string
+	StalledReason string
+}
+
 func (r *Runner) isThroughputGuardActive() bool {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
@@ -43,6 +48,30 @@ func (r *Runner) isInfraUnhealthyActive() bool {
 	r.statsMu.Lock()
 	defer r.statsMu.Unlock()
 	return r.infraUnhealthyTTL > 0
+}
+
+func (r *Runner) snapshotCaptureHealth() captureHealthSnapshot {
+	r.statsMu.Lock()
+	defer r.statsMu.Unlock()
+
+	stalled := ""
+	switch {
+	case r.infraUnhealthyTTL > 0:
+		stalled = "infra_unhealthy"
+	case r.minimizeInFlight > 0:
+		stalled = "minimize"
+	case r.recentOracleTimeoutTTL > 0:
+		stalled = "oracle_timeout"
+	case r.throughputGuardTTL > 0:
+		stalled = "low_sql_throughput"
+	}
+	if stalled == "" {
+		return captureHealthSnapshot{Freshness: "fresh"}
+	}
+	return captureHealthSnapshot{
+		Freshness:     "stale",
+		StalledReason: stalled,
+	}
 }
 
 func (r *Runner) observeOracleTimeoutControl(oracleName string, err error) {
