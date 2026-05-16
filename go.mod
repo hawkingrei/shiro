@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/google/uuid v1.6.1-0.20241114170450-2d3c2a9cc518
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.6
 	github.com/pingcap/tidb v1.1.0-beta.0.20260326043118-e07318bec6a3
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260326043118-e07318bec6a3
 	github.com/pkg/errors v0.9.1
