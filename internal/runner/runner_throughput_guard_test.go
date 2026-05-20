@@ -162,6 +162,82 @@ func TestObserveInfraErrorControlSetsInfraUnhealthy(t *testing.T) {
 	}
 }
 
+func TestSnapshotCaptureHealthFresh(t *testing.T) {
+	r := &Runner{}
+	got := r.snapshotCaptureHealth()
+	if got.Freshness != "fresh" {
+		t.Fatalf("Freshness=%q want=fresh", got.Freshness)
+	}
+	if got.StalledReason != "" {
+		t.Fatalf("StalledReason=%q want empty", got.StalledReason)
+	}
+}
+
+func TestSnapshotCaptureHealthPriority(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Runner)
+		want   captureHealthSnapshot
+	}{
+		{
+			name: "low throughput guard",
+			mutate: func(r *Runner) {
+				r.throughputGuardTTL = 2
+			},
+			want: captureHealthSnapshot{
+				Freshness:     "stale",
+				StalledReason: "low_sql_throughput",
+			},
+		},
+		{
+			name: "recent oracle timeout",
+			mutate: func(r *Runner) {
+				r.recentOracleTimeoutTTL = 1
+			},
+			want: captureHealthSnapshot{
+				Freshness:     "stale",
+				StalledReason: "oracle_timeout",
+			},
+		},
+		{
+			name: "minimize beats timeout",
+			mutate: func(r *Runner) {
+				r.recentOracleTimeoutTTL = 1
+				r.minimizeInFlight = 1
+			},
+			want: captureHealthSnapshot{
+				Freshness:     "stale",
+				StalledReason: "minimize",
+			},
+		},
+		{
+			name: "infra beats all",
+			mutate: func(r *Runner) {
+				r.throughputGuardTTL = 2
+				r.recentOracleTimeoutTTL = 1
+				r.minimizeInFlight = 1
+				r.infraUnhealthyTTL = 3
+			},
+			want: captureHealthSnapshot{
+				Freshness:     "stale",
+				StalledReason: "infra_unhealthy",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &Runner{}
+			r.statsMu.Lock()
+			tc.mutate(r)
+			r.statsMu.Unlock()
+			got := r.snapshotCaptureHealth()
+			if got != tc.want {
+				t.Fatalf("snapshot=%+v want=%+v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWithTimeoutForOracleCapsDQP(t *testing.T) {
 	r := &Runner{
 		cfg: config.Config{

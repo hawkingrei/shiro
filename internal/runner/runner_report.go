@@ -133,6 +133,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	errorSignature := detailString(details, "error_signature")
 	bugHint := detailString(details, "bug_hint")
 	groundTruthDSGMismatchReason := groundTruthDSGMismatchReasonFromDetails(details)
+	captureHealth := r.snapshotCaptureHealth()
 
 	summary := report.Summary{
 		Oracle:                       result.Oracle,
@@ -154,11 +155,13 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		PlanSignature:                planSignature,
 		PlanSigFormat:                planSigFormat,
 	}
+	syncSummaryObservabilityFields(&summary, details, captureHealth)
 	defer func() {
 		if summary.MinimizeStatus != "in_progress" {
 			return
 		}
 		summary.MinimizeStatus = "interrupted"
+		syncSummaryObservabilityFields(&summary, details, captureHealth)
 		_ = r.reporter.WriteSummary(caseData, summary)
 	}()
 	if result.Truth != nil && result.Truth.Enabled {
@@ -241,6 +244,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 	summary.MinimizeStatus = minimizeStatus
 	if !minimizeEnabled {
 		applyRuntime1105ReproMeta(&summary, details)
+		syncSummaryObservabilityFields(&summary, details, captureHealth)
 	}
 	_ = r.reporter.WriteSummary(caseData, summary)
 	_ = r.reporter.WriteSQL(caseData, "case.sql", result.SQL)
@@ -261,6 +265,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		minimized := r.minimizeCase(ctx, result, spec)
 		applyMinimizeOutcome(&summary, details, minimized, result.Err)
 		applyRuntime1105ReproMeta(&summary, details)
+		syncSummaryObservabilityFields(&summary, details, captureHealth)
 		if minimized.minimized {
 			if len(minimized.caseSQL) > 0 {
 				_ = r.reporter.WriteSQL(caseData, "min/case.sql", minimized.caseSQL)
@@ -275,6 +280,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		_ = r.reporter.WriteSummary(caseData, summary)
 	}
 
+	syncSummaryObservabilityFields(&summary, details, captureHealth)
 	_ = r.reporter.WriteSummary(caseData, summary)
 	if r.cfg.Storage.CloudEnabled() {
 		_ = r.reporter.WriteReport(caseData, summary)
@@ -291,6 +297,7 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		location, err := r.uploader.UploadDir(ctx, caseData.Dir)
 		if err == nil {
 			summary.UploadLocation = location
+			syncSummaryObservabilityFields(&summary, details, captureHealth)
 			_ = r.reporter.WriteSummary(caseData, summary)
 			if r.cfg.Storage.CloudEnabled() {
 				_ = r.reporter.WriteReport(caseData, summary)
@@ -366,6 +373,22 @@ func (r *Runner) handleResult(ctx context.Context, result oracle.Result) {
 		r.observeInfraErrorControl(err)
 		util.Errorf("rotate database after bug failed: %v", err)
 	}
+}
+
+func syncSummaryObservabilityFields(summary *report.Summary, details map[string]any, capture captureHealthSnapshot) {
+	if summary == nil {
+		return
+	}
+	summary.MinimizeReason = detailString(details, "minimize_reason")
+	summary.ReplayKind = strings.TrimSpace(detailString(details, "minimize_base_replay_kind"))
+	summary.ReplayOutcome = strings.TrimSpace(detailString(details, "minimize_base_replay_outcome"))
+	summary.ReplayFailureStage = normalizeReplayFailureStage(detailString(details, "minimize_base_replay_failure_stage"))
+	summary.ReplayExpectedErrorReason = normalizeErrorReason(detailString(details, "minimize_base_replay_expected_error_reason"))
+	summary.ReplayExpectedErrorSignature = normalizeErrorSignature(detailString(details, "minimize_base_replay_expected_error_signature"))
+	summary.ReplayActualErrorReason = normalizeErrorReason(detailString(details, "minimize_base_replay_actual_error_reason"))
+	summary.ReplayActualErrorSignature = normalizeErrorSignature(detailString(details, "minimize_base_replay_actual_error_signature"))
+	summary.CaptureFreshness = capture.Freshness
+	summary.CaptureStalledReason = capture.StalledReason
 }
 
 func shouldReportRows(result oracle.Result) bool {
